@@ -32,3 +32,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked --no-fail-fast
+
+  helper:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: LLVM 19
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-19 lld-19 llvm-19-dev
+      - name: PS5 payload SDK
+        run: sudo env PS5_PAYLOAD_SDK=/opt/ps5-payload-sdk bash scripts/install-ps5-sdk.sh
+      - name: Build the Kite helper for the PS5
+        env:
+          PS5_PAYLOAD_SDK: /opt/ps5-payload-sdk
+          LLVM_CONFIG: /usr/bin/llvm-config-19
+        run: |
+          make -C helper ps5
+          file helper/kite-helper.elf
+          file helper/kite-helper.elf | grep -q "ELF 64-bit LSB .*x86-64"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: helper/kite-helper.elf
+          archive: false
