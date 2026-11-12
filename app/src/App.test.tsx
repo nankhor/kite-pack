@@ -367,7 +367,7 @@ describe("PS5", () => {
     expect(backend.saveSettings).not.toHaveBeenCalled();
   });
 
-  it("sends, with the third toggle lined up under Send", async () => {
+  it("sends, with the third toggle lined up with Send", async () => {
     backend.cfg.address = ADDRESS;
     await showGame();
     await screen.findByRole("button", { name: /Helper running/ });
@@ -376,7 +376,8 @@ describe("PS5", () => {
     expect(screen.getByText("Starts by itself when packing ends, into /data/homebrew.")).toBeInTheDocument();
     await userEvent.click(send);
     const third = screen.getByRole("switch", { name: "Delete the packed folder" });
-    expect(third.closest(".toggle")).toHaveClass("sub");
+    // Same row style as Send, so both switches sit on the same left edge.
+    expect(third.closest(".toggle")!.className).toBe(send.closest(".toggle")!.className);
     await userEvent.click(screen.getByRole("switch", { name: "Delete the original" }));
     await userEvent.click(third);
     expect(screen.getByText("Only the copy on the PS5 will be left.")).toBeInTheDocument();

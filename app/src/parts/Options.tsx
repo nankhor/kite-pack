@@ -35,8 +35,8 @@ function Pills<T extends string>({ label, items, value, onPick }: { label: strin
   );
 }
 
-function Switch({ id, label, hint, on, disabled, sub, onToggle }: { id: string; label: string; hint: string; on: boolean; disabled?: boolean; sub?: boolean; onToggle?: () => void }) {
-  const className = ["toggle", sub && "sub", disabled && "disabled"].filter(Boolean).join(" ");
+function Switch({ id, label, hint, on, disabled, onToggle }: { id: string; label: string; hint: string; on: boolean; disabled?: boolean; onToggle?: () => void }) {
+  const className = ["toggle", disabled && "disabled"].filter(Boolean).join(" ");
   return (
     <div className={className}>
       <button
@@ -127,7 +127,6 @@ export function Options({ options, status, destination, onChange, onChangeFolder
             label="Delete the packed folder"
             hint="It goes to the Trash once the PS5 confirms every file."
             on={options.deletePacked}
-            sub
             onToggle={() => onChange({ deletePacked: !options.deletePacked })}
           />
         )}

@@ -9,8 +9,13 @@ impl Trash for SystemTrash {
         if std::fs::symlink_metadata(path).is_err() {
             return Err(format!("{} doesn't exist", path.display()));
         }
-        trash::delete(path).map_err(|e| e.to_string())
+        context().delete(path).map_err(|e| e.to_string())
     }
+}
+
+/// How Kite Pack moves things to the Trash.
+fn context() -> trash::TrashContext {
+    trash::TrashContext::new()
 }
 
 #[cfg(test)]
@@ -26,6 +31,14 @@ mod tests {
         fs::write(game.join("eboot.bin"), b"boot").unwrap();
         assert_eq!(SystemTrash.trash(&game), Ok(()));
         assert!(!game.exists());
+    }
+
+    /// Asking Finder to delete makes macOS ask for permission to control Finder.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn trashes_without_asking_to_control_finder() {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        assert!(matches!(context().delete_method(), DeleteMethod::NsFileManager));
     }
 
     #[test]
