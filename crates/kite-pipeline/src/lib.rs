@@ -2,7 +2,9 @@
 //! that keep every delete behind the check before it.
 
 mod options;
+mod snapshot;
 mod steps;
 
 pub use options::{Level, Options, OptionsError, OutputFormat, SendTarget};
+pub use snapshot::{Snapshot, SnapshotEntry};
 pub use steps::{Step, StepKind, StepState, plan_steps};
