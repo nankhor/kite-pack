@@ -77,3 +77,14 @@ fn a_game_is_not_dlc() {
     let game = make_game(tmp.path(), "ashen");
     assert_eq!(check_dlc(&game, "PPSA01234").unwrap_err(), "This isn't DLC for PPSA01234");
 }
+
+#[test]
+fn game_info_reaches_the_screen_in_camel_case() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = make_game(tmp.path(), "ashen");
+    let json = serde_json::to_value(inspect_game(&game).unwrap()).unwrap();
+    assert_eq!(json["titleId"], "PPSA01234");
+    assert!(json["totalBytes"].as_u64().unwrap() > 0);
+    assert!(json.get("iconDataUrl").is_some());
+    assert!(json.get("title_id").is_none());
+}

@@ -1,0 +1,525 @@
+/* The screen, laid out as the IconFlow board. */
+
+.screen {
+  min-height: 100vh;
+  padding: 28px clamp(20px, 5vw, 64px) 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  transition: box-shadow 150ms ease-out;
+}
+
+.screen.dragging {
+  box-shadow: inset 0 0 0 2px var(--line-strong);
+}
+
+.spacer {
+  flex: 1;
+  min-height: 0;
+}
+
+/* Header */
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.app-name {
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.ps5-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 16px 0 14px;
+  border-radius: 999px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+  font-size: 14px;
+  cursor: default;
+}
+
+.ps5-chip .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.chip-name {
+  font-weight: 700;
+}
+
+.chip-note {
+  color: var(--chip-note);
+}
+
+/* Before a game */
+
+.empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drop-target {
+  width: min(640px, 100%);
+  padding: 56px 40px;
+  border-radius: 28px;
+  border: 1px dashed var(--line-strong);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+
+.dragging .drop-target {
+  border-color: var(--text);
+  background: var(--fill);
+}
+
+.empty-title {
+  margin: 0;
+  font-size: clamp(32px, 4vw, 44px);
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.empty-hint {
+  margin: 0 0 10px;
+  color: var(--label);
+  max-width: 540px;
+}
+
+.message {
+  margin: 0;
+  color: var(--warn);
+  font-size: 14px;
+}
+
+/* The game */
+
+.game {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px 40px;
+}
+
+.icon-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.icon {
+  display: block;
+  width: clamp(128px, 14vw, 176px);
+  aspect-ratio: 1;
+  border-radius: 22px;
+  object-fit: cover;
+  transition: box-shadow 400ms ease-out;
+}
+
+.icon-empty {
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+  border: 1px solid var(--line);
+}
+
+.done-badge {
+  position: absolute;
+  right: -10px;
+  bottom: -10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--mint);
+  border: 4px solid var(--ground);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-text {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.done-headline {
+  margin: 0;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--mint-text);
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(44px, 6vw, 72px);
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  margin: 2px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 36px;
+}
+
+.facts dt {
+  font-size: 13px;
+  color: var(--label);
+}
+
+.facts dd {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.facts .saved dt,
+.facts .saved dd {
+  color: var(--mint-text);
+}
+
+.facts .saved dd {
+  font-weight: 700;
+}
+
+.includes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.includes-label {
+  font-size: 13px;
+  color: var(--label);
+  margin-right: 6px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chip.update {
+  background: rgba(110, 231, 168, 0.12);
+  border-color: rgba(110, 231, 168, 0.3);
+  color: var(--update-text);
+}
+
+.chip-kind {
+  color: var(--label);
+  font-weight: 500;
+}
+
+.chip.more {
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  cursor: pointer;
+}
+
+/* Options */
+
+.options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px 64px;
+}
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.column h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.option-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+}
+
+.option-label {
+  color: var(--note);
+  min-width: 56px;
+}
+
+.option-hint {
+  color: var(--label);
+  font-size: 14px;
+}
+
+.pills {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--fill);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.pill {
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.pill.on {
+  background: var(--text);
+  color: var(--ink);
+}
+
+.path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.small-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.switch {
+  flex: 0 0 46px;
+  width: 46px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  padding: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+}
+
+.switch .knob {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--text);
+  display: block;
+}
+
+.switch.on {
+  justify-content: flex-end;
+  background: var(--text);
+}
+
+.switch.on .knob {
+  background: var(--ink);
+}
+
+.toggle.disabled .switch {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.toggle.disabled .toggle-label {
+  color: var(--dim);
+}
+
+.toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.toggle-label {
+  font-weight: 700;
+}
+
+.toggle-hint {
+  color: var(--label);
+  font-size: 14px;
+}
+
+/* Steps */
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 900px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.step-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.step-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-label {
+  flex: 1;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.step-status {
+  color: var(--note);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.step.pending .step-label,
+.step.pending .step-status {
+  color: var(--dim);
+}
+
+.step.done .step-status {
+  color: var(--mint-text);
+}
+
+.step.paused .step-status {
+  color: var(--amber);
+}
+
+.step.failed .step-status {
+  color: var(--fail);
+}
+
+.bar {
+  margin-left: 34px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--text);
+  transition: width 200ms linear;
+}
+
+.step.paused .bar-fill {
+  background: var(--amber);
+}
+
+/* Footer and buttons */
+
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.note {
+  margin: 0;
+  color: var(--note);
+  max-width: 600px;
+}
+
+.buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.button {
+  min-height: 48px;
+  padding: 0 24px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.button.primary {
+  border: 0;
+  background: var(--text);
+  color: var(--ink);
+  font-weight: 800;
+  padding: 0 28px;
+}
+
+.button.primary.big {
+  min-height: 52px;
+  padding: 0 40px;
+  font-size: 16px;
+}
+
+.button.secondary {
+  border: 1px solid var(--line-strong);
+  background: var(--fill);
+}
+
+.button:hover {
+  filter: brightness(0.94);
+}

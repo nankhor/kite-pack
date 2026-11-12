@@ -1,0 +1,73 @@
+// Everything the screen asks of the app, behind one interface so tests can stand in for it.
+
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { open } from "@tauri-apps/plugin-dialog";
+import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import type { GameInfo, JobView, PackOptions, UiEvent } from "./types";
+
+export type DropEvent = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
+
+export interface Backend {
+  /** Rejects with the reason, in the screen's words, when it isn't a game Kite Pack can pack. */
+  inspect(path: string): Promise<GameInfo>;
+  start(source: string, options: PackOptions): Promise<JobView>;
+  cancel(): Promise<void>;
+  carryOn(id: string): Promise<JobView>;
+  discard(id: string): Promise<void>;
+  unfinished(): Promise<JobView | null>;
+  /** A game given to the app when it started ("Open with", or dropped on its icon). */
+  initialPath(): Promise<string | null>;
+  pickFolder(): Promise<string | null>;
+  pickFile(): Promise<string | null>;
+  reveal(path: string): Promise<void>;
+  /** Returns a function that stops listening. */
+  onEvent(cb: (e: UiEvent) => void): () => void;
+  onDrop(cb: (d: DropEvent) => void): () => void;
+}
+
+/** Wraps Tauri's async unlisten in a plain function that also works before it resolves. */
+function unlistener(pending: Promise<() => void>): () => void {
+  let stop: (() => void) | null = null;
+  let gone = false;
+  void pending.then((un) => {
+    if (gone) un();
+    else stop = un;
+  });
+  return () => {
+    gone = true;
+    stop?.();
+  };
+}
+
+const single = (picked: string | string[] | null): string | null => (Array.isArray(picked) ? (picked[0] ?? null) : picked);
+
+export const tauriBackend: Backend = {
+  inspect: (path) => invoke("inspect", { path }),
+  start: (source, options) => invoke("start", { source, options }),
+  cancel: () => invoke("cancel"),
+  carryOn: (id) => invoke("carry_on", { id }),
+  discard: (id) => invoke("discard", { id }),
+  unfinished: () => invoke("unfinished"),
+  initialPath: () => invoke("initial_path"),
+  pickFolder: async () => single(await open({ directory: true, multiple: false })),
+  pickFile: async () =>
+    single(
+      await open({
+        multiple: false,
+        filters: [{ name: "Game images and archives", extensions: ["exfat", "ffpkg", "ffpfs", "zip", "7z", "rar"] }],
+      }),
+    ),
+  reveal: (path) => revealItemInDir(path),
+  onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
+  onDrop: (cb) =>
+    unlistener(
+      getCurrentWebview().onDragDropEvent((e) => {
+        const p = e.payload;
+        if (p.type === "drop") cb({ type: "drop", paths: p.paths });
+        else if (p.type === "leave") cb({ type: "leave" });
+        else cb({ type: "over" });
+      }),
+    ),
+};
