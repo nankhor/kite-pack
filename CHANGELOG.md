@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-alpha.2
+
+The first build of the Kite Pack app, with the screen we chose: the game's icon with a glow in its own colour, Figtree, white pill buttons on dark grey.
+
+- Drop a game (a dump folder, an exFAT, `.ffpkg` or `.ffpfs` image, or a `.zip`, `.7z` or `.rar`) or choose it. The app shows its icon, title, title ID, size, the update it already contains and the DLC inside it.
+- Pick Save as (Folder, exFAT, .ffpkg, .ffpfs), Level (Fast, Medium, Max) and where it goes, then Pack. The step shows its progress and the time left.
+- Delete the original moves it to the Trash once the packed copy is checked, and only if it hasn't changed.
+- Done shows the packed size and what you saved, with Show folder.
+- Close the app mid-pack and it carries on next time. Cancel stops and removes the partial copy.
+- Downloads: `Kite-Pack-…-windows-x64.exe` (just run it), `Kite-Pack-…-macos.dmg` (Apple silicon and Intel), `Kite-Pack-…-linux-x64.AppImage`. The command-line tool is still there as `kite-pack-cli-…`.
+
+Not in this build yet: Send to PS5 and DLC install. The toggle is on the screen and waits for the Kite helper.
+
+The builds aren't signed. On macOS, the first time, right-click Kite Pack and choose Open, or run `xattr -cr "/Applications/Kite Pack.app"`. On Windows, choose More info, then Run anyway, if SmartScreen stops it. On Linux, make the AppImage executable (`chmod +x`).
+
 ## 0.1.0-alpha.1
 
 The first build of Kite Pack: the `kite-pack` command-line tool for Windows, macOS and Linux.

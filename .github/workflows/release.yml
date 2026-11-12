@@ -1,7 +1,10 @@
 name: release
 
-# A tag like v0.1.0-alpha.1 builds kite-pack for every platform and publishes a GitHub
-# release with the archives. Run it by hand to check the builds without publishing.
+# A tag like v0.1.0-alpha.2 builds the app and the command-line tool for every platform and
+# publishes a GitHub release with them. Run it by hand to check the builds without publishing.
+#
+# Every artifact is a single file uploaded as itself (archive: false), so a download from the
+# run page is the file, not a zip around it.
 on:
   push:
     tags: ["v*"]
@@ -20,18 +23,72 @@ jobs:
           tool: cargo-about
       - name: Third-party notices
         run: cargo about generate --locked about.hbs -o THIRD-PARTY-NOTICES.html
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: notices
           path: THIRD-PARTY-NOTICES.html
+          archive: false
 
-  build:
+  app:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, name: windows-x64 }
+          - { os: macos-latest, name: macos }
+          # 22.04 keeps the AppImage working on older systems.
+          - { os: ubuntu-22.04, name: linux-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf libfuse2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: app-${{ matrix.name }}
+      - run: npm ci
+        working-directory: app
+      - name: Build
+        working-directory: app
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) npx tauri build --no-bundle ;;
+            macOS) npx tauri build --target universal-apple-darwin --bundles dmg ;;
+            Linux) npx tauri build --bundles appimage ;;
+          esac
+      - name: Name the file
+        shell: bash
+        run: |
+          base="Kite-Pack-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
+          case "$RUNNER_OS" in
+            Windows) cp target/release/kite-app.exe "$base.exe" ;;
+            macOS) cp "$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)" "$base.dmg" ;;
+            Linux) cp "$(find target/release/bundle/appimage -name '*.AppImage' | head -1)" "$base.AppImage"; chmod +x "$base.AppImage" ;;
+          esac
+          ls -l Kite-Pack-*
+          echo "FILE=$(ls Kite-Pack-*)" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v7
+        with:
+          path: ${{ env.FILE }}
+          archive: false
+
+  cli:
     needs: notices
     strategy:
       fail-fast: false
       matrix:
         include:
-          # 22.04 keeps the binary working on older glibc (Ubuntu 22.04, Debian 12 and later).
           - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: linux-x64 }
           - { os: macos-latest, target: aarch64-apple-darwin, name: macos-arm64 }
           - { os: macos-latest, target: x86_64-apple-darwin, name: macos-x64 }
@@ -44,46 +101,46 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: cli-${{ matrix.target }}
       - name: Build
         run: cargo build --release --locked -p kite-cli --target ${{ matrix.target }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
-          name: notices
+          name: THIRD-PARTY-NOTICES.html
       - name: Package
         shell: bash
         run: |
-          dir="kite-pack-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
+          dir="kite-pack-cli-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
           mkdir "$dir"
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; else exe=""; fi
           cp "target/${{ matrix.target }}/release/kite-pack$exe" "$dir/"
           cp README.md LICENSE CHANGELOG.md THIRD-PARTY-NOTICES.html "$dir/"
           if [ "$RUNNER_OS" = "Windows" ]; then
             7z a -tzip "$dir.zip" "$dir" > /dev/null
+            echo "FILE=$dir.zip" >> "$GITHUB_ENV"
           else
             tar czf "$dir.tar.gz" "$dir"
+            echo "FILE=$dir.tar.gz" >> "$GITHUB_ENV"
           fi
           "$dir/kite-pack$exe" --version
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.name }}
-          path: kite-pack-*-${{ matrix.name }}.*
+          path: ${{ env.FILE }}
+          archive: false
 
   publish:
-    needs: build
+    needs: [app, cli]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
-          # The four builds (linux-x64, macos-arm64, ...); not the notices artifact.
-          pattern: "*-*"
           merge-multiple: true
       - name: Checksums and notes
         run: |
-          (cd dist && sha256sum kite-pack-* > SHA256SUMS.txt && ls -l)
+          (cd dist && ls -l && sha256sum * > SHA256SUMS.txt)
           version="${GITHUB_REF_NAME#v}"
           awk -v head="## ${version}" '$0 == head {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
           test -s notes.md

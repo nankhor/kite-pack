@@ -2,32 +2,40 @@
 
 Pack a PS5 game with zstd so it takes less space. Then, once the Kite helper lands, send it to your PS5 and install its DLC in one go.
 
-This repository holds the core for now:
+What is in this repository:
 
 - **kite-pipeline**: the job and its steps (pack, delete the original, send, install DLC, delete the packed folder). Jobs are saved after every change, so they can carry on after a crash or restart.
 - **kite-forge**: reads game folders, images and archives, and packs them with [PS5 Dump Forge](https://github.com/quer3q/ps5-dump-forge).
+- **kite-session**: the app's side of a job: one at a time, reported as events for the screen.
 - **kite-cli**: the `kite-pack` command-line tool.
+- **app**: the desktop app (Tauri 2 and React), in `app/`.
 
-Sending to the PS5 (the Kite helper) and the desktop app come next.
+Sending to the PS5 (the Kite helper) comes next.
 
 ## Download
 
-Each [release](https://github.com/nankhor/kite-pack/releases) has `kite-pack` for Windows (x64), macOS (Apple silicon and Intel) and Linux (x64). Unpack it and run it from a terminal.
+Each [release](https://github.com/nankhor/kite-pack/releases) has the app:
 
-The binaries aren't signed yet. On macOS, run `xattr -d com.apple.quarantine kite-pack` once. On Windows, choose More info, then Run anyway, if SmartScreen stops it.
+- **Windows:** `Kite-Pack-…-windows-x64.exe`. Just run it; nothing to install. It uses the WebView2 that comes with Windows 10 and 11.
+- **macOS:** `Kite-Pack-…-macos.dmg`, for Apple silicon and Intel. Drag Kite Pack to Applications.
+- **Linux:** `Kite-Pack-…-linux-x64.AppImage`. Make it executable and run it.
+
+The command-line tool is there too, as `kite-pack-cli-…` archives.
+
+The builds aren't signed yet. On macOS, the first time, right-click Kite Pack and choose Open, or run `xattr -cr "/Applications/Kite Pack.app"`. On Windows, choose More info, then Run anyway, if SmartScreen stops it.
 
 ## Build
 
-You need Rust (stable) and a C compiler.
+You need Rust (stable), a C compiler and Node 22. On Linux, also the WebKitGTK 4.1 development libraries (see `.github/workflows/ci.yml`).
 
 ```sh
-cargo build --release
+cd app && npm ci && npm test
+npx tauri build          # the app, in target/release/bundle
+cargo build --release -p kite-cli   # the command-line tool, target/release/kite-pack
 cargo test --workspace
 ```
 
-The tool ends up at `target/release/kite-pack`.
-
-## Use
+## Command-line tool
 
 ```sh
 kite-pack inspect "/games/Ashen Tide"
