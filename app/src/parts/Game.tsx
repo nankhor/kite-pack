@@ -9,12 +9,14 @@ interface Props {
   source: string;
   job: JobView | null;
   done: boolean;
+  /** Above the title once done: "Packed", or "On the PS5" when it was sent. */
+  headline: string;
 }
 
 const SHOWN_DLC = 2;
 
 /** The game: its icon with a glow in its own colour, its name, facts and what the dump carries. */
-export function Game({ game, source, job, done }: Props) {
+export function Game({ game, source, job, done, headline }: Props) {
   const glow = useIconGlow(game.iconDataUrl);
   const [allDlc, setAllDlc] = useState(false);
   const title = game.title ?? game.titleId ?? baseName(source);
@@ -41,7 +43,7 @@ export function Game({ game, source, job, done }: Props) {
         )}
       </div>
       <div className="game-text">
-        {done && <p className="done-headline">Packed</p>}
+        {done && <p className="done-headline">{headline}</p>}
         <h1 className="title">{title}</h1>
         <dl className="facts">
           {game.titleId && (

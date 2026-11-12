@@ -11,7 +11,7 @@ export interface StepRow {
 }
 
 export type NoteInput =
-  | { kind: "ready"; outputDir: string }
+  | { kind: "ready"; outputDir: string; send?: boolean }
   | { kind: "running" | "failed" | "done"; job: JobView };
 
 /** Decimal sizes, as drives and Forge count them: "84.2 GB", "717 KB". */
@@ -35,7 +35,7 @@ export function updateLabel(version: string | null): string {
 const LABELS: Record<StepKind, string> = {
   pack: "Pack",
   deleteOriginal: "Delete the original",
-  send: "Send to the PS5",
+  send: "Send to PS5",
   installDlc: "Install DLC",
   deletePacked: "Delete the packed folder",
 };
@@ -86,6 +86,8 @@ function pendingStatus(kind: StepKind): string {
       return "After the PS5 confirms every file";
     case "pack":
       return "Waiting to start";
+    case "send":
+      return "Starts when packing ends";
     default:
       return "After packing";
   }
@@ -100,6 +102,8 @@ function doneStatus(step: StepView, job: JobView): string {
     case "deleteOriginal":
     case "deletePacked":
       return "In the Trash";
+    case "send":
+      return "Every file checked";
     default:
       return step.note ?? "Done";
   }
@@ -115,15 +119,24 @@ export function stepRows(job: JobView, progress: ProgressState | null, now: numb
         return { label, state: "done", status: doneStatus(step, job), bar: hasBar ? 100 : null };
       case "failed":
         return { label, state: "failed", status: step.note ?? "Failed", bar: null };
-      case "waiting":
-        return { label, state: "paused", status: "Waiting for the PS5", bar: null };
+      case "waiting": {
+        // Paused where it stopped: the last progress this step reported.
+        const p = progress && progress.index === index && progress.total > 0 ? progress : null;
+        const pct = p ? Math.min(100, Math.floor((p.done / p.total) * 100)) : null;
+        return {
+          label,
+          state: "paused",
+          status: pct === null ? "Waiting for the PS5" : `Paused at ${pct}%`,
+          bar: hasBar ? (pct ?? 0) : null,
+        };
+      }
       case "running": {
         const p = progress && progress.index === index ? progress : null;
         const [status, bar] = runningStatus(step, p, now);
         return { label, state: "active", status, bar };
       }
       default:
-        return { label, state: "pending", status: pendingStatus(step.kind), bar: null };
+        return { label, state: "pending", status: pendingStatus(step.kind), bar: step.kind === "send" ? 0 : null };
     }
   });
 }
@@ -132,16 +145,30 @@ export function stepRows(job: JobView, progress: ProgressState | null, now: numb
 export function footerNote(input: NoteInput): string {
   switch (input.kind) {
     case "ready":
-      return `Packs into ${input.outputDir}.`;
-    case "running":
+      return input.send
+        ? `Packs into ${input.outputDir}, then sends to the PS5 by itself.`
+        : `Packs into ${input.outputDir}.`;
+    case "running": {
+      const steps = input.job.steps;
+      if (steps.some((s) => s.state === "waiting")) {
+        return "The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped.";
+      }
+      if (steps.some((s) => s.kind === "send" && s.state === "running")) {
+        return "Each file is checked on the PS5 as it lands.";
+      }
       return "You can leave this running. If you close Kite Pack, it carries on next time.";
+    }
     case "failed": {
       const step = input.job.steps.find((s) => s.state === "failed");
       return step ? `${LABELS[step.kind]} failed: ${step.note ?? "no reason given"}` : "Something stopped the job.";
     }
-    case "done":
+    case "done": {
+      if (input.job.steps.some((s) => s.kind === "deletePacked" && s.state === "done")) {
+        return "Deleted folders stay in the Trash until you empty it. Play the game once first.";
+      }
       return input.job.deleteOriginal
         ? "The original is in the Trash until you empty it. Play the game once first."
         : "Nothing was deleted.";
+    }
   }
 }

@@ -5,7 +5,7 @@ resolver = "3"
 [workspace.package]
 edition = "2024"
 license = "GPL-3.0-or-later"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -22,6 +22,7 @@ assert_cmd = "2"
 kite-pipeline = { path = "crates/kite-pipeline" }
 kite-forge = { path = "crates/kite-forge" }
 kite-session = { path = "crates/kite-session" }
+kite-ps5 = { path = "crates/kite-ps5" }
 # PS5 Dump Forge (quer3q), GPL-3.0-or-later. Pinned: move it on purpose, with ampr-emu-ng.
 ps5-dump-forge-core = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd" }
 

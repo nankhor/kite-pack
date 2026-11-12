@@ -1,6 +1,6 @@
 // The screen's state and how each event moves it.
 
-import type { GameInfo, JobView, PackOptions, ProgressState, UiEvent } from "./types";
+import type { GameInfo, JobView, PackOptions, ProgressState, Settings, Status, UiEvent } from "./types";
 
 export type Phase = "empty" | "ready" | "running" | "failed" | "done";
 
@@ -16,6 +16,11 @@ export interface State {
   dragging: boolean;
   /** Pack was pressed and its reply hasn't come back: updates may arrive first. */
   starting: boolean;
+  /** The main screen or Settings. */
+  view: "main" | "settings";
+  settings: Settings | null;
+  /** How the PS5 stands; null until first checked. */
+  status: Status | null;
 }
 
 export type Action =
@@ -28,18 +33,24 @@ export type Action =
   | { type: "event"; event: UiEvent; now: number }
   | { type: "back" }
   | { type: "reset" }
-  | { type: "drag"; on: boolean };
+  | { type: "drag"; on: boolean }
+  | { type: "view"; view: "main" | "settings" }
+  | { type: "settings"; settings: Settings }
+  | { type: "status"; status: Status };
 
 export const initial: State = {
   phase: "empty",
   game: null,
   source: null,
   message: null,
-  options: { format: "folder", level: "fast", outputDir: "", deleteOriginal: false },
+  options: { format: "folder", level: "fast", outputDir: "", deleteOriginal: false, send: false, deletePacked: false },
   job: null,
   progress: null,
   dragging: false,
   starting: false,
+  view: "main",
+  settings: null,
+  status: null,
 };
 
 function phaseOf(job: JobView): Phase {
@@ -64,8 +75,9 @@ function onEvent(s: State, e: UiEvent, now: number): State {
   if (e.type === "job") {
     if (e.job.id !== s.job.id || e.job.rev < s.job.rev) return s;
     if (e.job.state === "cancelled") return { ...s, phase: s.game ? "ready" : "empty", job: null, progress: null };
-    const running = e.job.steps.findIndex((st) => st.state === "running");
-    const progress = s.progress && s.progress.index === running ? s.progress : null;
+    // Keep the progress of the step that is running or waiting: a paused send shows where it stopped.
+    const active = e.job.steps.findIndex((st) => st.state === "running" || st.state === "waiting");
+    const progress = s.progress && s.progress.index === active ? s.progress : null;
     return { ...s, job: e.job, phase: phaseOf(e.job), progress };
   }
   if (e.id !== s.job.id) return s;
@@ -115,8 +127,19 @@ export function reduce(s: State, a: Action): State {
     case "back":
       return { ...s, phase: s.game ? "ready" : "empty", job: null, progress: null };
     case "reset":
-      return { ...initial, options: { ...initial.options, outputDir: s.options.outputDir } };
+      return {
+        ...initial,
+        options: { ...initial.options, outputDir: s.options.outputDir },
+        settings: s.settings,
+        status: s.status,
+      };
     case "drag":
       return { ...s, dragging: a.on };
+    case "view":
+      return { ...s, view: a.view };
+    case "settings":
+      return { ...s, settings: a.settings };
+    case "status":
+      return { ...s, status: a.status };
   }
 }

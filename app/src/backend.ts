@@ -5,7 +5,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { GameInfo, JobView, PackOptions, UiEvent } from "./types";
+import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
 
 export type DropEvent = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
 
@@ -22,6 +22,14 @@ export interface Backend {
   pickFolder(): Promise<string | null>;
   pickFile(): Promise<string | null>;
   reveal(path: string): Promise<void>;
+  settings(): Promise<Settings>;
+  saveSettings(settings: Settings): Promise<void>;
+  /** Connects to the PS5's helper and says how it stands (takes up to a few seconds). */
+  ps5Status(): Promise<Status>;
+  /** Kite helpers that answer on the home network (about 2 s). */
+  discover(): Promise<Found[]>;
+  /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
+  startHelper(): Promise<StartOutcome>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -60,6 +68,11 @@ export const tauriBackend: Backend = {
       }),
     ),
   reveal: (path) => revealItemInDir(path),
+  settings: () => invoke("settings"),
+  saveSettings: (settings) => invoke("save_settings", { settings }),
+  ps5Status: () => invoke("ps5_status"),
+  discover: () => invoke("discover"),
+  startHelper: () => invoke("start_helper"),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>
     unlistener(

@@ -5,8 +5,8 @@ mod view;
 pub use view::{JobState, JobView, StepView, UiEvent, packed_size};
 
 use kite_pipeline::{
-    Job, JobStore, Options, Packer, Progress, RunEvent, RunOutcome, Runner, ThreadSleeper, Trash,
-    Unavailable,
+    Job, JobStore, Options, Packer, Progress, RunEvent, RunOutcome, Runner, Sender, StepKind,
+    StepState, ThreadSleeper, Trash, Unavailable,
 };
 use std::cell::Cell;
 use std::io;
@@ -15,10 +15,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// What packs and what deletes. Sending arrives with the Kite helper.
+/// What packs, what deletes and what sends to the PS5. DLC install arrives later.
 pub struct Ports {
     pub packer: Arc<dyn Packer>,
     pub trash: Arc<dyn Trash>,
+    pub sender: Arc<dyn Sender>,
 }
 
 pub type Emit = Arc<dyn Fn(UiEvent) + Send + Sync>;
@@ -133,15 +134,14 @@ impl Session {
         }
         // Stamped before the thread starts, so every event's view is newer than this reply.
         let view = self.revs.stamp(JobView::of(&job, JobState::Running));
-        let (store, packer, trash, running, revs) = (
-            self.store.clone(),
-            self.ports.packer.clone(),
-            self.ports.trash.clone(),
-            self.running.clone(),
-            self.revs.clone(),
-        );
+        let (store, running, revs) = (self.store.clone(), self.running.clone(), self.revs.clone());
+        let ports = Ports {
+            packer: self.ports.packer.clone(),
+            trash: self.ports.trash.clone(),
+            sender: self.ports.sender.clone(),
+        };
         std::thread::spawn(move || {
-            let end = run(job, &store, &*packer, &*trash, &cancel, &exiting, &emit, &revs);
+            let end = run(job, &store, &ports, &cancel, &exiting, &emit, &revs);
             *running.lock().unwrap() = None;
             emit(UiEvent::Job { job: revs.stamp(end) });
         });
@@ -153,8 +153,7 @@ impl Session {
 fn run(
     mut job: Job,
     store: &JobStore,
-    packer: &dyn Packer,
-    trash: &dyn Trash,
+    ports: &Ports,
     cancel: &AtomicBool,
     exiting: &AtomicBool,
     emit: &Emit,
@@ -162,10 +161,15 @@ fn run(
 ) -> JobView {
     let id = job.id.clone();
     let last_progress: Cell<Option<Instant>> = Cell::new(None);
+    // The packed copy's size, measured once Pack is done: Delete the packed folder may move it
+    // away before the job ends. A resumed job whose Pack is already done is measured now.
+    let pack_done = |j: &Job| j.steps.iter().any(|st| st.kind == StepKind::Pack && matches!(st.state, StepState::Done { .. }));
+    let measured: Cell<Option<u64>> =
+        Cell::new(job.packed.as_deref().filter(|p| pack_done(&job) && p.exists()).map(packed_size));
     let runner = Runner {
-        packer,
-        trash,
-        sender: &Unavailable,
+        packer: &*ports.packer,
+        trash: &*ports.trash,
+        sender: &*ports.sender,
         installer: &Unavailable,
         sleeper: &ThreadSleeper,
         store,
@@ -188,7 +192,12 @@ fn run(
         | RunEvent::StepDone { .. }
         | RunEvent::StepFailed { .. } => {
             if let Ok(saved) = store.load(&id) {
-                emit(UiEvent::Job { job: revs.stamp(JobView::of(&saved, JobState::Running)) });
+                if measured.get().is_none() && pack_done(&saved) {
+                    measured.set(saved.packed.as_deref().map(packed_size));
+                }
+                let mut view = JobView::of(&saved, JobState::Running);
+                view.packed_bytes = measured.get();
+                emit(UiEvent::Job { job: revs.stamp(view) });
             }
         }
         RunEvent::Cancelled { .. } | RunEvent::Finished => {}
@@ -196,7 +205,7 @@ fn run(
     match runner.run(&mut job, cancel, &events) {
         RunOutcome::Finished => {
             let mut view = JobView::of(&job, JobState::Finished);
-            view.packed_bytes = job.packed.as_deref().map(packed_size);
+            view.packed_bytes = measured.get().or_else(|| job.packed.as_deref().map(packed_size));
             view
         }
         RunOutcome::Failed { .. } => JobView::of(&job, JobState::Failed),
