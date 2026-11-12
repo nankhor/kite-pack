@@ -14,12 +14,15 @@ export interface State {
   job: JobView | null;
   progress: ProgressState | null;
   dragging: boolean;
+  /** Pack was pressed and its reply hasn't come back: updates may arrive first. */
+  starting: boolean;
 }
 
 export type Action =
   | { type: "game"; game: GameInfo; source: string; outputDir: string }
   | { type: "message"; text: string | null }
   | { type: "options"; patch: Partial<PackOptions> }
+  | { type: "starting" }
   | { type: "started"; job: JobView }
   | { type: "restored"; job: JobView; game: GameInfo }
   | { type: "event"; event: UiEvent; now: number }
@@ -36,6 +39,7 @@ export const initial: State = {
   job: null,
   progress: null,
   dragging: false,
+  starting: false,
 };
 
 function phaseOf(job: JobView): Phase {
@@ -50,9 +54,15 @@ function phaseOf(job: JobView): Phase {
 }
 
 function onEvent(s: State, e: UiEvent, now: number): State {
-  if (!s.job) return s;
+  if (!s.job) {
+    // The job's first update can beat Pack's reply; take it as the job.
+    if (s.starting && e.type === "job" && e.job.state !== "cancelled") {
+      return { ...s, job: e.job, phase: phaseOf(e.job), progress: null };
+    }
+    return s;
+  }
   if (e.type === "job") {
-    if (e.job.id !== s.job.id) return s;
+    if (e.job.id !== s.job.id || e.job.rev < s.job.rev) return s;
     if (e.job.state === "cancelled") return { ...s, phase: s.game ? "ready" : "empty", job: null, progress: null };
     const running = e.job.steps.findIndex((st) => st.state === "running");
     const progress = s.progress && s.progress.index === running ? s.progress : null;
@@ -80,11 +90,17 @@ export function reduce(s: State, a: Action): State {
         progress: null,
       };
     case "message":
-      return { ...s, message: a.text };
+      return { ...s, message: a.text, starting: false };
+    case "starting":
+      return { ...s, starting: true, message: null };
     case "options":
       return { ...s, options: { ...s.options, ...a.patch } };
-    case "started":
-      return { ...s, phase: phaseOf(a.job), job: a.job, progress: null, message: null };
+    case "started": {
+      // A command's reply is older than any update about the same job that came before it.
+      const newer = s.job && s.job.id === a.job.id && s.job.rev > a.job.rev ? s.job : a.job;
+      const progress = newer === s.job ? s.progress : null;
+      return { ...s, phase: phaseOf(newer), job: newer, progress, message: null, starting: false };
+    }
     case "restored":
       return {
         ...s,

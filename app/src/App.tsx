@@ -112,6 +112,7 @@ export default function App({ backend }: { backend: Backend }) {
 
   async function pack() {
     if (!s.source) return;
+    dispatch({ type: "starting" });
     try {
       dispatch({ type: "started", job: await backend.start(s.source, s.options) });
     } catch (e) {

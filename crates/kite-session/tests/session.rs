@@ -255,3 +255,37 @@ fn events_serialise_for_the_screen() {
     assert!(json["job"]["outputDir"].is_string());
     let _ = w.tmp.path();
 }
+
+#[test]
+fn views_carry_increasing_revisions() {
+    let w = World::new();
+    let session = w.session();
+    let events = Events::default();
+    let started = session.start(w.game.clone(), w.options(true), events.emit()).unwrap();
+    events.last();
+    let revs: Vec<u64> = events.jobs().iter().map(|j| j.rev).collect();
+    assert!(revs.len() >= 3, "{revs:?}");
+    assert!(revs.windows(2).all(|w| w[0] < w[1]), "views must get newer: {revs:?}");
+    assert!(started.rev < revs[0], "start's own view is the oldest: {} vs {revs:?}", started.rev);
+}
+
+#[test]
+fn stopping_for_exit_keeps_the_job_for_next_launch() {
+    let w = World::new();
+    let session = w.session_with(Arc::new(WaitingPacker));
+    let events = Events::default();
+    let job = session.start(w.game.clone(), w.options(false), events.emit()).unwrap();
+    assert!(session.stop_for_exit(Duration::from_secs(10)), "the job stopped in time");
+    assert!(!session.is_running());
+    assert_eq!(events.last().state, JobState::Paused);
+    let left = session.unfinished().unwrap();
+    assert_eq!(left.id, job.id);
+    assert_eq!(kinds_and_states(&left), vec![pair("pack", "pending")]);
+}
+
+#[test]
+fn stopping_for_exit_with_nothing_running_returns_at_once() {
+    let w = World::new();
+    let session = w.session();
+    assert!(session.stop_for_exit(Duration::from_millis(1)));
+}

@@ -99,7 +99,7 @@
 .empty-hint {
   margin: 0 0 10px;
   color: var(--label);
-  max-width: 420px;
+  max-width: 540px;
 }
 
 .message {

@@ -28,6 +28,7 @@ const job = (over: Partial<JobView> = {}): JobView => ({
   packedBytes: null,
   steps: [{ kind: "pack", state: "pending", note: null }],
   state: "running",
+  rev: 0,
   ...over,
 });
 
@@ -191,6 +192,31 @@ describe("packing", () => {
     expect(screen.getByRole("progressbar", { name: "Pack" })).toHaveAttribute("aria-valuenow", "62");
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(backend.cancel).toHaveBeenCalled();
+  });
+
+  it("shows the running step when its update beats Pack's reply", async () => {
+    await showGame();
+    backend.start = vi.fn(async () => {
+      backend.emit({ type: "job", job: job({ rev: 2, steps: [{ kind: "pack", state: "running", note: null }] }) });
+      return job({ rev: 1 });
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(await screen.findByText("Starting")).toBeInTheDocument();
+    expect(screen.queryByText("Waiting to start")).not.toBeInTheDocument();
+  });
+
+  it("shows the running step when its update beats Retry's reply", async () => {
+    await packing();
+    backend.emit({
+      type: "job",
+      job: job({ rev: 5, state: "failed", steps: [{ kind: "pack", state: "failed", note: "x" }] }),
+    });
+    backend.carryOn = vi.fn(async () => {
+      backend.emit({ type: "job", job: job({ rev: 7, steps: [{ kind: "pack", state: "running", note: null }] }) });
+      return job({ rev: 6 });
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Starting")).toBeInTheDocument();
   });
 
   it("goes back to Ready when cancelled", async () => {

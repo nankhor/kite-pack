@@ -1,0 +1,18 @@
+[package]
+name = "kite-app"
+description = "Kite Pack: pack PS5 games with zstd"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+kite-forge.workspace = true
+kite-pipeline.workspace = true
+kite-session.workspace = true
+serde.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"

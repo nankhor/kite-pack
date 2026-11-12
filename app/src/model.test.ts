@@ -11,6 +11,7 @@ const job = (steps: StepView[], extra: Partial<JobView> = {}): JobView => ({
   packedBytes: null,
   steps,
   state: "running",
+  rev: 0,
   ...extra,
 });
 

@@ -11,7 +11,7 @@ use kite_pipeline::{
 use std::cell::Cell;
 use std::io;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -29,17 +29,36 @@ const PROGRESS_EVERY: Duration = Duration::from_millis(100);
 struct Running {
     id: String,
     cancel: Arc<AtomicBool>,
+    /// Stopped because the app is closing: the job stays for the next launch.
+    exiting: Arc<AtomicBool>,
 }
 
 pub struct Session {
     store: JobStore,
     ports: Ports,
     running: Arc<Mutex<Option<Running>>>,
+    revs: Revs,
+}
+
+/// Hands out ever larger revision numbers for job views.
+#[derive(Clone, Default)]
+struct Revs(Arc<AtomicU64>);
+
+impl Revs {
+    fn stamp(&self, mut view: JobView) -> JobView {
+        view.rev = self.0.fetch_add(1, Ordering::SeqCst) + 1;
+        view
+    }
 }
 
 impl Session {
     pub fn new(jobs_dir: PathBuf, ports: Ports) -> io::Result<Session> {
-        Ok(Session { store: JobStore::open(jobs_dir)?, ports, running: Arc::new(Mutex::new(None)) })
+        Ok(Session {
+            store: JobStore::open(jobs_dir)?,
+            ports,
+            running: Arc::new(Mutex::new(None)),
+            revs: Revs::default(),
+        })
     }
 
     /// Saves a new job and starts it.
@@ -76,30 +95,55 @@ impl Session {
 
     /// The newest job left unfinished, as the app found it on launch.
     pub fn unfinished(&self) -> Option<JobView> {
-        self.store.unfinished().first().map(JobView::at_rest)
+        self.store.unfinished().first().map(|job| self.revs.stamp(JobView::at_rest(job)))
     }
 
     pub fn is_running(&self) -> bool {
         self.running.lock().unwrap().is_some()
     }
 
+    /// The app is closing: stops the running step cleanly (Forge removes its partial output)
+    /// and keeps the job, so the next launch carries on. True once nothing is running; false
+    /// if the step didn't stop within `wait`.
+    pub fn stop_for_exit(&self, wait: Duration) -> bool {
+        if let Some(running) = self.running.lock().unwrap().as_ref() {
+            running.exiting.store(true, Ordering::SeqCst);
+            running.cancel.store(true, Ordering::SeqCst);
+        }
+        let start = Instant::now();
+        while self.is_running() {
+            if start.elapsed() >= wait {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        true
+    }
+
     fn spawn(&self, job: Job, emit: Emit) -> Result<JobView, String> {
         let cancel = Arc::new(AtomicBool::new(false));
+        let exiting = Arc::new(AtomicBool::new(false));
         {
             let mut running = self.running.lock().unwrap();
             if running.is_some() {
                 return Err(BUSY.into());
             }
             self.store.save(&job).map_err(|e| format!("Couldn't save the job: {e}"))?;
-            *running = Some(Running { id: job.id.clone(), cancel: cancel.clone() });
+            *running = Some(Running { id: job.id.clone(), cancel: cancel.clone(), exiting: exiting.clone() });
         }
-        let view = JobView::of(&job, JobState::Running);
-        let (store, packer, trash, running) =
-            (self.store.clone(), self.ports.packer.clone(), self.ports.trash.clone(), self.running.clone());
+        // Stamped before the thread starts, so every event's view is newer than this reply.
+        let view = self.revs.stamp(JobView::of(&job, JobState::Running));
+        let (store, packer, trash, running, revs) = (
+            self.store.clone(),
+            self.ports.packer.clone(),
+            self.ports.trash.clone(),
+            self.running.clone(),
+            self.revs.clone(),
+        );
         std::thread::spawn(move || {
-            let end = run(job, &store, &*packer, &*trash, &cancel, &emit);
+            let end = run(job, &store, &*packer, &*trash, &cancel, &exiting, &emit, &revs);
             *running.lock().unwrap() = None;
-            emit(UiEvent::Job { job: end });
+            emit(UiEvent::Job { job: revs.stamp(end) });
         });
         Ok(view)
     }
@@ -112,7 +156,9 @@ fn run(
     packer: &dyn Packer,
     trash: &dyn Trash,
     cancel: &AtomicBool,
+    exiting: &AtomicBool,
     emit: &Emit,
+    revs: &Revs,
 ) -> JobView {
     let id = job.id.clone();
     let last_progress: Cell<Option<Instant>> = Cell::new(None);
@@ -142,7 +188,7 @@ fn run(
         | RunEvent::StepDone { .. }
         | RunEvent::StepFailed { .. } => {
             if let Ok(saved) = store.load(&id) {
-                emit(UiEvent::Job { job: JobView::of(&saved, JobState::Running) });
+                emit(UiEvent::Job { job: revs.stamp(JobView::of(&saved, JobState::Running)) });
             }
         }
         RunEvent::Cancelled { .. } | RunEvent::Finished => {}
@@ -154,6 +200,9 @@ fn run(
             view
         }
         RunOutcome::Failed { .. } => JobView::of(&job, JobState::Failed),
+        // Stopped for the app closing: the step is back to pending and saved; it carries on
+        // next time.
+        RunOutcome::Cancelled { .. } if exiting.load(Ordering::SeqCst) => JobView::at_rest(&job),
         RunOutcome::Cancelled { .. } => {
             // A cancelled job doesn't come back on the next launch.
             let _ = store.remove(&job.id);

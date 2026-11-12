@@ -38,6 +38,8 @@ export interface JobView {
   packedBytes: number | null;
   steps: StepView[];
   state: JobState;
+  /** Grows with every view the app sends: the larger one is the newer. */
+  rev: number;
 }
 
 export type UiEvent =

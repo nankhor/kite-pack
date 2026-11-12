@@ -39,6 +39,9 @@ pub struct JobView {
     pub packed_bytes: Option<u64>,
     pub steps: Vec<StepView>,
     pub state: JobState,
+    /// Grows with every view the session hands out, so the screen keeps the newest when an
+    /// event and a command's reply cross.
+    pub rev: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -63,6 +66,7 @@ impl JobView {
             packed_bytes: None,
             steps: job.steps.iter().map(|s| step_view(&s.kind, &s.state)).collect(),
             state,
+            rev: 0,
         }
     }
 

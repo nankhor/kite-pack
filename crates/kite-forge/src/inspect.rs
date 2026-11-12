@@ -6,6 +6,7 @@ use std::path::Path;
 
 /// What the screen shows about a game before packing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GameInfo {
     /// `folder`, `exfat`, `ffpkg`, `ffpfs`, `ffpfsc`, `pkg`, `zip`, `7z` or `rar`.
     pub kind: String,
@@ -24,6 +25,7 @@ pub struct GameInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DlcInfo {
     pub content_id: String,
     /// The last 16 characters of the content ID, which tell a game's DLCs apart.
