@@ -140,13 +140,13 @@ static void on_log(const char *msg) { fprintf(stderr, "%s\n", msg); }
 
 /* ---- discovery: answer Kite Pack's broadcast ------------------------------------------------- */
 
-static void *discovery(void *arg) {
-    uint16_t port = (uint16_t)(uintptr_t)arg;
-    struct sockaddr_in a, from;
-    char buf[64], reply[96];
+/* The discovery socket, bound before the helper says it is listening, so an answer is ready the
+ * moment anyone can find the helper. -1 if UDP is unavailable. */
+static int discovery_socket(uint16_t port) {
+    struct sockaddr_in a;
     int one = 1;
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd < 0) return NULL;
+    if (fd < 0) return -1;
     (void)setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof one);
     memset(&a, 0, sizeof a);
     a.sin_family = AF_INET;
@@ -155,18 +155,31 @@ static void *discovery(void *arg) {
     if (bind(fd, (struct sockaddr *)&a, sizeof a) != 0) {
         fprintf(stderr, "kite helper: discovery off (udp %u: %s)\n", (unsigned)port, strerror(errno));
         close(fd);
-        return NULL;
+        return -1;
     }
-    int n_reply = snprintf(reply, sizeof reply, "KITE-HELPER 1 %u %s", (unsigned)port, KITE_VERSION);
+    return fd;
+}
+
+struct discovery_arg {
+    int fd;
+    uint16_t port;
+};
+
+static void *discovery(void *p) {
+    struct discovery_arg arg = *(struct discovery_arg *)p;
+    struct sockaddr_in from;
+    char buf[64], reply[96];
+    int n_reply = snprintf(reply, sizeof reply, "KITE-HELPER 1 %u %s", (unsigned)arg.port, KITE_VERSION);
+    free(p);
     while (!g_stop) {
         socklen_t fl = sizeof from;
-        ssize_t n = recvfrom(fd, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &fl);
+        ssize_t n = recvfrom(arg.fd, buf, sizeof buf - 1, 0, (struct sockaddr *)&from, &fl);
         if (n <= 0) continue;
         buf[n] = '\0';
         if (strncmp(buf, DISCOVER, strlen(DISCOVER)) == 0)
-            (void)sendto(fd, reply, (size_t)n_reply, 0, (struct sockaddr *)&from, fl);
+            (void)sendto(arg.fd, reply, (size_t)n_reply, 0, (struct sockaddr *)&from, fl);
     }
-    close(fd);
+    close(arg.fd);
     return NULL;
 }
 
@@ -255,7 +268,16 @@ int main(int argc, char **argv) {
         return 1;
     }
     port = ava1_server_port();
-    if (pthread_create(&disc, NULL, discovery, (void *)(uintptr_t)port) == 0) pthread_detach(disc);
+    {
+        struct discovery_arg *arg = malloc(sizeof *arg);
+        if (arg && (arg->fd = discovery_socket((uint16_t)port)) >= 0) {
+            arg->port = (uint16_t)port;
+            if (pthread_create(&disc, NULL, discovery, arg) == 0) pthread_detach(disc);
+            else close(arg->fd), free(arg);
+        } else {
+            free(arg);
+        }
+    }
     printf("kite helper listening on %u\n", port);
     fflush(stdout);
     kite_notify("Kite helper is running.");
