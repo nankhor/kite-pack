@@ -1,0 +1,70 @@
+/* Direction A, simpler: dark grey ground, Figtree, white pill buttons, the game icon as the
+   only colour. Values from the IconFlow board. */
+@import "@fontsource/figtree/400.css";
+@import "@fontsource/figtree/500.css";
+@import "@fontsource/figtree/600.css";
+@import "@fontsource/figtree/700.css";
+@import "@fontsource/figtree/800.css";
+
+:root {
+  --ground: #121417;
+  --text: #ffffff;
+  --label: rgba(255, 255, 255, 0.68);
+  --chip-note: rgba(255, 255, 255, 0.72);
+  --note: rgba(255, 255, 255, 0.78);
+  --dim: rgba(255, 255, 255, 0.6);
+  --mint: #6ee7a8;
+  --mint-text: #b9f5d6;
+  --update-text: #c9f7df;
+  --amber: #ffc56b;
+  --warn: #ffd28f;
+  --fail: #ff9b8f;
+  --ink: #0a0d10;
+  --line: rgba(255, 255, 255, 0.16);
+  --line-strong: rgba(255, 255, 255, 0.3);
+  --fill: rgba(255, 255, 255, 0.06);
+  --brand-glow: 194, 112, 70;
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: var(--ground);
+}
+
+body {
+  color: var(--text);
+  font-family: Figtree, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+}
+
+button {
+  font-family: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
