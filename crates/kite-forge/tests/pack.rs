@@ -25,7 +25,7 @@ fn packs_the_test_game_to_a_folder() {
 
     let done = pack(&request(&game, &out, OutputFormat::Folder)).unwrap();
 
-    assert!(done.output.starts_with(&out));
+    assert!(done.output.starts_with(dunce::canonicalize(&out).unwrap()), "{done:?}");
     assert!(done.output.join("ampr_zstd.index").is_file());
     assert!(done.output.join("eboot.bin").is_file());
     assert!(done.files > 0 && done.bytes > 0);
@@ -103,6 +103,6 @@ fn creates_a_missing_output_folder() {
     let game = make_game(tmp.path(), "ashen");
     let out = tmp.path().join("not yet").join("out");
     let done = pack(&request(&game, &out, OutputFormat::Folder)).unwrap();
-    assert!(done.output.starts_with(&out));
+    assert!(done.output.starts_with(dunce::canonicalize(&out).unwrap()), "{done:?}");
     assert!(done.output.join("ampr_zstd.index").is_file());
 }

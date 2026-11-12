@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "kite-cli"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -655,8 +655,9 @@ dependencies = [
 
 [[package]]
 name = "kite-forge"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
+ "dunce",
  "kite-pipeline",
  "ps5-dump-forge-core",
  "serde",
@@ -666,7 +667,7 @@ dependencies = [
 
 [[package]]
 name = "kite-pipeline"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
  "serde_json",

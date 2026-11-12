@@ -13,3 +13,5 @@ serde_json.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# Forge reports outputs under the real path (/private/var on macOS, long names on Windows).
+dunce = "1"
