@@ -6,31 +6,17 @@ import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
 import { Header } from "./parts/Header";
 import { Options } from "./parts/Options";
+import { SettingsPage } from "./parts/Settings";
 import { Steps } from "./parts/Steps";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
-import type { GameInfo } from "./types";
+import type { GameInfo, Settings, Status } from "./types";
 
-const OUTPUT_KEY = "kite.outputDir";
-
-function storedOutputDir(): string | null {
-  try {
-    return localStorage.getItem(OUTPUT_KEY);
-  } catch {
-    return null;
-  }
-}
-
-function storeOutputDir(dir: string) {
-  try {
-    localStorage.setItem(OUTPUT_KEY, dir);
-  } catch {
-    // A webview without storage just forgets the folder next time.
-  }
-}
+/** How often the PS5 chip checks the helper while the app is open. */
+const STATUS_EVERY_MS = 10_000;
 
 /** What to show for a job whose game can no longer be read. */
-function stand_in(source: string): GameInfo {
+function standIn(source: string): GameInfo {
   return {
     kind: "folder",
     title: baseName(source),
@@ -44,11 +30,44 @@ function stand_in(source: string): GameInfo {
   };
 }
 
+/** Whether Send can be switched on: a PS5 is chosen and its helper doesn't refuse us. */
+export function canSend(status: Status | null): boolean {
+  return status?.state === "running" || status?.state === "notReachable";
+}
+
 export default function App({ backend }: { backend: Backend }) {
   const [s, dispatch] = useReducer(reduce, initial);
   const current = useRef(s);
   current.current = s;
   const booted = useRef(false);
+  // Settings load once; anything that needs them waits on this.
+  const settingsReady = useRef<Promise<Settings> | null>(null);
+
+  function loadSettings(): Promise<Settings> {
+    if (!settingsReady.current) {
+      settingsReady.current = backend.settings().then((settings) => {
+        dispatch({ type: "settings", settings });
+        return settings;
+      });
+    }
+    return settingsReady.current;
+  }
+
+  async function refreshStatus() {
+    try {
+      dispatch({ type: "status", status: await backend.ps5Status() });
+    } catch {
+      dispatch({ type: "status", status: { state: "notReachable" } });
+    }
+  }
+
+  async function saveSettings(patch: Partial<Settings>) {
+    const base = current.current.settings ?? (await loadSettings());
+    const next = { ...base, ...patch };
+    await backend.saveSettings(next);
+    dispatch({ type: "settings", settings: next });
+    if ("address" in patch || "helperPort" in patch) await refreshStatus();
+  }
 
   async function open(path: string) {
     if (current.current.phase === "running") {
@@ -56,8 +75,8 @@ export default function App({ backend }: { backend: Backend }) {
       return;
     }
     try {
-      const game = await backend.inspect(path);
-      dispatch({ type: "game", game, source: path, outputDir: storedOutputDir() ?? parentOf(path) });
+      const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
+      dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
     }
@@ -79,21 +98,36 @@ export default function App({ backend }: { backend: Backend }) {
         else void open(d.paths[0]);
       }
     });
+    const timer = setInterval(() => void refreshStatus(), STATUS_EVERY_MS);
     return () => {
       stopEvents();
       stopDrops();
+      clearInterval(timer);
     };
-    // `open` reads the latest state through `current`; the listeners stay for the app's life.
+    // `open` and `refreshStatus` read the latest state through refs; the listeners stay for the app's life.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend]);
 
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
+    // The PS5: with none saved, take the one helper that answers on the network.
+    void (async () => {
+      const settings = await loadSettings();
+      if (!settings.address) {
+        const found = await backend.discover().catch(() => []);
+        if (found.length === 1) {
+          await saveSettings({ address: found[0].address, helperPort: found[0].port });
+          return;
+        }
+      }
+      await refreshStatus();
+    })();
+    // A job left by a closed app, or a game given at launch.
     void (async () => {
       const left = await backend.unfinished();
       if (left) {
-        const game = await backend.inspect(left.source).catch(() => stand_in(left.source));
+        const game = await backend.inspect(left.source).catch(() => standIn(left.source));
         dispatch({ type: "restored", job: left, game });
         if (left.state !== "failed") {
           try {
@@ -110,11 +144,15 @@ export default function App({ backend }: { backend: Backend }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend]);
 
+  const sendable = canSend(s.status);
+
   async function pack() {
     if (!s.source) return;
     dispatch({ type: "starting" });
+    const send = s.options.send && sendable;
     try {
-      dispatch({ type: "started", job: await backend.start(s.source, s.options) });
+      const options = { ...s.options, send, deletePacked: send && s.options.deletePacked };
+      dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
     }
@@ -138,14 +176,46 @@ export default function App({ backend }: { backend: Backend }) {
   async function changeOutput() {
     const dir = await backend.pickFolder();
     if (!dir) return;
-    storeOutputDir(dir);
     dispatch({ type: "options", patch: { outputDir: dir } });
+    await saveSettings({ packedFolder: dir });
+  }
+
+  const header = (
+    <Header
+      status={s.status}
+      onOpenSettings={() => {
+        dispatch({ type: "view", view: "settings" });
+        void refreshStatus();
+      }}
+    />
+  );
+
+  if (s.view === "settings" && s.settings) {
+    return (
+      <div className="screen">
+        {header}
+        <SettingsPage
+          settings={s.settings}
+          status={s.status}
+          onSave={saveSettings}
+          onDiscover={() => backend.discover()}
+          onStartHelper={async () => {
+            const outcome = await backend.startHelper();
+            // The helper takes a few seconds to start on the PS5.
+            setTimeout(() => void refreshStatus(), 4000);
+            return outcome;
+          }}
+          onPickFolder={() => backend.pickFolder()}
+          onDone={() => dispatch({ type: "view", view: "main" })}
+        />
+      </div>
+    );
   }
 
   if (s.phase === "empty" || !s.game) {
     return (
       <div className={s.dragging ? "screen dragging" : "screen"}>
-        <Header />
+        {header}
         <Empty
           message={s.message}
           onChooseFolder={() => void choose(backend.pickFolder)}
@@ -156,16 +226,19 @@ export default function App({ backend }: { backend: Backend }) {
   }
 
   const done = s.phase === "done";
+  const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
+  const packedKept =
+    !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const note =
     s.phase === "ready" || !s.job
-      ? footerNote({ kind: "ready", outputDir: s.options.outputDir })
+      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: s.options.send && sendable })
       : footerNote({ kind: s.phase, job: s.job });
 
   return (
     <div className={s.dragging ? "screen dragging" : "screen"}>
-      <Header />
+      {header}
       <div className="spacer" />
-      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} />
+      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} headline={sent ? "On the PS5" : "Packed"} />
       {s.message && (
         <p role="alert" className="message">
           {s.message}
@@ -175,6 +248,8 @@ export default function App({ backend }: { backend: Backend }) {
       {s.phase === "ready" ? (
         <Options
           options={s.options}
+          status={s.status}
+          destination={s.settings?.destination ?? "/data/homebrew"}
           onChange={(patch) => dispatch({ type: "options", patch })}
           onChangeFolder={() => void changeOutput()}
         />
@@ -184,7 +259,7 @@ export default function App({ backend }: { backend: Backend }) {
       <Footer
         phase={s.phase}
         note={note}
-        canShow={!!s.job?.packed}
+        canShow={packedKept}
         onPack={() => void pack()}
         onChangeGame={() => dispatch({ type: "reset" })}
         onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}

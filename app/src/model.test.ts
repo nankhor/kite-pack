@@ -123,3 +123,67 @@ describe("footerNote", () => {
     expect(footerNote({ kind: "done", job: job([], { state: "finished" }) })).toBe("Nothing was deleted.");
   });
 });
+
+describe("sending", () => {
+  const now = 1_000_000;
+
+  it("describes each send state", () => {
+    expect(stepRows(job([{ kind: "send", state: "pending", note: null }]), null, now)[0]).toEqual({
+      label: "Send to PS5",
+      state: "pending",
+      status: "Starts when packing ends",
+      bar: 0,
+    });
+    const running = stepRows(
+      job([{ kind: "send", state: "running", note: null }]),
+      progress({ done: 62, total: 100, startedAt: now - 60_000 * 13, startedDone: 0 }),
+      now,
+    )[0];
+    expect(running).toEqual({ label: "Send to PS5", state: "active", status: "62%, about 8 min left", bar: 62 });
+    const waiting = stepRows(job([{ kind: "send", state: "waiting", note: null }]), progress({ done: 38, total: 100 }), now)[0];
+    expect(waiting).toEqual({ label: "Send to PS5", state: "paused", status: "Paused at 38%", bar: 38 });
+    expect(stepRows(job([{ kind: "send", state: "done", note: "Sent and checked" }]), null, now)[0].status).toBe(
+      "Every file checked",
+    );
+  });
+
+  it("describes deleting the packed folder", () => {
+    expect(stepRows(job([{ kind: "deletePacked", state: "pending", note: null }]), null, now)[0].status).toBe(
+      "After the PS5 confirms every file",
+    );
+  });
+
+  it("says what is happening while sending or waiting", () => {
+    const sending = job([
+      { kind: "pack", state: "done", note: "x" },
+      { kind: "send", state: "running", note: null },
+    ]);
+    expect(footerNote({ kind: "running", job: sending })).toBe("Each file is checked on the PS5 as it lands.");
+    const waiting = job([
+      { kind: "pack", state: "done", note: "x" },
+      { kind: "send", state: "waiting", note: null },
+    ]);
+    expect(footerNote({ kind: "running", job: waiting })).toBe(
+      "The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped.",
+    );
+  });
+
+  it("says when sending starts by itself", () => {
+    expect(footerNote({ kind: "ready", outputDir: "/Games/Packed", send: true })).toBe(
+      "Packs into /Games/Packed, then sends to the PS5 by itself.",
+    );
+  });
+
+  it("mentions the Trash when the packed folder went there", () => {
+    const sent = job(
+      [
+        { kind: "send", state: "done", note: "x" },
+        { kind: "deletePacked", state: "done", note: "x" },
+      ],
+      { state: "finished" },
+    );
+    expect(footerNote({ kind: "done", job: sent })).toBe(
+      "Deleted folders stay in the Trash until you empty it. Play the game once first.",
+    );
+  });
+});

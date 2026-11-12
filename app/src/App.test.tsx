@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
-import type { GameInfo, JobView, PackOptions, UiEvent } from "./types";
+import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
 
 const GAME: GameInfo = {
   kind: "folder",
@@ -39,6 +39,9 @@ class FakeBackend implements Backend {
   ]);
   left: JobView | null = null;
   initial: string | null = null;
+  cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
+  online = true;
+  found: Found[] = [];
   private listeners: ((e: UiEvent) => void)[] = [];
   private droppers: ((d: DropEvent) => void)[] = [];
 
@@ -57,6 +60,16 @@ class FakeBackend implements Backend {
   pickFolder = vi.fn(async () => "/Games/Ashen Tide");
   pickFile = vi.fn(async () => null);
   reveal = vi.fn(async (_path: string) => {});
+  settings = vi.fn(async () => ({ ...this.cfg }));
+  saveSettings = vi.fn(async (s: Settings) => {
+    this.cfg = { ...s };
+  });
+  ps5Status = vi.fn(async (): Promise<Status> => {
+    if (!this.cfg.address) return { state: "notSetUp" };
+    return this.online ? { state: "running", version: "0.1.0-alpha.3" } : { state: "notReachable" };
+  });
+  discover = vi.fn(async () => this.found);
+  startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   onEvent(cb: (e: UiEvent) => void) {
     this.listeners.push(cb);
     return () => {};
@@ -140,10 +153,10 @@ describe("ready", () => {
     expect(screen.getByText("Packs into /Games.")).toBeInTheDocument();
   });
 
-  it("keeps Send off until the Kite helper exists", async () => {
+  it("keeps Send off until a PS5 is set up", async () => {
     await showGame();
+    expect(await screen.findByText("Set up your PS5 in Settings first.")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Send to PS5" })).toBeDisabled();
-    expect(screen.getByText("Needs the Kite helper on your PS5. It comes in the next version.")).toBeInTheDocument();
     expect(screen.queryByText("Delete the packed folder")).not.toBeInTheDocument();
   });
 
@@ -165,15 +178,23 @@ describe("ready", () => {
       level: "max",
       outputDir: "/Games",
       deleteOriginal: true,
+      send: false,
+      deletePacked: false,
     });
   });
 
-  it("uses the last folder chosen with Change", async () => {
+  it("keeps the folder chosen with Change for next time", async () => {
     backend.pickFolder = vi.fn(async () => "/Packed");
     await showGame();
     await userEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(await screen.findByText("Packs into /Packed.")).toBeInTheDocument();
-    expect(localStorage.getItem("kite.outputDir")).toBe("/Packed");
+    expect(backend.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ packedFolder: "/Packed" }));
+  });
+
+  it("packs into the saved folder", async () => {
+    backend.cfg.packedFolder = "/Packed";
+    await showGame();
+    expect(await screen.findByText("Packs into /Packed.")).toBeInTheDocument();
   });
 });
 
@@ -302,5 +323,108 @@ describe("on launch", () => {
     render(<App backend={backend} />);
     expect(await screen.findByRole("heading", { name: "PPSA01234" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "No icon" })).toBeInTheDocument();
+  });
+});
+
+describe("PS5", () => {
+  const ADDRESS = "192.168.1.42";
+
+  it("says when no PS5 is set up, and opens Settings", async () => {
+    render(<App backend={backend} />);
+    const chip = await screen.findByRole("button", { name: /Not set up/ });
+    await userEvent.click(chip);
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  });
+
+  it("shows a running helper", async () => {
+    backend.cfg.address = ADDRESS;
+    render(<App backend={backend} />);
+    expect(await screen.findByRole("button", { name: /Helper running/ })).toBeInTheDocument();
+  });
+
+  it("shows an unreachable PS5", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.online = false;
+    render(<App backend={backend} />);
+    expect(await screen.findByRole("button", { name: /Not reachable/ })).toBeInTheDocument();
+  });
+
+  it("picks the one PS5 it finds on the network", async () => {
+    backend.found = [{ address: ADDRESS, port: 9130, version: "0.1.0-alpha.3" }];
+    render(<App backend={backend} />);
+    expect(await screen.findByRole("button", { name: /Helper running/ })).toBeInTheDocument();
+    expect(backend.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ address: ADDRESS }));
+  });
+
+  it("doesn't choose between several PS5s by itself", async () => {
+    backend.found = [
+      { address: ADDRESS, port: 9130, version: "1" },
+      { address: "192.168.1.43", port: 9130, version: "1" },
+    ];
+    render(<App backend={backend} />);
+    await waitFor(() => expect(backend.discover).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: /Not set up/ })).toBeInTheDocument();
+    expect(backend.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("sends, with the third toggle lined up under Send", async () => {
+    backend.cfg.address = ADDRESS;
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    const send = screen.getByRole("switch", { name: "Send to PS5" });
+    expect(send).toBeEnabled();
+    expect(screen.getByText("Starts by itself when packing ends, into /data/homebrew.")).toBeInTheDocument();
+    await userEvent.click(send);
+    const third = screen.getByRole("switch", { name: "Delete the packed folder" });
+    expect(third.closest(".toggle")).toHaveClass("sub");
+    await userEvent.click(screen.getByRole("switch", { name: "Delete the original" }));
+    await userEvent.click(third);
+    expect(screen.getByText("Only the copy on the PS5 will be left.")).toBeInTheDocument();
+    expect(screen.getByText("Packs into /Games, then sends to the PS5 by itself.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", {
+      format: "folder",
+      level: "fast",
+      outputDir: "/Games",
+      deleteOriginal: true,
+      send: true,
+      deletePacked: true,
+    });
+  });
+
+  it("lets Send wait for a PS5 that isn't reachable", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.online = false;
+    await showGame();
+    expect(await screen.findByText("The PS5 isn't reachable right now. Sending waits for it.")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Send to PS5" })).toBeEnabled();
+  });
+
+  it("shows the send step through to the PS5", async () => {
+    backend.cfg.address = ADDRESS;
+    await showGame();
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    const steps = (send: "running" | "waiting" | "done") =>
+      job({
+        steps: [
+          { kind: "pack", state: "done", note: "x" },
+          { kind: "send", state: send, note: send === "done" ? "Sent and checked" : null },
+        ],
+        state: send === "done" ? "finished" : "running",
+        packed: "/Games/[Ashen Tide]-[PPSA01234]",
+        packedBytes: 51_600_000_000,
+      });
+    backend.emit({ type: "job", job: steps("running") });
+    backend.emit({ type: "progress", id: "job-1", index: 1, done: 38, total: 100 });
+    expect(screen.getByText("Send to PS5")).toBeInTheDocument();
+    expect(screen.getByText(/^38%/)).toBeInTheDocument();
+    backend.emit({ type: "job", job: steps("waiting") });
+    expect(screen.getByText("Paused at 38%")).toBeInTheDocument();
+    expect(
+      screen.getByText("The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped."),
+    ).toBeInTheDocument();
+    backend.emit({ type: "job", job: steps("done") });
+    expect(await screen.findByText("Every file checked")).toBeInTheDocument();
+    expect(screen.getByText("On the PS5", { selector: "p" })).toBeInTheDocument();
   });
 });

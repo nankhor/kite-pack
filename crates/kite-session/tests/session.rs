@@ -335,3 +335,20 @@ fn send_step_runs_and_reports_progress() {
     assert_eq!(sends.last(), Some(&(100, 100)), "{sends:?}");
     assert!(!done.packed.unwrap().exists(), "the packed folder went to the Trash after sending");
 }
+
+#[test]
+fn packed_size_is_kept_when_the_packed_copy_goes_to_the_trash() {
+    let w = World::new();
+    let session = w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(FakeSender));
+    let events = Events::default();
+    let mut options = w.options(false);
+    options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
+    options.delete_packed = true;
+    session.start(w.game.clone(), options, events.emit()).unwrap();
+    let done = events.last();
+    assert_eq!(done.state, JobState::Finished);
+    let in_trash = w.bin.join(done.packed.as_ref().unwrap().file_name().unwrap());
+    assert!(in_trash.is_dir());
+    assert_eq!(done.packed_bytes, Some(packed_size(&in_trash)), "measured before it went to the Trash");
+    assert!(done.packed_bytes.unwrap() > 0);
+}

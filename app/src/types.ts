@@ -55,6 +55,8 @@ export interface PackOptions {
   level: Level;
   outputDir: string;
   deleteOriginal: boolean;
+  send: boolean;
+  deletePacked: boolean;
 }
 
 /** The running step's progress, as the screen tracks it. */
@@ -67,3 +69,29 @@ export interface ProgressState {
   startedAt: number | null;
   startedDone: number;
 }
+
+/** The app's PS5 settings (kite-ps5's Settings). */
+export interface Settings {
+  address: string | null;
+  helperPort: number;
+  loaderPort: number;
+  /** Where games go on the PS5. */
+  destination: string;
+  /** Where packed copies go on this computer; null for next to each game. */
+  packedFolder: string | null;
+}
+
+export type Status =
+  | { state: "notSetUp" }
+  | { state: "notReachable" }
+  | { state: "running"; version: string }
+  | { state: "refused"; reason: string };
+
+/** A Kite helper that answered on the network. */
+export interface Found {
+  address: string;
+  port: number;
+  version: string;
+}
+
+export type StartOutcome = "alreadyRunning" | "sent";
