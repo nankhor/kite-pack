@@ -1,0 +1,17 @@
+[package]
+name = "kite-forge"
+description = "Kite Pack's bridge to PS5 Dump Forge: inspect games, pack them with zstd"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+kite-pipeline.workspace = true
+ps5-dump-forge-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# Forge reports outputs under the real path (/private/var on macOS, long names on Windows).
+dunce = "1"

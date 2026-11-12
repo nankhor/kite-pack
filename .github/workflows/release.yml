@@ -1,0 +1,95 @@
+name: release
+
+# A tag like v0.1.0-alpha.1 builds kite-pack for every platform and publishes a GitHub
+# release with the archives. Run it by hand to check the builds without publishing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Third-party notices
+        run: cargo about generate --locked about.hbs -o THIRD-PARTY-NOTICES.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notices
+          path: THIRD-PARTY-NOTICES.html
+
+  build:
+    needs: notices
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 keeps the binary working on older glibc (Ubuntu 22.04, Debian 12 and later).
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, name: linux-x64 }
+          - { os: macos-latest, target: aarch64-apple-darwin, name: macos-arm64 }
+          - { os: macos-latest, target: x86_64-apple-darwin, name: macos-x64 }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc, name: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked -p kite-cli --target ${{ matrix.target }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+      - name: Package
+        shell: bash
+        run: |
+          dir="kite-pack-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
+          mkdir "$dir"
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; else exe=""; fi
+          cp "target/${{ matrix.target }}/release/kite-pack$exe" "$dir/"
+          cp README.md LICENSE CHANGELOG.md THIRD-PARTY-NOTICES.html "$dir/"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            7z a -tzip "$dir.zip" "$dir" > /dev/null
+          else
+            tar czf "$dir.tar.gz" "$dir"
+          fi
+          "$dir/kite-pack$exe" --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: kite-pack-*-${{ matrix.name }}.*
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          # The four builds (linux-x64, macos-arm64, ...); not the notices artifact.
+          pattern: "*-*"
+          merge-multiple: true
+      - name: Checksums and notes
+        run: |
+          (cd dist && sha256sum kite-pack-* > SHA256SUMS.txt && ls -l)
+          version="${GITHUB_REF_NAME#v}"
+          awk -v head="## ${version}" '$0 == head {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
+          test -s notes.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Kite Pack ${{ github.ref_name }}
+          body_path: notes.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: dist/*
