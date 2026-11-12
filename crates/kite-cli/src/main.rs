@@ -144,6 +144,14 @@ fn pack(source: PathBuf, out: PathBuf, format: OutputFormat, level: Level, delet
         eprintln!("{}", problem.message());
         return ExitCode::from(REFUSED);
     }
+    // The job is saved and may be resumed from another folder, so it keeps full paths.
+    let (source, out) = match (std::path::absolute(&source), std::path::absolute(&out)) {
+        (Ok(source), Ok(out)) => (source, out),
+        (Err(e), _) | (_, Err(e)) => {
+            eprintln!("Couldn't read the path: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
     let options = Options {
         format,
         level,

@@ -95,3 +95,28 @@ fn refused_source_packs_nothing() {
     kite(tmp.path()).arg("pack").arg(&dlc).arg("--out").arg(&out).assert().code(2);
     assert_eq!(fs::read_dir(&out).unwrap().count(), 0);
 }
+
+#[test]
+fn resume_from_another_folder_uses_the_paths_typed_at_pack_time() {
+    let tmp = tempfile::tempdir().unwrap();
+    let work = tmp.path().join("work");
+    make_game(&work);
+    // A file where the output folder should be: the pack fails and the job stays open.
+    fs::write(work.join("out"), b"in the way").unwrap();
+    kite(tmp.path())
+        .current_dir(&work)
+        .args(["pack", "Ashen Tide", "--out", "out"])
+        .assert()
+        .code(1);
+    fs::remove_file(work.join("out")).unwrap();
+
+    let listed = kite(tmp.path()).current_dir(tmp.path()).arg("jobs").assert().success();
+    let stdout = String::from_utf8(listed.get_output().stdout.clone()).unwrap();
+    let id = stdout.split_whitespace().next().unwrap().to_string();
+    assert!(stdout.contains(&*work.join("Ashen Tide").to_string_lossy()), "{stdout}");
+
+    kite(tmp.path()).current_dir(tmp.path()).args(["resume", &id]).assert().success();
+    let packed: Vec<_> = fs::read_dir(work.join("out")).unwrap().collect();
+    assert_eq!(packed.len(), 1);
+    assert!(packed[0].as_ref().unwrap().path().join("ampr_zstd.index").is_file());
+}
