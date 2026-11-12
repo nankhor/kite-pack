@@ -3,9 +3,11 @@
 
 mod connect;
 mod discover;
+mod send;
 
 pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
+pub use send::Ps5Sender;
 
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
