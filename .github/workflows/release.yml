@@ -5,13 +5,25 @@ name: release
 #
 # Every artifact is a single file uploaded as itself (archive: false), so a download from the
 # run page is the file, not a zip around it.
+#
+# Run by hand with `tag` set to publish to a tag that already exists (say, after a failed run),
+# built from the branch it runs on.
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Publish to this existing tag (leave empty to only build)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
+
+env:
+  # The release's name in file names: the tag, or the branch for a build-only run.
+  RELEASE: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   notices:
@@ -70,7 +82,7 @@ jobs:
       - name: Name the file
         shell: bash
         run: |
-          base="Kite-Pack-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
+          base="Kite-Pack-${RELEASE//\//-}-${{ matrix.name }}"
           case "$RUNNER_OS" in
             Windows) cp target/release/kite-app.exe "$base.exe" ;;
             macOS) cp "$(find target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)" "$base.dmg" ;;
@@ -110,7 +122,7 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          dir="kite-pack-cli-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}"
+          dir="kite-pack-cli-${RELEASE//\//-}-${{ matrix.name }}"
           mkdir "$dir"
           if [ "$RUNNER_OS" = "Windows" ]; then exe=".exe"; else exe=""; fi
           cp "target/${{ matrix.target }}/release/kite-pack$exe" "$dir/"
@@ -130,23 +142,43 @@ jobs:
 
   publish:
     needs: [app, cli]
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    env:
+      PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') || inputs.tag != '' }}
     steps:
       - uses: actions/checkout@v4
+      # As-is: the Windows command-line download is a .zip, which would otherwise be unpacked.
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
-      - name: Checksums and notes
+          skip-decompress: true
+      - name: Check the files
         run: |
-          (cd dist && ls -l && sha256sum * > SHA256SUMS.txt)
-          version="${GITHUB_REF_NAME#v}"
+          cd dist
+          ls -l
+          for f in *; do
+            [ -f "$f" ] || { echo "::error::$f arrived as a folder, not a file"; exit 1; }
+          done
+          for kind in windows-x64.exe macos.dmg linux-x64.AppImage; do
+            ls Kite-Pack-*-"$kind" > /dev/null || { echo "::error::No app file for $kind"; exit 1; }
+          done
+          sha256sum * > SHA256SUMS.txt
+      - name: Release notes
+        if: env.PUBLISH == 'true'
+        run: |
+          version="${RELEASE#v}"
+          grep -q "^version = \"$version\"" Cargo.toml || {
+            echo "::error::$RELEASE is on a commit whose version isn't $version. Was the tag made before the merge?"
+            exit 1
+          }
           awk -v head="## ${version}" '$0 == head {f=1; next} /^## / {f=0} f' CHANGELOG.md > notes.md
-          test -s notes.md
+          test -s notes.md || { echo "::error::CHANGELOG.md has no '## $version' section"; exit 1; }
       - uses: softprops/action-gh-release@v2
+        if: env.PUBLISH == 'true'
         with:
-          name: Kite Pack ${{ github.ref_name }}
+          tag_name: ${{ env.RELEASE }}
+          name: Kite Pack ${{ env.RELEASE }}
           body_path: notes.md
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.RELEASE, '-') }}
           files: dist/*
