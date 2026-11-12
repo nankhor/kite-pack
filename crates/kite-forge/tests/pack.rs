@@ -96,3 +96,13 @@ fn unreadable_source_fails_with_forges_words() {
     let result = pack(&request(&tmp.path().join("nothing"), &out, OutputFormat::Folder));
     assert!(matches!(result, Err(PackError::Failed(ref why)) if !why.is_empty()), "{result:?}");
 }
+
+#[test]
+fn creates_a_missing_output_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = make_game(tmp.path(), "ashen");
+    let out = tmp.path().join("not yet").join("out");
+    let done = pack(&request(&game, &out, OutputFormat::Folder)).unwrap();
+    assert!(done.output.starts_with(&out));
+    assert!(done.output.join("ampr_zstd.index").is_file());
+}

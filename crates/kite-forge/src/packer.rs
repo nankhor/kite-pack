@@ -38,6 +38,8 @@ impl Packer for ForgePacker {
             return Err(PackError::Cancelled);
         }
         let format = to_forge_format(req.format);
+        std::fs::create_dir_all(&req.output_dir)
+            .map_err(|e| failed(format!("Couldn't create {}: {e}", req.output_dir.display())))?;
         // Forge never hands back a path that exists: a second pack gets "-2", "-3", ...
         let output = generated_output(&req.source, format, &req.output_dir, &[], Some(PackKind::Zstd), None)
             .map_err(failed)?;
