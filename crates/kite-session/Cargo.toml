@@ -1,0 +1,16 @@
+[package]
+name = "kite-session"
+description = "Kite Pack's app session: one job at a time, as events the screen can show"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+kite-pipeline.workspace = true
+serde.workspace = true
+walkdir.workspace = true
+
+[dev-dependencies]
+kite-forge.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true

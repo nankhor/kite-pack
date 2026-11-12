@@ -21,6 +21,7 @@ tempfile = "3"
 assert_cmd = "2"
 kite-pipeline = { path = "crates/kite-pipeline" }
 kite-forge = { path = "crates/kite-forge" }
+kite-session = { path = "crates/kite-session" }
 # PS5 Dump Forge (quer3q), GPL-3.0-or-later. Pinned: move it on purpose, with ampr-emu-ng.
 ps5-dump-forge-core = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd" }
 
