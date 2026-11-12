@@ -1,0 +1,8 @@
+//! Kite Pack's pipeline: what a job is, which steps it runs, in which order, and the rules
+//! that keep every delete behind the check before it.
+
+mod options;
+mod steps;
+
+pub use options::{Level, Options, OptionsError, OutputFormat, SendTarget};
+pub use steps::{Step, StepKind, StepState, plan_steps};
