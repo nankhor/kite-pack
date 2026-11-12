@@ -8,6 +8,7 @@ accepted = [
     "BSD-2-Clause",
     "BSD-3-Clause",
     "0BSD",
+    "ISC",
     "Zlib",
     "bzip2-1.0.6",
     "MPL-2.0",
