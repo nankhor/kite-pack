@@ -85,7 +85,7 @@ impl Sender for Ps5Sender {
             .map_err(|e| SendError::Failed(format!("Couldn't read the packed copy: {e}")))?;
 
         let id = job_id(local, target);
-        let console = Console { address: target.console.clone(), port: self.port };
+        let console = Console::parse(&target.console, self.port);
         runtime().block_on(async {
             let session = open(&console, &self.keys).await.map_err(from_ps5)?;
             let counters = Arc::new(Ava1Progress::default());

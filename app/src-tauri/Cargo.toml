@@ -11,6 +11,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 kite-forge.workspace = true
 kite-pipeline.workspace = true
+kite-ps5.workspace = true
 kite-session.workspace = true
 serde.workspace = true
 tauri = { version = "2", features = [] }

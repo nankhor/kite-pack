@@ -4,7 +4,7 @@ use common::make_game;
 use kite_forge::ForgePacker;
 use kite_pipeline::{
     Job, JobStore, Level, Options, OutputFormat, PackError, PackOutcome, PackRequest, Packer,
-    Progress, StepState, Trash,
+    Progress, SendError, SendTarget, Sender, StepState, Trash, Unavailable,
 };
 use kite_session::{Emit, JobState, JobView, Ports, Session, UiEvent, packed_size};
 use std::path::{Path, PathBuf};
@@ -58,7 +58,11 @@ impl World {
     }
 
     fn session_with(&self, packer: Arc<dyn Packer>) -> Session {
-        let ports = Ports { packer, trash: Arc::new(BinTrash(self.bin.clone())) };
+        self.session_full(packer, Arc::new(Unavailable))
+    }
+
+    fn session_full(&self, packer: Arc<dyn Packer>, sender: Arc<dyn Sender>) -> Session {
+        let ports = Ports { packer, trash: Arc::new(BinTrash(self.bin.clone())), sender };
         Session::new(self.jobs.clone(), ports).unwrap()
     }
 
@@ -288,4 +292,46 @@ fn stopping_for_exit_with_nothing_running_returns_at_once() {
     let w = World::new();
     let session = w.session();
     assert!(session.stop_for_exit(Duration::from_millis(1)));
+}
+
+/// Sends nothing: reports two steps of progress and says it's done.
+struct FakeSender;
+
+impl Sender for FakeSender {
+    fn send(&self, _: &Path, target: &SendTarget, progress: &dyn Fn(Progress), _: &AtomicBool) -> Result<(), SendError> {
+        assert_eq!(target.destination, "/data/homebrew");
+        progress(Progress::Bytes { done: 50, total: 100 });
+        std::thread::sleep(Duration::from_millis(150));
+        progress(Progress::Bytes { done: 100, total: 100 });
+        Ok(())
+    }
+}
+
+#[test]
+fn send_step_runs_and_reports_progress() {
+    let w = World::new();
+    let session = w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(FakeSender));
+    let events = Events::default();
+    let mut options = w.options(false);
+    options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
+    options.delete_packed = true;
+    session.start(w.game.clone(), options, events.emit()).unwrap();
+    let done = events.last();
+    assert_eq!(done.state, JobState::Finished, "{done:?}");
+    assert_eq!(
+        kinds_and_states(&done),
+        vec![pair("pack", "done"), pair("send", "done"), pair("deletePacked", "done")]
+    );
+    let sends: Vec<(u64, u64)> = events
+        .0
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|e| match e {
+            UiEvent::Progress { index: 1, done, total, .. } => Some((*done, *total)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sends.last(), Some(&(100, 100)), "{sends:?}");
+    assert!(!done.packed.unwrap().exists(), "the packed folder went to the Trash after sending");
 }

@@ -165,3 +165,15 @@ fn resumes_after_the_helper_restarts() {
     assert!(resumed_from >= size / 4, "it started over: first progress {resumed_from} of {size}");
     assert_eq!(std::fs::read(Path::new(&target.destination).join("big.ffpkg")).unwrap(), std::fs::read(&image).unwrap());
 }
+
+#[test]
+fn a_port_in_the_console_address_is_used() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let packed = packed_folder(tmp.path());
+    let mut target = target(&helper);
+    target.console = format!("127.0.0.1:{}", helper.port);
+    // The sender's own port is wrong; the one in the address wins.
+    sender(tmp.path(), closed_port()).send(&packed, &target, &|_| {}, &AtomicBool::new(false)).unwrap();
+    assert!(helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]/ampr_zstd.index").is_file());
+}

@@ -24,6 +24,17 @@ pub struct Console {
 }
 
 impl Console {
+    /// "192.168.1.42" uses `default_port`; "192.168.1.42:9131" carries its own.
+    pub fn parse(console: &str, default_port: u16) -> Console {
+        if let Some((address, port)) = console.rsplit_once(':')
+            && !address.contains(':')
+            && let Ok(port) = port.parse()
+        {
+            return Console { address: address.to_string(), port };
+        }
+        Console { address: console.to_string(), port: default_port }
+    }
+
     pub(crate) fn socket(&self) -> String {
         if self.address.contains(':') {
             format!("[{}]:{}", self.address, self.port)

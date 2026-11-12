@@ -2497,6 +2497,7 @@ version = "0.1.0-alpha.2"
 dependencies = [
  "kite-forge",
  "kite-pipeline",
+ "kite-ps5",
  "kite-session",
  "serde",
  "tauri",
