@@ -1,0 +1,48 @@
+# cargo-about: builds THIRD-PARTY-NOTICES.html for the release archives.
+accepted = [
+    "GPL-3.0-or-later",
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "0BSD",
+    "Zlib",
+    "bzip2-1.0.6",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Unlicense",
+]
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-apple-darwin",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+ignore-build-dependencies = false
+ignore-dev-dependencies = true
+
+# The C libraries bundled inside their Rust wrappers carry their own licences.
+[zstd-sys.clarify]
+license = "BSD-3-Clause"
+[[zstd-sys.clarify.files]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "ce4868c8e4ebe47a7d4b3c93dbf6b802033e5ae2fa7638098173f80836daac60"
+[[zstd-sys.clarify.files]]
+path = "zstd/LICENSE"
+license = "BSD-3-Clause"
+checksum = "7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8"
+
+[lz4-sys.clarify]
+license = "MIT AND BSD-2-Clause"
+[[lz4-sys.clarify.files]]
+path = "LICENSE"
+license = "MIT"
+checksum = "77633124ac69bf094e06cf9f3157c54d6e51d6b58a38d4f28141947815ecadfa"
+[[lz4-sys.clarify.files]]
+path = "liblz4/lib/LICENSE"
+license = "BSD-2-Clause"
+checksum = "8b58c446121a109ccf32edc094bba3010a3d85e4ee3702950db55e4d3e87736c"

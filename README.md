@@ -10,6 +10,12 @@ This repository holds the core for now:
 
 Sending to the PS5 (the Kite helper) and the desktop app come next.
 
+## Download
+
+Each [release](https://github.com/nankhor/kite-pack/releases) has `kite-pack` for Windows (x64), macOS (Apple silicon and Intel) and Linux (x64). Unpack it and run it from a terminal.
+
+The binaries aren't signed yet. On macOS, run `xattr -d com.apple.quarantine kite-pack` once. On Windows, choose More info, then Run anyway, if SmartScreen stops it.
+
 ## Build
 
 You need Rust (stable) and a C compiler.
