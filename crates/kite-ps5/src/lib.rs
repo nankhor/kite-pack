@@ -3,11 +3,17 @@
 
 mod connect;
 mod discover;
+mod launch;
 mod send;
+mod settings;
+mod status;
 
 pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
+pub use launch::{StartOutcome, start_helper};
 pub use send::Ps5Sender;
+pub use settings::Settings;
+pub use status::{Status, status};
 
 use std::sync::OnceLock;
 use tokio::runtime::Runtime;
