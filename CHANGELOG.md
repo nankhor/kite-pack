@@ -8,6 +8,7 @@ Send to PS5 works.
 - **No code to type.** With the helper running, Kite Pack finds the PS5 on your home network by itself. The helper accepts computers on the home network (192.168.x.x, 10.x.x.x, 172.16–31.x.x) and refuses others. The link is encrypted.
 - **Send to PS5** sends the packed copy once packing ends, into the folder set in Settings (`/data/homebrew` by default). Every file is checked on the PS5 as it lands. If the PS5 goes to sleep or drops off the network, the step shows Paused and picks up where it stopped when the PS5 is back.
 - **Delete the packed folder** appears under Send: the packed copy goes to the Trash once the PS5 has every file.
+- On macOS, moving a folder to the Trash no longer asks for permission to control Finder. To get it back, drag it out of the Trash.
 - **Settings**: the PS5 found on the network, its address, Start the Kite helper, where games go on the PS5, and where packed copies go on this computer.
 - The packed size now shows correctly when the packed folder is deleted after sending.
 

@@ -13,9 +13,17 @@ impl Trash for SystemTrash {
     }
 }
 
-/// How Kite Pack moves things to the Trash.
+/// How Kite Pack moves things to the Trash. On macOS it asks the system directly:
+/// asking Finder would make macOS ask for permission to control Finder first.
 fn context() -> trash::TrashContext {
-    trash::TrashContext::new()
+    #[allow(unused_mut)]
+    let mut context = trash::TrashContext::new();
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        context.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    context
 }
 
 #[cfg(test)]
