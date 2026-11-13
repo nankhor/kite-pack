@@ -2493,7 +2493,7 @@ dependencies = [
 
 [[package]]
 name = "kite-app"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "kite-forge",
  "kite-pipeline",
@@ -2508,7 +2508,7 @@ dependencies = [
 
 [[package]]
 name = "kite-cli"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -2522,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "kite-forge"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "dunce",
  "kite-pipeline",
@@ -2534,7 +2534,7 @@ dependencies = [
 
 [[package]]
 name = "kite-pipeline"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -2547,7 +2547,7 @@ dependencies = [
 
 [[package]]
 name = "kite-ps5"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "ava1",
  "if-addrs",
@@ -2561,7 +2561,7 @@ dependencies = [
 
 [[package]]
 name = "kite-session"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 dependencies = [
  "kite-forge",
  "kite-pipeline",
