@@ -177,3 +177,33 @@ fn a_port_in_the_console_address_is_used() {
     sender(tmp.path(), closed_port()).send(&packed, &target, &|_| {}, &AtomicBool::new(false)).unwrap();
     assert!(helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]/ampr_zstd.index").is_file());
 }
+
+/// The app checks the PS5 every 10 seconds, sending or not. The helper keeps one session per
+/// device and a new one from the same key replaces it, so the check must not dial as the
+/// sender: that cut the send, which showed as Paused until the retry, again and again.
+#[test]
+fn a_status_check_doesnt_cut_a_send() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let image = tmp.path().join("big.ffpkg");
+    std::fs::write(&image, noise(30_000_000, 6)).unwrap();
+    // One set of keys for both, as the app has.
+    let keys = Keys::open(&tmp.path().join("pc")).unwrap();
+    let mut s = Ps5Sender::new(keys.clone(), helper.port, tmp.path().join("outboards"));
+    s.bandwidth_cap = Some(10_000_000);
+    let (moving, wait) = std::sync::mpsc::channel();
+    let console = helper.console();
+    let check = std::thread::spawn(move || {
+        wait.recv().unwrap();
+        kite_ps5::status(Some(&console), &keys)
+    });
+    let told = AtomicBool::new(false);
+    let result = s.send(&image, &target(&helper), &|p| {
+        if matches!(p, Progress::Bytes { done, .. } if done > 0) && !told.swap(true, Ordering::SeqCst) {
+            let _ = moving.send(());
+        }
+    }, &AtomicBool::new(false));
+    assert!(matches!(check.join().unwrap(), kite_ps5::Status::Running { .. }));
+    result.expect("the send must carry on through a status check");
+    assert_eq!(std::fs::read(helper.share.join("homebrew/big.ffpkg")).unwrap(), std::fs::read(&image).unwrap());
+}

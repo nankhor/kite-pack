@@ -44,10 +44,16 @@ impl Console {
     }
 }
 
-/// This computer's AVA1 identity and the helpers it knows, kept in one folder.
+/// This computer's AVA1 identities and the helpers it knows, kept in one folder.
 #[derive(Clone)]
 pub struct Keys {
+    /// What sends connect as.
     pub(crate) identity: Arc<Identity>,
+    /// What status checks connect as. The helper keeps one session per device: a new
+    /// handshake from a key ends that key's other session. Checks run every few seconds, also
+    /// while sending, so with the sender's key each one cut the send (Paused until the retry).
+    /// With a key of their own they are another device and the send carries on.
+    pub(crate) checker: Arc<Identity>,
     pub(crate) peers: Arc<Mutex<PeerStore>>,
 }
 
@@ -55,8 +61,9 @@ impl Keys {
     pub fn open(dir: &Path) -> io::Result<Keys> {
         std::fs::create_dir_all(dir)?;
         let identity = Identity::load_or_create(&dir.join("identity"))?;
+        let checker = Identity::load_or_create(&dir.join("identity-check"))?;
         let peers = PeerStore::load(&dir.join("peers"))?;
-        Ok(Keys { identity: Arc::new(identity), peers: Arc::new(Mutex::new(peers)) })
+        Ok(Keys { identity: Arc::new(identity), checker: Arc::new(checker), peers: Arc::new(Mutex::new(peers)) })
     }
 }
 
@@ -76,9 +83,9 @@ pub(crate) fn map_error(e: Ava1Error) -> Ps5Error {
     }
 }
 
-async fn connect_once(console: &Console, keys: &Keys) -> Result<Session, Ps5Error> {
+async fn connect_once(console: &Console, me: &Arc<Identity>, keys: &Keys) -> Result<Session, Ps5Error> {
     let addr = console.socket();
-    let attempt = connect(&addr, keys.identity.clone(), keys.peers.clone(), MY_NAME, Timing::default());
+    let attempt = connect(&addr, me.clone(), keys.peers.clone(), MY_NAME, Timing::default());
     match tokio::time::timeout(REACH, attempt).await {
         Ok(result) => result.map_err(map_error),
         Err(_) => Err(Ps5Error::Unreachable("timed out".into())),
@@ -87,8 +94,9 @@ async fn connect_once(console: &Console, keys: &Keys) -> Result<Session, Ps5Erro
 
 /// A session the helper and this computer both trust. On first contact (or after the helper
 /// was reinstalled with a new key) this side remembers the helper's key and connects again.
-pub(crate) async fn open(console: &Console, keys: &Keys) -> Result<Session, Ps5Error> {
-    let session = connect_once(console, keys).await?;
+/// `me` is one of `keys`' identities: the sender's or the checker's.
+pub(crate) async fn open(console: &Console, me: &Arc<Identity>, keys: &Keys) -> Result<Session, Ps5Error> {
+    let session = connect_once(console, me, keys).await?;
     if !session.pairing_pending() {
         return Ok(session);
     }
@@ -99,7 +107,7 @@ pub(crate) async fn open(console: &Console, keys: &Keys) -> Result<Session, Ps5E
         .unwrap()
         .add(key, "Kite helper")
         .map_err(|e| Ps5Error::Failed(format!("Couldn't remember the PS5: {e}")))?;
-    let again = connect_once(console, keys).await?;
+    let again = connect_once(console, me, keys).await?;
     if again.pairing_pending() {
         again.close().await;
         return Err(Ps5Error::NotHomeNetwork);
@@ -107,10 +115,10 @@ pub(crate) async fn open(console: &Console, keys: &Keys) -> Result<Session, Ps5E
     Ok(again)
 }
 
-/// Connects, and says which helper answered.
+/// Connects, and says which helper answered. Connects as the checker, so it never ends a send.
 pub fn hello(console: &Console, keys: &Keys) -> Result<HelperInfo, Ps5Error> {
     runtime().block_on(async {
-        let session = open(console, keys).await?;
+        let session = open(console, &keys.checker, keys).await?;
         let info = session.node_info().await.map_err(map_error);
         session.close().await;
         let info = info?;
