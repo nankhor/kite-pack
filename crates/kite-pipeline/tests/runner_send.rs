@@ -217,3 +217,82 @@ fn resume_after_crash_mid_pack() {
     assert_eq!(outcome, RunOutcome::Finished);
     assert_eq!(calls(&w.log), vec!["pack", "send"]);
 }
+
+/// Drops the first try part way through; the second try sends it all. Once bytes move on the
+/// second try, it records the send step as saved, which is what the app shows.
+struct DropsOnceSender {
+    store: JobStore,
+    id: String,
+    tries: Mutex<u32>,
+    seen: Mutex<Vec<StepState>>,
+}
+
+impl Sender for DropsOnceSender {
+    fn send(
+        &self,
+        _local: &std::path::Path,
+        _target: &SendTarget,
+        progress: &dyn Fn(Progress),
+        _cancel: &AtomicBool,
+    ) -> Result<(), SendError> {
+        let mut tries = self.tries.lock().unwrap();
+        *tries += 1;
+        progress(Progress::Bytes { done: 10, total: 100 });
+        if *tries == 1 {
+            return Err(SendError::Unreachable("connection reset".into()));
+        }
+        self.seen.lock().unwrap().push(self.store.load(&self.id).unwrap().steps[1].state.clone());
+        progress(Progress::Bytes { done: 100, total: 100 });
+        Ok(())
+    }
+}
+
+#[test]
+fn send_is_running_again_once_bytes_move_after_a_wait() {
+    let w = world();
+    let mut job = w.job(false, true, false, 0);
+    let (packer, trash) = (w.packer(PackResultKind::Ok), w.trash(None));
+    let installer = w.installer(&[], vec![]);
+    let sender =
+        DropsOnceSender { store: w.store.clone(), id: job.id.clone(), tries: Mutex::new(0), seen: Mutex::new(vec![]) };
+    let events = Mutex::new(Vec::new());
+    let runner = Runner {
+        packer: &packer,
+        trash: &trash,
+        sender: &sender,
+        installer: &installer,
+        sleeper: &NoSleep::new(),
+        store: &w.store,
+        retry_every: Duration::from_secs(5),
+    };
+    let outcome = runner.run(&mut job, &AtomicBool::new(false), &|e| events.lock().unwrap().push(e));
+    assert_eq!(outcome, RunOutcome::Finished);
+
+    // Saved as running again, so the app stops showing Paused.
+    assert_eq!(sender.seen.into_inner().unwrap(), vec![StepState::Running]);
+
+    // Told once when the send starts and once when it moves again after the wait, before the
+    // new bytes; the first try's bytes don't add an extra one.
+    let events = events.into_inner().unwrap();
+    let send_events: Vec<&RunEvent> = events
+        .iter()
+        .filter(|e| match e {
+            RunEvent::StepStarted { index }
+            | RunEvent::StepWaiting { index, .. }
+            | RunEvent::Progress { index, .. }
+            | RunEvent::StepDone { index, .. } => *index == 1,
+            _ => false,
+        })
+        .collect();
+    let kinds: Vec<&str> = send_events
+        .iter()
+        .map(|e| match e {
+            RunEvent::StepStarted { .. } => "started",
+            RunEvent::StepWaiting { .. } => "waiting",
+            RunEvent::Progress { .. } => "progress",
+            RunEvent::StepDone { .. } => "done",
+            _ => unreachable!(),
+        })
+        .collect();
+    assert_eq!(kinds, vec!["started", "progress", "waiting", "started", "progress", "progress", "done"]);
+}

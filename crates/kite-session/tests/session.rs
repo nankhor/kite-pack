@@ -352,3 +352,42 @@ fn packed_size_is_kept_when_the_packed_copy_goes_to_the_trash() {
     assert_eq!(done.packed_bytes, Some(packed_size(&in_trash)), "measured before it went to the Trash");
     assert!(done.packed_bytes.unwrap() > 0);
 }
+
+/// Drops the first try part way, as a Wi-Fi hiccup would; the second try goes through.
+struct DropsOnceSender(Mutex<u32>);
+
+impl Sender for DropsOnceSender {
+    fn send(&self, _: &Path, _: &SendTarget, progress: &dyn Fn(Progress), _: &AtomicBool) -> Result<(), SendError> {
+        let mut tries = self.0.lock().unwrap();
+        *tries += 1;
+        progress(Progress::Bytes { done: 30, total: 100 });
+        if *tries == 1 {
+            return Err(SendError::Unreachable("connection reset".into()));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        progress(Progress::Bytes { done: 100, total: 100 });
+        Ok(())
+    }
+}
+
+#[test]
+fn send_shows_running_again_when_the_ps5_comes_back() {
+    let w = World::new();
+    let session =
+        w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(DropsOnceSender(Mutex::new(0))));
+    let events = Events::default();
+    let mut options = w.options(false);
+    options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
+    session.start(w.game.clone(), options, events.emit()).unwrap();
+    assert_eq!(events.last().state, JobState::Finished);
+
+    // What the screen showed for the send step, in order, without repeats.
+    let mut shown: Vec<String> = Vec::new();
+    for job in events.jobs() {
+        let state = job.steps[1].state.clone();
+        if shown.last() != Some(&state) {
+            shown.push(state);
+        }
+    }
+    assert_eq!(shown, vec!["pending", "running", "waiting", "running", "done"]);
+}

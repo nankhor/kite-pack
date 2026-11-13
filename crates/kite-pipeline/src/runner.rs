@@ -5,6 +5,7 @@ use crate::ports::{
     InstallError, Installer, PackError, PackRequest, Packer, Progress, SendError, Sender,
     Sleeper, Trash,
 };
+use std::cell::RefCell;
 use std::path::Path;
 use crate::snapshot::Snapshot;
 use crate::steps::{StepKind, StepState};
@@ -145,6 +146,23 @@ impl Runner<'_> {
         Ok(())
     }
 
+    /// Bytes are moving after a wait: the PS5 is back, so the step is running again. Saved
+    /// before it's reported, like every state. If the save fails the step stays waiting, which
+    /// resumes the same way after a restart, and the next progress tries again; the send isn't
+    /// stopped for it, and the next step's save still reports a disk that keeps failing.
+    fn moving_again(&self, job: &mut Job, index: usize, events: &dyn Fn(RunEvent)) {
+        let was = job.steps[index].state.clone();
+        if !matches!(was, StepState::Waiting { .. }) {
+            return;
+        }
+        job.steps[index].state = StepState::Running;
+        if self.store.save(job).is_ok() {
+            events(RunEvent::StepStarted { index });
+        } else {
+            job.steps[index].state = was;
+        }
+    }
+
     /// Waits once between tries. `Some(end)` when the step must stop instead.
     fn wait_and_retry(
         &self,
@@ -165,8 +183,17 @@ impl Runner<'_> {
             return StepEnd::Failed("Nothing packed to send".into());
         };
         loop {
-            let progress = |progress: Progress| events(RunEvent::Progress { index, progress });
-            match self.sender.send(&packed, &target, &progress, cancel) {
+            let result = {
+                // The sender calls back on this thread, so the job can be lent to the callback
+                // to mark the step running again when a retry gets going.
+                let lent = RefCell::new(&mut *job);
+                let progress = |progress: Progress| {
+                    self.moving_again(&mut lent.borrow_mut(), index, events);
+                    events(RunEvent::Progress { index, progress });
+                };
+                self.sender.send(&packed, &target, &progress, cancel)
+            };
+            match result {
                 Ok(()) => return StepEnd::Done("Sent and checked".into()),
                 Err(SendError::Unreachable(_)) => {
                     if let Some(end) = self.wait_and_retry(job, index, cancel, events) {
