@@ -49,3 +49,33 @@ pub fn make_ps4_pkg(dir: &Path) -> PathBuf {
     fs::write(&path, bytes).unwrap();
     path
 }
+
+/// The test game as a debug fake PKG (`.pkg`), built by Forge itself the way Forge and ps5upload
+/// build them: the default debug passcode, so their readers (and Kite Pack) can open it.
+pub fn make_fake_pkg(dir: &Path) -> PathBuf {
+    use ps5_dump_forge_core::{ConvertRequest, Event, Jobs};
+    use std::sync::mpsc;
+    let game = make_game(dir, "fpkg-source");
+    let output = dir.join("Ashen Tide.pkg");
+    let request: ConvertRequest = serde_json::from_value(serde_json::json!({
+        "source": game,
+        "format": "pkg",
+        "output": output,
+    }))
+    .unwrap();
+    let (tx, rx) = mpsc::channel();
+    let jobs = Jobs::new(move |event| {
+        let _ = tx.send(event);
+    });
+    let id = jobs.start(request);
+    loop {
+        if let Event::Done { job, result } = rx.recv().unwrap()
+            && job == id
+        {
+            let report = result.unwrap_or_else(|e| panic!("Forge couldn't build the fake PKG: {e}"));
+            assert!(report.output.is_file(), "{:?}", report.output);
+            fs::remove_dir_all(&game).unwrap();
+            return report.output;
+        }
+    }
+}

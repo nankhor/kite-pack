@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **Choose file** now offers fake PKGs (`.pkg`) and `.ffpfsc` images too. Dropping them already worked; the file dialog didn't list them. Retail packages from Sony are still refused: they're encrypted.
+- A `.pkg` that can't be read now says why in plain words: made with a passcode other than the default, a compression Kite Pack can't read yet, damaged or incomplete, or not a PS5 package.
 
 ## 0.1.1
 
