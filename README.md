@@ -2,6 +2,8 @@
 
 Pack a PS5 game with zstd so it takes less space, and send it to your PS5 in one go.
 
+> **Kite Pack doesn't include, download or share any games.** It works on games you already own and have dumped yourself, to save space on your PS5. Use your own copies and support the developers who make them.
+
 What is in this repository:
 
 - **kite-pipeline**: the job and its steps (pack, delete the original, send, install DLC, delete the packed folder). Jobs are saved after every change, so they can carry on after a crash or restart.
