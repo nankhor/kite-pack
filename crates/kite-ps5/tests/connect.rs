@@ -16,7 +16,7 @@ fn connects_with_no_code() {
     let helper = Helper::start(tmp.path(), &[]);
     let info = hello(&helper.console(), &keys(tmp.path())).unwrap();
     assert_eq!(info.name, "Kite helper");
-    assert_eq!(info.version, "0.1.0-alpha.3");
+    assert_eq!(info.version, "0.1.0");
 }
 
 #[test]
@@ -69,5 +69,5 @@ fn discovery_finds_the_helper() {
     assert_eq!(found.len(), 1, "{found:?}");
     assert_eq!(found[0].address, "127.0.0.1");
     assert_eq!(found[0].port, helper.port);
-    assert_eq!(found[0].version, "0.1.0-alpha.3");
+    assert_eq!(found[0].version, "0.1.0");
 }

@@ -76,7 +76,7 @@ fn status_running() {
     let tmp = tempfile::tempdir().unwrap();
     let helper = support::Helper::start(&tmp.path().join("console"), &[]);
     let got = status(Some(&helper.console()), &Keys::open(&tmp.path().join("pc")).unwrap());
-    assert_eq!(got, Status::Running { version: "0.1.0-alpha.3".into() });
+    assert_eq!(got, Status::Running { version: "0.1.0".into() });
 }
 
 #[test]

@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.0
+
+The first full release of Kite Pack, for Windows, macOS and Linux. It's the same as 0.1.0-alpha.4, released as 0.1.0, and the Kite helper now reports 0.1.0 too.
+
+- **Pack a game.** Drop a dump folder, an exFAT, `.ffpkg` or `.ffpfs` image, or a `.zip`, `.7z` or `.rar` archive, or choose it. Kite Pack shows its icon, title, title ID, size, the update it already contains and the DLC inside it. Pick Save as (Folder, exFAT, .ffpkg, .ffpfs), Level (Fast, Medium, Max) and where it goes, then Pack. The packed copy is checked.
+- **Delete the original** moves it to the Trash once the packed copy is checked, and only if it hasn't changed.
+- **Send to PS5** sends the packed copy once packing ends. With the Kite helper running on the PS5, Kite Pack finds it on your home network by itself, with no code to type. Every file is checked on the PS5 as it lands. The step shows the speed and the time left. If the PS5 drops off the network, it shows Paused and picks up where it stopped.
+- **Delete the packed folder** moves the packed copy to the Trash once the PS5 has every file.
+- **Carries on.** Close the app mid-job and it carries on next time. Cancel stops and removes the partial copy.
+- **Settings**: the PS5 found on the network, its address, Start the Kite helper, where games go on the PS5, and where packed copies go on this computer.
+- **The command-line tool** `kite-pack` inspects and packs games, and lists and resumes jobs.
+
+Downloads: `Kite-Pack-…-windows-x64.exe` (just run it), `Kite-Pack-…-macos.dmg` (Apple silicon and Intel), `Kite-Pack-…-linux-x64.AppImage`, `kite-helper.elf` for the PS5, and the command-line tool as `kite-pack-cli-…`.
+
+Not in this release: installing DLC.
+
+The builds aren't signed. On macOS, the first time, right-click Kite Pack and choose Open, or run `xattr -cr "/Applications/Kite Pack.app"`. On Windows, choose More info, then Run anyway, if SmartScreen stops it. On Linux, make the AppImage executable (`chmod +x`).
+
 ## 0.1.0-alpha.4
 
 - **Send to PS5 no longer says Paused while it's sending.** When the connection to the PS5 dropped and came back, the send carried on, but the step stayed orange, read "Paused at …" and said the PS5 wasn't reachable until it ended. It now shows as sending again as soon as files move.
