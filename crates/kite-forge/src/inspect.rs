@@ -42,6 +42,14 @@ pub enum SourceProblem {
     Ps4Package,
     RetailPackage,
     PatchPackage,
+    /// A fake package made with a passcode other than the default debug one.
+    OtherPasscode,
+    /// A fake package whose compression Forge doesn't decode.
+    UnsupportedPackage,
+    /// A package that is truncated or damaged.
+    DamagedPackage,
+    /// A `.pkg` that isn't a PS5 package at all.
+    NotAPs5Package,
     Unreadable(String),
 }
 
@@ -53,6 +61,12 @@ impl SourceProblem {
             SourceProblem::Ps4Package => "PS4 games can't be packed".into(),
             SourceProblem::RetailPackage => "Retail packages can't be read".into(),
             SourceProblem::PatchPackage => "This is an update package, not a game".into(),
+            SourceProblem::OtherPasscode => {
+                "This package was made with a passcode other than the default, so it can't be read".into()
+            }
+            SourceProblem::UnsupportedPackage => "This package uses a compression Kite Pack can't read yet".into(),
+            SourceProblem::DamagedPackage => "This package is damaged or incomplete".into(),
+            SourceProblem::NotAPs5Package => "This isn't a PS5 package".into(),
             SourceProblem::Unreadable(why) => why.clone(),
         }
     }
@@ -64,18 +78,31 @@ impl From<&Dlc> for DlcInfo {
     }
 }
 
+/// Forge's error in the screen's words. A `.pkg` is read by Forge's FPKG reader, whose errors
+/// start with a fixed kind (`ps5-dump-forge-fpkg`: "retail package", "wrong passcode", ...),
+/// after the file's path; anything else keeps Forge's own message.
+fn problem(text: &str) -> SourceProblem {
+    let has = |kind: &str| text.contains(&format!("{kind}:"));
+    if text.contains("this is a PS4 package") {
+        SourceProblem::Ps4Package
+    } else if has("retail package") {
+        SourceProblem::RetailPackage
+    } else if has("wrong passcode") || has("native-encrypted image this reader cannot decode") {
+        SourceProblem::OtherPasscode
+    } else if has("unsupported codec") {
+        SourceProblem::UnsupportedPackage
+    } else if has("corrupt package") {
+        SourceProblem::DamagedPackage
+    } else if has("not a PS5 package") {
+        SourceProblem::NotAPs5Package
+    } else {
+        SourceProblem::Unreadable(text.to_string())
+    }
+}
+
 /// Reads `path` and says whether it is a PS5 game Kite Pack can pack.
 pub fn inspect_game(path: &Path) -> Result<GameInfo, SourceProblem> {
-    let found = inspect(path).map_err(|e| {
-        let text = format!("{e:#}");
-        if text.contains("this is a PS4 package") {
-            SourceProblem::Ps4Package
-        } else if text.contains("retail package") {
-            SourceProblem::RetailPackage
-        } else {
-            SourceProblem::Unreadable(text)
-        }
-    })?;
+    let found = inspect(path).map_err(|e| problem(&format!("{e:#}")))?;
     if found.patch {
         return Err(SourceProblem::PatchPackage);
     }
@@ -108,4 +135,22 @@ pub fn check_dlc(path: &Path, title_id: &str) -> Result<DlcInfo, String> {
     let content_id = found.content_id.ok_or_else(not_ours)?;
     let label = content_id.chars().rev().take(16).collect::<Vec<_>>().into_iter().rev().collect();
     Ok(DlcInfo { content_id, label, name: found.title_name, bytes: found.total_bytes })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn package_errors_in_plain_words() {
+        let at = |kind: &str| problem(&format!("C:\\Games\\x.pkg: {kind}: details"));
+        assert_eq!(problem("C:\\x.pkg: not a PS5 package: this is a PS4 package (\\x7FCNT at offset 0)"), SourceProblem::Ps4Package);
+        assert_eq!(at("retail package"), SourceProblem::RetailPackage);
+        assert_eq!(at("wrong passcode"), SourceProblem::OtherPasscode);
+        assert_eq!(at("native-encrypted image this reader cannot decode"), SourceProblem::OtherPasscode);
+        assert_eq!(at("unsupported codec"), SourceProblem::UnsupportedPackage);
+        assert_eq!(at("corrupt package"), SourceProblem::DamagedPackage);
+        assert_eq!(at("not a PS5 package"), SourceProblem::NotAPs5Package);
+        assert_eq!(problem("x: no param.json"), SourceProblem::Unreadable("x: no param.json".into()));
+    }
 }
