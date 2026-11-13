@@ -1,6 +1,6 @@
 name: release
 
-# A tag like v0.1.0-alpha.2 builds the app and the command-line tool for every platform and
+# A tag like v0.1.0 (or v0.1.0-alpha.2, published as a pre-release) builds the app and the command-line tool for every platform and
 # publishes a GitHub release with them. Run it by hand to check the builds without publishing.
 #
 # Every artifact is a single file uploaded as itself (archive: false), so a download from the

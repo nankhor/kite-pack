@@ -3,7 +3,7 @@
 #   make host   build/host/kite-helper, for this computer (tests run it as a stand-in PS5)
 #   make ps5    kite-helper.elf, with the PS5 payload SDK (PS5_PAYLOAD_SDK set; CI does this)
 
-VERSION := 0.1.0-alpha.3
+VERSION := 0.1.0
 AVA1 := third_party/ava1/c
 MONO := $(AVA1)/third_party/monocypher
 B3 := $(AVA1)/third_party/blake3
