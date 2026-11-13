@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.1
+
+- **Send to PS5 no longer keeps pausing.** While a game was sending, the step kept switching between sending and "Paused at …", and each pause cost a few seconds of the send. The app checks the PS5 every 10 seconds for the PS5 chip at the top, and each check cut the send. The checks now connect on their own, so the send runs straight through.
+
+The Kite helper is the same as in 0.1.0, so the one already on your PS5 keeps working. A send left by a closed 0.1.0 carries on in 0.1.1 where it stopped.
+
+Downloads: `Kite-Pack-…-windows-x64.exe` (just run it), `Kite-Pack-…-macos.dmg` (Apple silicon and Intel), `Kite-Pack-…-linux-x64.AppImage`, `kite-helper.elf` for the PS5, and the command-line tool as `kite-pack-cli-…`.
+
+The builds aren't signed. On macOS, the first time, right-click Kite Pack and choose Open, or run `xattr -cr "/Applications/Kite Pack.app"`. On Windows, choose More info, then Run anyway, if SmartScreen stops it. On Linux, make the AppImage executable (`chmod +x`).
+
 ## 0.1.0
 
 The first full release of Kite Pack, for Windows, macOS and Linux. It's the same as 0.1.0-alpha.4, released as 0.1.0, and the Kite helper now reports 0.1.0 too.
