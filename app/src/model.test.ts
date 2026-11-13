@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { footerNote, formatSize, minutesLeft, stepRows, updateLabel } from "./model";
+import { footerNote, formatSize, formatSpeed, minutesLeft, speed, stepRows, updateLabel } from "./model";
 import type { JobView, ProgressState, StepView } from "./types";
 
 const job = (steps: StepView[], extra: Partial<JobView> = {}): JobView => ({
@@ -22,6 +22,7 @@ const progress = (p: Partial<ProgressState>): ProgressState => ({
   total: 0,
   startedAt: null,
   startedDone: 0,
+  recent: [],
   ...p,
 });
 
@@ -56,6 +57,24 @@ describe("stepRows", () => {
       now,
     );
     expect(rows).toEqual([{ label: "Pack", state: "active", status: "62%, about 1 min left", bar: 62 }]);
+  });
+
+  it("shows the speed for sending only", () => {
+    const rows = stepRows(
+      job([{ kind: "pack", state: "running", note: null }]),
+      progress({
+        done: 62,
+        total: 100,
+        startedAt: now - 60_000,
+        startedDone: 0,
+        recent: [
+          { at: now - 2_000, done: 0 },
+          { at: now, done: 2_000_000 },
+        ],
+      }),
+      now,
+    );
+    expect(rows[0].status).toBe("62%, about 1 min left");
   });
 
   it("says what the pack is doing before any bytes", () => {
@@ -107,6 +126,27 @@ describe("minutesLeft", () => {
   });
 });
 
+describe("speed", () => {
+  it("is the rate over the recent progress", () => {
+    const recent = [
+      { at: 0, done: 0 },
+      { at: 1_000, done: 30_000_000 },
+      { at: 2_000, done: 76_400_000 },
+    ];
+    expect(speed(progress({ recent }))).toBe(38_200_000);
+  });
+  it("waits for a second of progress", () => {
+    expect(speed(progress({ recent: [] }))).toBeNull();
+    expect(speed(progress({ recent: [{ at: 0, done: 0 }] }))).toBeNull();
+    expect(speed(progress({ recent: [{ at: 0, done: 0 }, { at: 900, done: 10 }] }))).toBeNull();
+  });
+  it("reads like the sizes, per second", () => {
+    expect(formatSpeed(38_200_000)).toBe("38.2 MB/s");
+    expect(formatSpeed(950_000)).toBe("950 KB/s");
+    expect(formatSpeed(0)).toBe("0 bytes/s");
+  });
+});
+
 describe("footerNote", () => {
   const packJob = job([{ kind: "pack", state: "running", note: null }]);
   it("covers every state", () => {
@@ -140,6 +180,21 @@ describe("sending", () => {
       now,
     )[0];
     expect(running).toEqual({ label: "Send to PS5", state: "active", status: "62%, about 8 min left", bar: 62 });
+    const fast = stepRows(
+      job([{ kind: "send", state: "running", note: null }]),
+      progress({
+        done: 62,
+        total: 100,
+        startedAt: now - 60_000 * 13,
+        startedDone: 0,
+        recent: [
+          { at: now - 2_000, done: 0 },
+          { at: now, done: 76_400_000 },
+        ],
+      }),
+      now,
+    )[0];
+    expect(fast.status).toBe("62%, 38.2 MB/s, about 8 min left");
     const waiting = stepRows(job([{ kind: "send", state: "waiting", note: null }]), progress({ done: 38, total: 100 }), now)[0];
     expect(waiting).toEqual({ label: "Send to PS5", state: "paused", status: "Paused at 38%", bar: 38 });
     expect(stepRows(job([{ kind: "send", state: "done", note: "Sent and checked" }]), null, now)[0].status).toBe(

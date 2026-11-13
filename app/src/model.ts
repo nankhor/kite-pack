@@ -61,6 +61,19 @@ export function minutesLeft(p: ProgressState, now: number): number | null {
   return Math.max(1, Math.ceil(msLeft / 60_000));
 }
 
+/** Bytes a second over the recent progress; null until it spans a second. */
+export function speed(p: ProgressState): number | null {
+  const first = p.recent[0];
+  const last = p.recent[p.recent.length - 1];
+  if (!first || !last || last.at - first.at < 1_000) return null;
+  return Math.max(0, Math.round(((last.done - first.done) / (last.at - first.at)) * 1_000));
+}
+
+/** "38.2 MB/s", in the same units as the sizes. */
+export function formatSpeed(bytesPerSecond: number): string {
+  return `${formatSize(bytesPerSecond)}/s`;
+}
+
 function folderName(path: string): string {
   const parts = path.split(/[\\/]/).filter(Boolean);
   return parts[parts.length - 1] ?? path;
@@ -71,7 +84,11 @@ function runningStatus(step: StepView, p: ProgressState | null, now: number): [s
   if (p && p.total > 0) {
     const pct = Math.min(100, Math.floor((p.done / p.total) * 100));
     const mins = minutesLeft(p, now);
-    return [mins === null ? `${pct}%` : `${pct}%, about ${mins} min left`, hasBar ? pct : null];
+    const rate = step.kind === "send" ? speed(p) : null;
+    const parts = [`${pct}%`];
+    if (rate !== null) parts.push(formatSpeed(rate));
+    if (mins !== null) parts.push(`about ${mins} min left`);
+    return [parts.join(", "), hasBar ? pct : null];
   }
   if (step.kind === "deleteOriginal" || step.kind === "deletePacked") return ["Moving to the Trash", null];
   const words = p?.stage ? (STAGES[p.stage] ?? "Working") : "Starting";

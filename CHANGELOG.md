@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+- **Send to PS5 no longer says Paused while it's sending.** When the connection to the PS5 dropped and came back, the send carried on, but the step stayed orange, read "Paused at …" and said the PS5 wasn't reachable until it ended. It now shows as sending again as soon as files move.
+- **The send shows its speed** beside the percentage and the time left, for example "16%, 38.2 MB/s, about 9 min left". It's the speed over the last ten seconds. After a pause, the time left counts from when the send moved again instead of counting the pause.
+
+The Kite helper is the same as in alpha.3, so the one already on your PS5 keeps working.
+
 ## 0.1.0-alpha.3
 
 Send to PS5 works.

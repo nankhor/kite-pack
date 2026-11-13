@@ -2,6 +2,9 @@
 
 import type { GameInfo, JobView, PackOptions, ProgressState, Settings, Status, UiEvent } from "./types";
 
+/** How far back the speed looks, in ms. */
+const SPEED_WINDOW = 10_000;
+
 export type Phase = "empty" | "ready" | "running" | "failed" | "done";
 
 export interface State {
@@ -77,15 +80,28 @@ function onEvent(s: State, e: UiEvent, now: number): State {
     if (e.job.state === "cancelled") return { ...s, phase: s.game ? "ready" : "empty", job: null, progress: null };
     // Keep the progress of the step that is running or waiting: a paused send shows where it stopped.
     const active = e.job.steps.findIndex((st) => st.state === "running" || st.state === "waiting");
-    const progress = s.progress && s.progress.index === active ? s.progress : null;
+    let progress = s.progress && s.progress.index === active ? s.progress : null;
+    // A paused send that moves again: time left and speed count from now, not across the pause.
+    if (progress && s.job.steps[active]?.state === "waiting" && e.job.steps[active].state === "running") {
+      progress = { ...progress, startedAt: null, startedDone: 0, recent: [] };
+    }
     return { ...s, job: e.job, phase: phaseOf(e.job), progress };
   }
   if (e.id !== s.job.id) return s;
-  const fresh: ProgressState = { index: e.index, stage: null, done: 0, total: 0, startedAt: null, startedDone: 0 };
+  const fresh: ProgressState = {
+    index: e.index,
+    stage: null,
+    done: 0,
+    total: 0,
+    startedAt: null,
+    startedDone: 0,
+    recent: [],
+  };
   const p = s.progress && s.progress.index === e.index ? s.progress : fresh;
   if (e.type === "stage") return { ...s, progress: { ...p, stage: e.stage } };
   const started = p.startedAt === null ? { startedAt: now, startedDone: e.done } : {};
-  return { ...s, progress: { ...p, ...started, done: e.done, total: e.total } };
+  const recent = [...p.recent.filter((r) => r.at >= now - SPEED_WINDOW), { at: now, done: e.done }];
+  return { ...s, progress: { ...p, ...started, done: e.done, total: e.total, recent } };
 }
 
 export function reduce(s: State, a: Action): State {

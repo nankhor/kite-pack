@@ -68,6 +68,8 @@ export interface ProgressState {
   /** When the first bytes arrived, and how many there were then (ms since epoch). */
   startedAt: number | null;
   startedDone: number;
+  /** The last few seconds of progress (ms since epoch, bytes done), for the speed. */
+  recent: { at: number; done: number }[];
 }
 
 /** The app's PS5 settings (kite-ps5's Settings). */
