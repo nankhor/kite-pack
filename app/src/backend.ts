@@ -64,7 +64,7 @@ export const tauriBackend: Backend = {
     single(
       await open({
         multiple: false,
-        filters: [{ name: "Game images and archives", extensions: ["exfat", "ffpkg", "ffpfs", "zip", "7z", "rar"] }],
+        filters: [{ name: "Game images and archives", extensions: ["exfat", "ffpkg", "ffpfs", "ffpfsc", "pkg", "zip", "7z", "rar"] }],
       }),
     ),
   reveal: (path) => revealItemInDir(path),

@@ -10,7 +10,7 @@ export function Empty({ message, onChooseFolder, onChooseFile }: Props) {
     <section className="empty" aria-label="Choose a game">
       <div className="drop-target">
         <h1 className="empty-title">Drop a game here</h1>
-        <p className="empty-hint">A dump folder, an exFAT, .ffpkg or .ffpfs image, or a .zip, .7z or .rar archive.</p>
+        <p className="empty-hint">A dump folder, an exFAT, .ffpkg, .ffpfs or fake .pkg image, or a .zip, .7z or .rar archive.</p>
         <div className="buttons">
           <button className="button primary" onClick={onChooseFolder}>
             Choose folder
