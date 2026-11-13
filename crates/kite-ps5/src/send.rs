@@ -87,7 +87,7 @@ impl Sender for Ps5Sender {
         let id = job_id(local, target);
         let console = Console::parse(&target.console, self.port);
         runtime().block_on(async {
-            let session = open(&console, &self.keys).await.map_err(from_ps5)?;
+            let session = open(&console, &self.keys.identity, &self.keys).await.map_err(from_ps5)?;
             let counters = Arc::new(Ava1Progress::default());
             let stop = Arc::new(AtomicBool::new(false));
             let mut opts = SendOptions::upload(&root);
