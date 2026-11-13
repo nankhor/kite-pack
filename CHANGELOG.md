@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Choose file** now offers fake PKGs (`.pkg`) and `.ffpfsc` images too. Dropping them already worked; the file dialog didn't list them. Retail packages from Sony are still refused: they're encrypted.
+
 ## 0.1.1
 
 - **Send to PS5 no longer keeps pausing.** While a game was sending, the step kept switching between sending and "Paused at …", and each pause cost a few seconds of the send. The app checks the PS5 every 10 seconds for the PS5 chip at the top, and each check cut the send. The checks now connect on their own, so the send runs straight through.
