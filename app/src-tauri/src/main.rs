@@ -118,7 +118,7 @@ fn start(
 ) -> Result<JobView, String> {
     let send = if options.send {
         let settings = ps5.settings();
-        let address = settings.address.ok_or("Set up your PS5 in the PS5 tab first.")?;
+        let address = settings.address.ok_or("Set up your PS5 in Settings first.")?;
         // The port goes with the address, so a job resumed later reaches the same helper.
         Some(SendTarget { console: format!("{address}:{}", settings.helper_port), destination: settings.destination })
     } else {

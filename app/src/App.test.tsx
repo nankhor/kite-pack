@@ -277,7 +277,7 @@ describe("ready", () => {
 
   it("keeps Send off until a PS5 is set up", async () => {
     await showGame();
-    expect(await screen.findByText("Set up your PS5 in the PS5 tab first.")).toBeInTheDocument();
+    expect(await screen.findByText("Set up your PS5 in Settings first.")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Send to PS5" })).toBeDisabled();
     expect(screen.queryByText("Delete the packed folder")).not.toBeInTheDocument();
   });
@@ -453,12 +453,12 @@ describe("on launch", () => {
 describe("PS5", () => {
   const ADDRESS = "192.168.1.42";
 
-  it("says when no PS5 is set up, and opens the PS5 tab", async () => {
+  it("says when no PS5 is set up, and opens Settings", async () => {
     render(<App backend={backend} />);
     const chip = await screen.findByRole("button", { name: /Not set up/ });
     await userEvent.click(chip);
-    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "PS5" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Find my PS5" })).toBeInTheDocument();
   });
 
   it("shows a running helper", async () => {
@@ -562,7 +562,7 @@ describe("tabs", () => {
     await screen.findByText("Drop a game here");
     expect(screen.getByRole("tab", { name: "Pack" })).toHaveAttribute("aria-selected", "true");
     await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
-    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "History" }));
     expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("tab", { name: "Pack" }));
@@ -574,7 +574,7 @@ describe("tabs", () => {
     await screen.findByText("Drop a game here");
     screen.getByRole("tab", { name: "Pack" }).focus();
     await userEvent.keyboard("{ArrowRight}");
-    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "PS5" })).toHaveFocus();
     await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
     expect(await screen.findByRole("tab", { name: "History" })).toHaveAttribute("aria-selected", "true");
@@ -726,16 +726,19 @@ describe("what's installed on the PS5", () => {
     found: "appmeta+app",
   };
 
-  it("reads the console only when asked, and lists what it has", async () => {
+  it("lists what the console has as soon as the PS5 tab opens", async () => {
     backend.installed = [ASHEN];
+    backend.cfg.address = "192.168.1.42";
     render(<App backend={backend} />);
     await screen.findByText("Drop a game here");
-    await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
     expect(backend.library).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
 
-    await userEvent.click(await screen.findByRole("button", { name: "Show what's installed" }));
-
-    expect(await screen.findByText("Ashen Tide")).toBeInTheDocument();
+    const row = (await screen.findByText("Ashen Tide")).closest("tr")!;
+    expect(within(row).getByText("PPSA00001")).toBeInTheDocument();
+    expect(within(row).getByText("1.05")).toBeInTheDocument();
+    expect(within(row).getByText("Installed")).toBeInTheDocument();
+    expect(within(row).getByText("Internal")).toBeInTheDocument();
     expect(screen.getByText("2 DLC")).toBeInTheDocument();
     expect(backend.library).toHaveBeenCalled();
     expect(await screen.findByText(/free where games go/)).toBeInTheDocument();
@@ -743,10 +746,10 @@ describe("what's installed on the PS5", () => {
 
   it("measures a title's size when asked", async () => {
     backend.installed = [ASHEN];
+    backend.cfg.address = "192.168.1.42";
     render(<App backend={backend} />);
     await screen.findByText("Drop a game here");
     await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Show what's installed" }));
     await userEvent.click(await screen.findByRole("button", { name: "Measure" }));
 
     expect(await screen.findByText("2.0 GB")).toBeInTheDocument();
@@ -754,10 +757,24 @@ describe("what's installed on the PS5", () => {
   });
 
   it("opens the PS5 tab from the start screen's link", async () => {
+    backend.cfg.address = "192.168.1.42";
+    backend.installed = [ASHEN];
     render(<App backend={backend} />);
     await userEvent.click(await screen.findByRole("button", { name: /See what/ }));
-    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
-    expect(await screen.findByRole("button", { name: "Hide" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(await screen.findByText("Ashen Tide")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "PS5" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("asks for the PS5 in Settings first, without reading anything", async () => {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("tab", { name: "PS5" }));
+    expect(
+      await screen.findByText("No PS5 set up yet. Choose yours in Settings, and its games show up here."),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Open Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(backend.library).not.toHaveBeenCalled();
   });
 });
 

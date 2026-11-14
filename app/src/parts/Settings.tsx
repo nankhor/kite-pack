@@ -1,4 +1,5 @@
-import type { Settings, Status } from "../types";
+import type { Found, Settings, StartOutcome, Status } from "../types";
+import { Field, Ps5Connection } from "./Ps5";
 
 interface Props {
   settings: Settings;
@@ -9,10 +10,12 @@ interface Props {
   dlcEmuVersion: string | null;
   onSave: (patch: Partial<Settings>) => Promise<void>;
   onPickFolder: () => Promise<string | null>;
+  onDiscover: () => Promise<Found[]>;
+  onStartHelper: () => Promise<StartOutcome>;
 }
 
-/** Behind the gear: where packed copies go, and which versions are running. */
-export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave, onPickFolder }: Props) {
+/** Behind the gear: the PS5 connection, where things go, and which versions are running. */
+export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
   async function pickFolder() {
     const dir = await onPickFolder();
     if (dir) await onSave({ packedFolder: dir });
@@ -24,8 +27,23 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave,
         <h1>Settings</h1>
       </div>
       <div className="settings-grid">
+        <Ps5Connection
+          settings={settings}
+          status={status}
+          onSave={onSave}
+          onDiscover={onDiscover}
+          onStartHelper={onStartHelper}
+        />
+
         <div className="column">
-          <h2>Packed copies</h2>
+          <h2>Where things go</h2>
+          <Field
+            id="destination"
+            label="Games go to"
+            value={settings.destination}
+            hint="A folder on the PS5 that ShadowMount+ watches."
+            onSave={(v) => void onSave({ destination: v || "/data/homebrew" })}
+          />
           <div className="field">
             <span className="field-label">Packed copies go to</span>
             <div className="option-row">
