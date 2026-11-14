@@ -1,9 +1,11 @@
 //! Kite Pack's PS5 side: find the Kite helper on the home network, connect to it with no code,
-//! and send packed copies to it over AVA1.
+//! read what the console has installed, and send packed copies to it over AVA1.
 
 mod connect;
 mod discover;
 mod launch;
+mod library;
+mod meta;
 mod send;
 mod settings;
 mod status;
@@ -11,6 +13,10 @@ mod status;
 pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
 pub use launch::{StartOutcome, start_helper};
+pub use library::{
+    GameIcon, InstalledGame, Library, Measured, free_space, installed, icons, measure, read_file,
+};
+pub use meta::{Entry, FreeSpace, MetaError, Usage};
 pub use send::Ps5Sender;
 pub use settings::Settings;
 pub use status::{Status, status};

@@ -11,7 +11,7 @@ B3 := $(AVA1)/third_party/blake3
 AVA1_SRCS := $(filter-out $(AVA1)/platform_ps5.c $(AVA1)/platform_posix.c $(AVA1)/ava1_chacha_avx2.c,$(wildcard $(AVA1)/*.c)) \
              $(AVA1)/gen/ava1_gen.c
 DEP_SRCS := $(MONO)/monocypher.c $(B3)/blake3.c $(B3)/blake3_dispatch.c $(B3)/blake3_portable.c
-OUR_SRCS := src/kite_helper.c
+OUR_SRCS := src/kite_helper.c src/meta.c
 HEADERS := $(wildcard src/*.h) $(wildcard $(AVA1)/*.h) $(AVA1)/gen/ava1_gen.h
 
 INC := -Isrc -I$(AVA1) -I$(AVA1)/gen -I$(MONO) -I$(B3)
