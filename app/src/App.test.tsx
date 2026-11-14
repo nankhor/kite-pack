@@ -692,6 +692,17 @@ describe("inside the packed copy", () => {
     );
   });
 
+  it("starts a new game with nothing picked", async () => {
+    await showGame();
+    await addPackages("/DLC/suits.pkg");
+    await screen.findByRole("button", { name: /1 add-on/ });
+
+    await backend.drop("/Games/Tidebreaker.pkg");
+    await backend.drop("/Games/Ashen Tide");
+
+    expect(screen.queryByRole("button", { name: /add-on/ })).not.toBeInTheDocument();
+  });
+
   it("removes one, then all", async () => {
     await showGame();
     await addPackages("/DLC/suits.pkg", "/DLC/map.pkg");

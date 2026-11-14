@@ -154,6 +154,9 @@ export function reduce(s: State, a: Action): State {
         job: null,
         progress: null,
         dlc: [],
+        onPs5: null,
+        bundle: { dlc: [], backport: null },
+        bundlePlan: null,
         view: "pack",
       };
     case "message":
