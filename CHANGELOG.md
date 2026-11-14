@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.3
+
+The Mac app opens.
+
+- **macOS:** the whole app is now signed (ad hoc), as Apple silicon Macs expect. Before, only the program inside it was, and macOS could refuse to open it or leave the icon bouncing in the Dock. Each release build now checks the signature on the app inside the `.dmg` before publishing it.
+
+Nothing else changed: Windows and Linux are the same as 0.1.2, and the Kite helper is the same as in 0.1.0, so the one already on your PS5 keeps working.
+
+Downloads: `Kite-Pack-…-windows-x64.exe` (just run it), `Kite-Pack-…-macos.dmg` (Apple silicon and Intel), `Kite-Pack-…-linux-x64.AppImage`, `kite-helper.elf` for the PS5, and the command-line tool as `kite-pack-cli-…`.
+
+The builds aren't signed with an Apple or Microsoft certificate yet. On macOS, the first time, run `xattr -cr "/Applications/Kite Pack.app"` in Terminal, or open it once, then click Open Anyway in System Settings → Privacy & Security. If the icon keeps bouncing, restart the Mac and try again. On Windows, choose More info, then Run anyway, if SmartScreen stops it. On Linux, make the AppImage executable (`chmod +x`).
+
 ## 0.1.2
 
 Fake PKGs.
