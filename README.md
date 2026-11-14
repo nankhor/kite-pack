@@ -28,7 +28,10 @@ Each [release](https://github.com/nankhor/kite-pack/releases) has the app:
 
 The command-line tool is there too, as `kite-pack-cli-…` archives.
 
-The builds aren't signed yet. On macOS, the first time, right-click Kite Pack and choose Open, or run `xattr -cr "/Applications/Kite Pack.app"`. On Windows, choose More info, then Run anyway, if SmartScreen stops it.
+The builds aren't signed with an Apple or Microsoft certificate yet, so the first launch needs one extra step.
+
+- **macOS:** after dragging Kite Pack to Applications, run `xattr -cr "/Applications/Kite Pack.app"` in Terminal, then open it. Or open it once, let macOS refuse, then go to System Settings → Privacy & Security, click **Open Anyway** next to Kite Pack and confirm with Touch ID or your password. (Right-click → Open no longer works on macOS 15 and later.) If the icon keeps bouncing and no window comes, restart the Mac and open it again: macOS sometimes gets stuck checking a new app, and a restart clears it.
+- **Windows:** if SmartScreen stops it, choose More info, then Run anyway.
 
 ## Your PS5
 
