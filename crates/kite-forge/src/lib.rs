@@ -2,6 +2,7 @@
 //! them with zstd.
 
 pub mod bundle;
+pub mod dlc_emu;
 mod inspect;
 mod packer;
 

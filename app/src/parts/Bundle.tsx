@@ -19,7 +19,13 @@ function summary(plan: BundlePlan | null): string | null {
   if (dlc > 0) parts.push(`${dlc} ${dlc === 1 ? "add-on" : "add-ons"}`);
   if (backport) parts.push("a backport");
   const what = parts.join(" and ");
-  return `${what} will be inside the packed copy${plan.emulatorFromSettings ? ", with the DLC emulator from Settings" : ""}.`;
+  const emulator =
+    plan.emulatorFrom === "builtin"
+      ? ", with the DLC emulator Kite Pack carries"
+      : plan.emulatorFrom === "picked"
+        ? ", with the DLC emulator you picked"
+        : "";
+  return `${what} will be inside the packed copy${emulator}.`;
 }
 
 function Chip({ item, onRemove }: { item: BundleItem; onRemove: () => void }) {

@@ -43,11 +43,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use kite_pipeline::Bundle;
 use ps5_dump_forge_core::{ConvertRequest, Event, Inspection, Jobs};
+
+use crate::dlc_emu;
 use serde::Serialize;
 
-/// The DLC emulator's modules, by the name a game's `fakelib/` expects.
-const EMULATOR_MODULES: [&str; 3] =
-    ["libSceAppContent", "libSceNpEntitlementAccess", "libSceGameUpdate"];
 /// `dlc_emu.ini` is parsed once per module load, at most 32 KiB: a list bigger than this is not
 /// a DLC list (and would be refused by the emulator anyway).
 const INI_MAX: usize = 32 * 1024;
@@ -90,8 +89,9 @@ pub struct BundlePlan {
     pub route: String,
     /// The first thing that stops it, in the screen's words.
     pub problem: Option<String>,
-    /// The DLC emulator will be added from the folder in Settings (the game has none).
-    pub emulator_from_settings: bool,
+    /// Where the DLC emulator comes from: `dump` (the game already has one), `builtin` (Kite
+    /// Pack carries it), `picked` (an override folder the caller supplied), or `none` (no DLC).
+    pub emulator_from: String,
 }
 
 /// What a staged pack got.
@@ -135,28 +135,31 @@ pub fn plan(source: &Path, bundle: &Bundle) -> BundlePlan {
         items.push(item);
     }
 
-    // DLC needs the emulator: the dump's own copy, or the folder picked in Settings.
+    // DLC needs the emulator: the dump's own copy, a folder the caller supplied, or the one
+    // Kite Pack carries.
     let has_own = has_emulator(source);
-    let from_settings = !has_own && bundle.emulator.is_some();
-    if problem.is_none() && !bundle.dlc.is_empty() {
-        if !has_own && !from_settings {
-            problem = Some(
-                "This dump has no DLC emulator. Pick the dlc_emu folder once in Settings, or install the DLC instead."
-                    .into(),
-            );
-        } else if from_settings && !emulator_folder_has_modules(bundle.emulator.as_deref().unwrap()) {
-            problem = Some(
-                "That DLC emulator folder has no libSceAppContent modules. Unzip dlc_emu there and pick it again."
-                    .into(),
-            );
-        }
+    let picked_ok = bundle.emulator.as_deref().is_some_and(emulator_folder_has_modules);
+    let emulator_from = if bundle.dlc.is_empty() {
+        "none"
+    } else if has_own {
+        "dump"
+    } else if picked_ok {
+        "picked"
+    } else {
+        "builtin"
+    };
+    if problem.is_none() && !bundle.dlc.is_empty() && bundle.emulator.is_some() && !picked_ok && !has_own {
+        problem = Some(
+            "That DLC emulator folder has no libSceAppContent modules. Pick the unzipped dlc_emu folder, or leave it unset to use the one Kite Pack carries."
+                .into(),
+        );
     }
 
     BundlePlan {
         route: if problem.is_some() { "unavailable".into() } else { "inPack".into() },
         problem,
         items,
-        emulator_from_settings: from_settings && !bundle.dlc.is_empty(),
+        emulator_from: emulator_from.into(),
     }
 }
 
@@ -266,7 +269,7 @@ fn emulator_modules_in(dir: &Path) -> Vec<PathBuf> {
         let path = e.path();
         if path.is_file() {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if EMULATOR_MODULES.iter().any(|m| name.to_ascii_lowercase().starts_with(&m.to_ascii_lowercase())) {
+                if dlc_emu::is_module(name) {
                     found.push(path);
                 }
             }
@@ -292,7 +295,7 @@ fn find_modules(dir: &Path, depth: usize) -> Vec<PathBuf> {
         let path = e.path();
         if path.is_file() {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if EMULATOR_MODULES.iter().any(|m| name.to_ascii_lowercase().starts_with(&m.to_ascii_lowercase())) {
+                if dlc_emu::is_module(name) {
                     found.push(path);
                 }
             }
@@ -383,21 +386,28 @@ pub fn stage(source: &Path, bundle: &Bundle) -> Result<(Staging, Staged), String
     }
 
     if out.dlc > 0 && !has_emulator(staging.path()) {
-        let from = bundle
-            .emulator
-            .as_deref()
-            .ok_or("This dump has no DLC emulator and none was picked in Settings")?;
-        let modules = find_modules(from, EMULATOR_DEPTH);
-        if modules.is_empty() {
-            return Err("That DLC emulator folder has no libSceAppContent modules".into());
-        }
         let fakelib = staging.path().join("fakelib");
         fs::create_dir_all(&fakelib).map_err(|e| format!("Couldn't make {}: {e}", fakelib.display()))?;
-        for m in modules {
-            let name = m.file_name().ok_or("an emulator module has no name")?;
-            let out = fakelib.join(name);
-            let bytes = fs::read(&m).map_err(|e| format!("Couldn't read {}: {e}", m.display()))?;
-            write_fresh(&out, &bytes)?;
+        match bundle.emulator.as_deref() {
+            // A folder the caller supplied wins, for a newer emulator than the one carried.
+            Some(from) => {
+                let modules = find_modules(from, EMULATOR_DEPTH);
+                if modules.is_empty() {
+                    return Err("That DLC emulator folder has no libSceAppContent modules".into());
+                }
+                for m in modules {
+                    let name = m.file_name().ok_or("an emulator module has no name")?;
+                    let bytes =
+                        fs::read(&m).map_err(|e| format!("Couldn't read {}: {e}", m.display()))?;
+                    write_fresh(&fakelib.join(name), &bytes)?;
+                }
+            }
+            // Otherwise the one Kite Pack carries, so DLC packing needs no setup.
+            None => {
+                for module in dlc_emu::modules() {
+                    write_fresh(&fakelib.join(module.name), module.bytes)?;
+                }
+            }
         }
         out.emulator_added = true;
     }
@@ -707,22 +717,44 @@ mod tests {
     }
 
     #[test]
-    fn without_an_emulator_the_plan_says_what_is_missing() {
+    fn without_an_emulator_the_pack_carries_its_own() {
         let tmp = tempfile::tempdir().unwrap();
         let g = game(tmp.path());
         fs::remove_dir_all(g.join("fakelib")).unwrap();
         let d = dlc_folder(&tmp.path().join("in"), "TIDEBREAKER00000");
 
-        let p = plan(&g, &Bundle { dlc: vec![d.clone()], ..Default::default() });
-        assert_eq!(p.route, "unavailable");
-        assert!(p.problem.unwrap().contains("no DLC emulator"));
+        let p = plan(&g, &Bundle { dlc: vec![d], ..Default::default() });
+        assert_eq!(p.route, "inPack", "{:?}", p.problem);
+        assert_eq!(p.emulator_from, "builtin");
+    }
 
-        // A picked folder fixes it.
+    #[test]
+    fn a_dump_that_has_its_own_emulator_keeps_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let g = game(tmp.path());
+        let d = dlc_folder(&tmp.path().join("in"), "TIDEBREAKER00000");
+        let p = plan(&g, &Bundle { dlc: vec![d], ..Default::default() });
+        assert_eq!(p.emulator_from, "dump");
+    }
+
+    #[test]
+    fn a_picked_emulator_folder_wins_and_a_bad_one_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let g = game(tmp.path());
+        fs::remove_dir_all(g.join("fakelib")).unwrap();
+        let d = dlc_folder(&tmp.path().join("in"), "TIDEBREAKER00000");
         let tools = tmp.path().join("tools");
         write(tools.join("dlc_emu/fakelib/libSceAppContent.sprx"), b"emu");
-        let p = plan(&g, &Bundle { dlc: vec![d], emulator: Some(tools), ..Default::default() });
+
+        let p = plan(&g, &Bundle { dlc: vec![d.clone()], emulator: Some(tools), ..Default::default() });
         assert_eq!(p.route, "inPack", "{:?}", p.problem);
-        assert!(p.emulator_from_settings);
+        assert_eq!(p.emulator_from, "picked");
+
+        let empty = tmp.path().join("empty");
+        fs::create_dir_all(&empty).unwrap();
+        let p = plan(&g, &Bundle { dlc: vec![d], emulator: Some(empty), ..Default::default() });
+        assert_eq!(p.route, "unavailable");
+        assert!(p.problem.unwrap().contains("no libSceAppContent"));
     }
 
     #[test]
@@ -731,16 +763,21 @@ mod tests {
         let g = game(tmp.path());
         fs::remove_dir_all(g.join("fakelib")).unwrap();
         let d = dlc_folder(&tmp.path().join("in"), "TIDEBREAKER00000");
-        let tools = tmp.path().join("tools");
-        write(tools.join("libSceAppContent.sprx"), b"emu");
 
-        let (staging, out) =
-            stage(&g, &Bundle { dlc: vec![d], emulator: Some(tools), ..Default::default() }).unwrap();
+        let (staging, out) = stage(&g, &Bundle { dlc: vec![d], ..Default::default() }).unwrap();
         let root = staging.path();
 
         assert_eq!(out.dlc, 1);
         assert!(out.emulator_added);
-        assert_eq!(fs::read(root.join("fakelib/libSceAppContent.sprx")).unwrap(), b"emu");
+        // The modules Kite Pack carries, not a folder the user had to find.
+        let mut wanted = crate::dlc_emu::modules();
+        for module in wanted.iter_mut() {
+            assert!(
+                root.join("fakelib").join(module.name).is_file(),
+                "{} missing",
+                module.name
+            );
+        }
         assert_eq!(fs::read(root.join("addcont0/data/dlc.bin")).unwrap(), vec![7u8; 1024]);
         let ini = fs::read_to_string(root.join("dlc_emu.ini")).unwrap();
         assert!(ini.contains("[PSAC]"), "{ini}");

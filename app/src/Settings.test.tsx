@@ -12,7 +12,6 @@ class FakeBackend implements Backend {
     loaderPort: 9021,
     destination: "/data/homebrew",
     packedFolder: null,
-    dlcTools: null,
   };
   status: Status = { state: "notSetUp" };
   found: Found[] = [];
@@ -36,7 +35,8 @@ class FakeBackend implements Backend {
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   library = vi.fn(async () => ({ games: [], truncated: false }));
-  bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFromSettings: false }));
+  dlcEmuVersion = vi.fn(async () => "0.3");
+  bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFrom: "none" as const }));
   pickDlcFolder = vi.fn(async () => null);
   pickDlcPackage = vi.fn(async () => null);
   pickBackport = vi.fn(async () => null);

@@ -103,7 +103,8 @@ fn start(
     let bundle = kite_pipeline::Bundle {
         dlc: options.bundle.dlc,
         backport: options.bundle.backport,
-        emulator: ps5.settings().dlc_tools.clone(),
+        // The emulator is carried by the app; a dump that has its own keeps it.
+        emulator: None,
     };
     let options = Options {
         format: options.format,
@@ -170,6 +171,12 @@ async fn discover() -> Result<Vec<Found>, String> {
     blocking(|| kite_ps5::discover(DISCOVER_WAIT)).await
 }
 
+/// The DLC emulator release Kite Pack carries (it goes into packs whose dump has none).
+#[tauri::command]
+fn dlc_emu_version() -> &'static str {
+    kite_forge::dlc_emu::VERSION
+}
+
 /// What the picked DLC and backport would add to a packed copy, and whether they can go in.
 #[tauri::command]
 async fn bundle_plan(
@@ -179,8 +186,8 @@ async fn bundle_plan(
     backport: Option<PathBuf>,
 ) -> Result<kite_forge::BundlePlan, String> {
     blocking(move || {
-        let ps5 = app.state::<Ps5>();
-        let bundle = kite_pipeline::Bundle { dlc, backport, emulator: ps5.settings().dlc_tools };
+        let _ = app;
+        let bundle = kite_pipeline::Bundle { dlc, backport, emulator: None };
         Ok(kite_forge::bundle::plan(&source, &bundle))
     })
     .await?
@@ -286,6 +293,7 @@ fn main() {
             library,
             installed_title,
             bundle_plan,
+            dlc_emu_version,
             library_icons,
             measure_app,
             free_space

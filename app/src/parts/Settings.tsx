@@ -8,6 +8,8 @@ interface Props {
   onDiscover: () => Promise<Found[]>;
   onStartHelper: () => Promise<StartOutcome>;
   onPickFolder: () => Promise<string | null>;
+  /** The dlc_emu release the app carries, once known. */
+  dlcEmuVersion: string | null;
   onDone: () => void;
 }
 
@@ -52,7 +54,16 @@ const STARTED: Record<StartOutcome, string> = {
   alreadyRunning: "It's already running.",
 };
 
-export function SettingsPage({ settings, status, onSave, onDiscover, onStartHelper, onPickFolder, onDone }: Props) {
+export function SettingsPage({
+  settings,
+  status,
+  onSave,
+  onDiscover,
+  onStartHelper,
+  onPickFolder,
+  onDone,
+  dlcEmuVersion,
+}: Props) {
   const [finding, setFinding] = useState(false);
   const [found, setFound] = useState<Found[] | null>(null);
   const [started, setStarted] = useState<string | null>(null);
@@ -79,10 +90,9 @@ export function SettingsPage({ settings, status, onSave, onDiscover, onStartHelp
     }
   }
 
-  async function pickFolder(field: "packedFolder" | "dlcTools" = "packedFolder") {
+  async function pickFolder() {
     const dir = await onPickFolder();
-    if (!dir) return;
-    await onSave(field === "packedFolder" ? { packedFolder: dir } : { dlcTools: dir });
+    if (dir) await onSave({ packedFolder: dir });
   }
 
   return (
@@ -175,24 +185,11 @@ export function SettingsPage({ settings, status, onSave, onDiscover, onStartHelp
             </div>
           </div>
           <div className="field">
-            <span className="field-label">DLC emulator (dlc_emu)</span>
+            <span className="field-label">DLC emulator</span>
             <p className="field-hint">
-              The unzipped dlc_emu release. Added to games whose dump has no emulator of its own,
-              so DLC packed into them can be seen. Pick it once.
+              {dlcEmuVersion ? `dlc_emu ${dlcEmuVersion} is included` : "dlc_emu is included"} — added to games whose dump
+              has no emulator of its own, so the DLC packed into them can be seen. Nothing to install.
             </p>
-            <div className="option-row">
-              <span className="path" title={settings.dlcTools ?? undefined}>
-                {settings.dlcTools ?? "Not picked"}
-              </span>
-              <button className="small-button" onClick={() => void pickFolder("dlcTools")}>
-                Change
-              </button>
-              {settings.dlcTools && (
-                <button className="small-button" onClick={() => void onSave({ dlcTools: null })}>
-                  Clear
-                </button>
-              )}
-            </div>
           </div>
         </div>
       </div>

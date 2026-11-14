@@ -39,8 +39,9 @@ being installed separately.
 
 - DLC is added the way the console's DLC emulator reads it: the files under `addcontN/`, an entry
   in `dlc_emu.ini`, and the emulator's modules in `fakelib/` when the dump has none of its own.
-  Pick the unzipped `dlc_emu` release once in Settings; Kite Pack doesn't ship it. A dump that
-  already carries the emulator needs nothing.
+  **Kite Pack carries the emulator** ([dlc_emu](https://github.com/drakmor/dlc_emu) 0.3, GPL-3.0,
+  source and modules under `third_party/dlc_emu/`), so there is nothing to install or pick; a dump
+  that already carries an emulator keeps its own.
 - A backport is a folder whose files replace the game's (`eboot.bin`, `sce_sys/`, `fakelib/`).
 - The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
   btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed

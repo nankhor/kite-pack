@@ -23,7 +23,6 @@ fn settings_round_trip() {
         loader_port: 9020,
         destination: "/mnt/ext0/homebrew".into(),
         packed_folder: Some(PathBuf::from("/Games/Packed")),
-        dlc_tools: Some(PathBuf::from("/Tools/dlc_emu")),
     };
     s.save(&path).unwrap();
     assert_eq!(Settings::load(&path), s);

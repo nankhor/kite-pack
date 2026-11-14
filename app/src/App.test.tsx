@@ -56,7 +56,6 @@ class FakeBackend implements Backend {
     loaderPort: 9021,
     destination: "/data/homebrew",
     packedFolder: null,
-    dlcTools: null,
   };
   online = true;
   found: Found[] = [];
@@ -88,6 +87,7 @@ class FakeBackend implements Backend {
     return this.online ? { state: "running", version: "0.1.0-alpha.3" } : { state: "notReachable" };
   });
   discover = vi.fn(async () => this.found);
+  dlcEmuVersion = vi.fn(async () => "0.3");
   bundlePlan = vi.fn(async (_source: string, dlc: string[], backport: string | null): Promise<BundlePlan> => ({
     items: [
       ...dlc.map((path) => ({
@@ -117,7 +117,7 @@ class FakeBackend implements Backend {
     ],
     route: "inPack" as const,
     problem: null,
-    emulatorFromSettings: false,
+    emulatorFrom: dlc.length > 0 ? ("builtin" as const) : ("none" as const),
   }));
   pickDlcFolder = vi.fn(async (): Promise<string | null> => null);
   pickDlcPackage = vi.fn(async (): Promise<string | null> => null);
@@ -621,7 +621,9 @@ describe("inside the packed copy", () => {
     await userEvent.click(screen.getByRole("button", { name: "Add DLC folder" }));
 
     expect(await screen.findByText("Tidebreaker")).toBeInTheDocument();
-    expect(await screen.findByText("1 add-on will be inside the packed copy.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("1 add-on will be inside the packed copy, with the DLC emulator Kite Pack carries."),
+    ).toBeInTheDocument();
     expect(backend.bundlePlan).toHaveBeenLastCalledWith(
       "/Games/Ashen Tide",
       ["/Games/DLC/Tidebreaker"],
@@ -646,10 +648,10 @@ describe("inside the packed copy", () => {
       ],
       route: "unavailable",
       problem: "DLC for PPSA99999, not for PPSA01234",
-      emulatorFromSettings: false,
+      emulatorFrom: "builtin",
     };
     backend.bundlePlan.mockImplementation(async (_source, dlc) =>
-      dlc.length > 0 ? refusedPlan : { items: [], route: "inPack", problem: null, emulatorFromSettings: false },
+      dlc.length > 0 ? refusedPlan : { items: [], route: "inPack", problem: null, emulatorFrom: "none" },
     );
     await withGame();
 

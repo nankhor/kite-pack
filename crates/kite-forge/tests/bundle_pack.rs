@@ -21,13 +21,10 @@ fn pack(source: &Path, out: &Path, bundle: Bundle) -> PathBuf {
         .output
 }
 
-/// The unzipped dlc_emu release, as the user would pick it once in Settings.
-fn emulator_dir(dir: &Path) -> PathBuf {
-    let root = dir.join("dlc_emu");
-    std::fs::create_dir_all(root.join("release/fakelib")).unwrap();
-    std::fs::write(root.join("release/fakelib/libSceAppContent.prx"), b"emu").unwrap();
-    std::fs::write(root.join("release/fakelib/libSceNpEntitlementAccess.prx"), b"emu").unwrap();
-    std::fs::write(root.join("release/fakelib/libSceGameUpdate.prx"), b"emu").unwrap();
+/// An empty folder offered as an emulator: the plan must refuse it rather than pack blind.
+fn empty_dir(dir: &Path) -> PathBuf {
+    let root = dir.join("empty-emulator");
+    std::fs::create_dir_all(&root).unwrap();
     root
 }
 
@@ -36,15 +33,10 @@ fn a_dlc_folder_ends_up_inside_the_packed_copy() {
     let tmp = tempfile::tempdir().unwrap();
     let game = make_game(tmp.path(), "Ashen Tide");
     let dlc = make_dlc_folder(tmp.path().join("dlc").as_path(), "Tidebreaker");
-    let tools = emulator_dir(tmp.path());
     let out = tmp.path().join("out");
     std::fs::create_dir_all(&out).unwrap();
 
-    let packed = pack(
-        &game,
-        &out,
-        Bundle { dlc: vec![dlc], backport: None, emulator: Some(tools) },
-    );
+    let packed = pack(&game, &out, Bundle { dlc: vec![dlc], backport: None, emulator: None });
 
     // The DLC's files are inside the packs (compressed); the index is the manifest that says so.
     let index = std::fs::read(packed.join("ampr_zstd.index")).unwrap();
@@ -56,7 +48,12 @@ fn a_dlc_folder_ends_up_inside_the_packed_copy() {
     let ini = std::fs::read_to_string(packed.join("dlc_emu.ini")).unwrap();
     assert!(ini.contains("content_id=UP0000-PPSA01234_00-TIDEBREAKER00000"), "{ini}");
     assert!(ini.contains("mount_point=/app0/addcont0"), "{ini}");
-    assert!(packed.join("fakelib/libSceAppContent.prx").is_file());
+    // The emulator Kite Pack carries, as real files the mount can see.
+    let carried = kite_forge::dlc_emu::modules();
+    assert_eq!(
+        std::fs::read(packed.join("fakelib").join(carried[0].name)).unwrap(),
+        carried[0].bytes,
+    );
     // A packed copy is still a packed copy.
     assert!(packed.join("ampr_zstd.index").is_file());
     assert!(inspect_game(&packed).is_ok() || inspect_game(&packed).is_err());
@@ -93,13 +90,13 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
     let out = tmp.path().join("out");
     std::fs::create_dir_all(&out).unwrap();
 
-    // No emulator in the dump, none picked: refused, with the reason.
+    // A picked emulator folder with no modules in it: refused, with the reason.
     let req = PackRequest {
         source: game.clone(),
         output_dir: out.clone(),
         format: OutputFormat::Folder,
         level: Level::Fast,
-        bundle: Bundle { dlc: vec![dlc], backport: None, emulator: None },
+        bundle: Bundle { dlc: vec![dlc], backport: None, emulator: Some(empty_dir(tmp.path())) },
     };
     let err = ForgePacker { full_verify: false }
         .pack(&req, &|_| {}, &AtomicBool::new(false))
@@ -108,7 +105,7 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
         kite_pipeline::PackError::Failed(why) => why.clone(),
         other => format!("{other:?}"),
     };
-    assert!(text.contains("no DLC emulator"), "{text}");
+    assert!(text.contains("no libSceAppContent"), "{text}");
     // Nothing was packed and nothing was left behind beside the game.
     assert_eq!(std::fs::read_dir(&out).unwrap().count(), 0);
     let leftovers: Vec<_> = std::fs::read_dir(tmp.path())

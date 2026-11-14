@@ -13,9 +13,10 @@ DLC and backports inside the pack.
   `dlc_emu.ini` (content id, `download_status`, `mount_point`) and, when the dump has none of its
   own, the DLC emulator's modules in `fakelib/`. A dump that already carries the emulator, or the
   same DLC twice, is left alone. DLC already listed in the dump's `dlc_emu.ini` is not added again.
-- **The DLC emulator is picked once** in Settings (the unzipped `dlc_emu` release); Kite Pack
-  does not ship it. A dump with no emulator and no folder picked says so, rather than packing DLC
-  nothing would read.
+- **The DLC emulator is included.** Kite Pack carries [dlc_emu](https://github.com/drakmor/dlc_emu)
+  0.3 (GPL-3.0; source and modules under `third_party/dlc_emu/`), so a dump with no emulator of
+  its own gets one with no setup step. Settings says which release is included. A dump that
+  already carries an emulator keeps its own.
 - **A backport is an overlay**: its `eboot.bin`, `sce_sys/` and `fakelib/` replace the game's
   before packing, and its title id is checked against the game's.
 - **Nothing is written to your dump.** The game is staged beside it as a copy-on-write clone

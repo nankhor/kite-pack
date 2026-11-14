@@ -45,6 +45,8 @@ export interface Backend {
   discover(): Promise<Found[]>;
   /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
   startHelper(): Promise<StartOutcome>;
+  /** The DLC emulator release the app carries. */
+  dlcEmuVersion(): Promise<string>;
   /** What the picked DLC and backport would add to the packed copy, and whether they can go in. */
   bundlePlan(source: string, dlc: string[], backport: string | null): Promise<BundlePlan>;
   /** A DLC package (`.pkg`) or folder, and a backport folder. */
@@ -103,6 +105,7 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
+  dlcEmuVersion: () => invoke("dlc_emu_version"),
   bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
   pickDlcPackage: async () =>
     single(await open({ multiple: false, filters: [{ name: "DLC package", extensions: ["pkg"] }] })),

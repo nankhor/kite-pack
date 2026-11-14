@@ -83,8 +83,6 @@ export interface Settings {
   destination: string;
   /** Where packed copies go on this computer; null for next to each game. */
   packedFolder: string | null;
-  /** The unzipped dlc_emu release, for dumps that carry no DLC emulator of their own. */
-  dlcTools: string | null;
 }
 
 export type Status =
@@ -155,8 +153,8 @@ export interface BundlePlan {
   items: BundleItem[];
   route: "inPack" | "unavailable";
   problem: string | null;
-  /** The DLC emulator will come from the folder picked in Settings. */
-  emulatorFromSettings: boolean;
+  /** Where the DLC emulator comes from: the dump, the app's own copy, or a picked folder. */
+  emulatorFrom: "dump" | "builtin" | "picked" | "none";
 }
 
 /** What the screen picked to put inside the pack. */

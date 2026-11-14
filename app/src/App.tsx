@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
 import { footerNote, stepRows } from "./model";
 import { Empty } from "./parts/Empty";
@@ -39,6 +39,7 @@ export function canSend(status: Status | null): boolean {
 
 export default function App({ backend }: { backend: Backend }) {
   const [s, dispatch] = useReducer(reduce, initial);
+  const [dlcEmu, setDlcEmu] = useState<string | null>(null);
   const current = useRef(s);
   current.current = s;
   const booted = useRef(false);
@@ -103,6 +104,10 @@ export default function App({ backend }: { backend: Backend }) {
     const path = await pick();
     if (path) await open(path);
   }
+
+  useEffect(() => {
+    void backend.dlcEmuVersion().then(setDlcEmu).catch(() => {});
+  }, [backend]);
 
   useEffect(() => {
     const stopEvents = backend.onEvent((event) => dispatch({ type: "event", event, now: Date.now() }));
@@ -262,6 +267,7 @@ export default function App({ backend }: { backend: Backend }) {
             return outcome;
           }}
           onPickFolder={() => backend.pickFolder()}
+          dlcEmuVersion={dlcEmu}
           onDone={() => dispatch({ type: "view", view: "main" })}
         />
       </div>
