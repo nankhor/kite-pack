@@ -6,6 +6,8 @@ import type { GameIcon, InstalledGame, Library as LibraryData, Measured } from "
 interface Props {
   backend: Backend;
   onBack: () => void;
+  /** The room left where games go is read from here (`/data/homebrew` by default). */
+  destination: string;
   /** Why the console could not be read, when the chip already knows. */
   statusNote?: string | null;
 }
@@ -42,13 +44,14 @@ function Chips({ game }: { game: InstalledGame }) {
 }
 
 /** What is on the PS5, read over the helper's read-only calls: nothing is changed there. */
-export function Library({ backend, onBack, statusNote }: Props) {
+export function Library({ backend, onBack, destination, statusNote }: Props) {
   const [loaded, setLoaded] = useState<Loaded>({ phase: "loading" });
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [sizes, setSizes] = useState<Record<string, Measured>>({});
   const [measuring, setMeasuring] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
+  const [free, setFree] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoaded({ phase: "loading" });
@@ -62,10 +65,14 @@ export function Library({ backend, onBack, statusNote }: Props) {
         .libraryIcons(library.games.map((g) => g.titleId))
         .then((got: GameIcon[]) => setIcons(Object.fromEntries(got.map((i) => [i.titleId, i.dataUrl]))))
         .catch(() => {});
+      void backend
+        .freeSpace(destination)
+        .then((room) => setFree(room.usable))
+        .catch(() => setFree(null));
     } catch (e) {
       setLoaded({ phase: "failed", message: String(e) });
     }
-  }, [backend]);
+  }, [backend, destination]);
 
   useEffect(() => {
     void load();
@@ -103,7 +110,15 @@ export function Library({ backend, onBack, statusNote }: Props) {
       <div className="library-top">
         <div className="library-heading">
           <h1 className="library-title">On the PS5</h1>
-          <p className="library-sub">{heading}</p>
+          <p className="library-sub">
+            <span>{heading}</span>
+            {free !== null && (
+              <span>
+                {" · "}
+                {formatSize(free)} free where games go
+              </span>
+            )}
+          </p>
         </div>
         <div className="buttons">
           <button className="button secondary" onClick={() => void load()} disabled={loaded.phase === "loading"}>

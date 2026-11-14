@@ -529,6 +529,13 @@ describe("the PS5's library", () => {
     expect(backend.measureApp).toHaveBeenCalledWith("PPSA00001");
   });
 
+  it("shows the room left where games go", async () => {
+    backend.installed = INSTALLED;
+    await openLibrary();
+    expect(await screen.findByText(/480\.0 GB free where games go/)).toBeInTheDocument();
+    expect(backend.freeSpace).toHaveBeenCalledWith("/data/homebrew");
+  });
+
   it("filters by name or title id", async () => {
     backend.installed = INSTALLED;
     await openLibrary();

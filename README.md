@@ -21,7 +21,7 @@ Installing DLC comes next.
 The start screen has **See what's on the PS5**: it lists every title the console has, with its
 tile, name, title id, version, whether its update is installed, how many add-ons it has, and
 which drive it is on. **Measure** on a title shows how much room it takes, app, update and
-add-ons counted separately.
+add-ons counted separately, and the screen says how much room is left where games go.
 
 Opening a game also says whether the console already has it, and marks the DLC that is already
 installed, so nothing is packed or sent blind.

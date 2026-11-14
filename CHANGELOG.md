@@ -7,7 +7,7 @@ See what is on the PS5.
 - **On the PS5.** A new screen, from **See what's on the PS5** on the start screen, lists what the
   console has installed: tile, name, title id, version, whether the update is installed, how many
   add-ons, and which drive. **Measure** shows what one title takes, app, update and add-ons counted
-  separately.
+  separately, and the screen says how much room is left where games go.
 - **Already on the PS5.** Opening a game now says whether the console already has it, and marks the
   DLC that is already there.
 - **Kite helper 0.2.0** answers the read-only calls the screen needs (list, stat, read, a recursive

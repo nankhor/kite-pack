@@ -234,6 +234,7 @@ export default function App({ backend }: { backend: Backend }) {
         {header}
         <Library
           backend={backend}
+          destination={s.settings?.destination ?? "/data/homebrew"}
           statusNote={s.status?.state === "notReachable" ? "The PS5 isn't reachable; check the Kite helper is running." : null}
           onBack={() => dispatch({ type: "view", view: "main" })}
         />
