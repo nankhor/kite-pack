@@ -1,6 +1,15 @@
 // The screen's state and how each event moves it.
 
-import type { GameInfo, JobView, PackOptions, ProgressState, Settings, Status, UiEvent } from "./types";
+import type {
+  GameInfo,
+  InstalledGame,
+  JobView,
+  PackOptions,
+  ProgressState,
+  Settings,
+  Status,
+  UiEvent,
+} from "./types";
 
 /** How far back the speed looks, in ms. */
 const SPEED_WINDOW = 10_000;
@@ -19,11 +28,13 @@ export interface State {
   dragging: boolean;
   /** Pack was pressed and its reply hasn't come back: updates may arrive first. */
   starting: boolean;
-  /** The main screen or Settings. */
-  view: "main" | "settings";
+  /** The main screen, Settings, or what is installed on the PS5. */
+  view: "main" | "settings" | "library";
   settings: Settings | null;
   /** How the PS5 stands; null until first checked. */
   status: Status | null;
+  /** The game as the console has it, or null when it is not installed (or could not be read). */
+  onPs5: InstalledGame | null;
 }
 
 export type Action =
@@ -37,9 +48,10 @@ export type Action =
   | { type: "back" }
   | { type: "reset" }
   | { type: "drag"; on: boolean }
-  | { type: "view"; view: "main" | "settings" }
+  | { type: "view"; view: "main" | "settings" | "library" }
   | { type: "settings"; settings: Settings }
-  | { type: "status"; status: Status };
+  | { type: "status"; status: Status }
+  | { type: "onPs5"; game: InstalledGame | null };
 
 export const initial: State = {
   phase: "empty",
@@ -54,6 +66,7 @@ export const initial: State = {
   view: "main",
   settings: null,
   status: null,
+  onPs5: null,
 };
 
 function phaseOf(job: JobView): Phase {
@@ -116,6 +129,7 @@ export function reduce(s: State, a: Action): State {
         options: { ...s.options, outputDir: a.outputDir },
         job: null,
         progress: null,
+        onPs5: null,
       };
     case "message":
       return { ...s, message: a.text, starting: false };
@@ -157,5 +171,7 @@ export function reduce(s: State, a: Action): State {
       return { ...s, settings: a.settings };
     case "status":
       return { ...s, status: a.status };
+    case "onPs5":
+      return { ...s, onPs5: a.game };
   }
 }

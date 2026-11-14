@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+See what is on the PS5.
+
+- **On the PS5.** A new screen, from **See what's on the PS5** on the start screen, lists what the
+  console has installed: tile, name, title id, version, whether the update is installed, how many
+  add-ons, and which drive. **Measure** shows what one title takes, app, update and add-ons counted
+  separately.
+- **Already on the PS5.** Opening a game now says whether the console already has it, and marks the
+  DLC that is already there.
+- **Kite helper 0.2.0** answers the read-only calls the screen needs (list, stat, read, a recursive
+  size and free space). Packing and sending are unchanged, and an older helper keeps working: the
+  new screen asks you to start the new one.
+- Nothing on the console is changed. The app reads `/user/appmeta`, `/user/app`, `/user/patch` and
+  `/user/addcont` — those four folders, nothing else — and a path is resolved before the helper's
+  policy sees it, so a symlink cannot lead elsewhere.
+
 ## 0.1.3
 
 The Mac app opens.

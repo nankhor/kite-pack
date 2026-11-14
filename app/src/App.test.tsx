@@ -3,7 +3,17 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
-import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
+import type {
+  Found,
+  GameInfo,
+  InstalledGame,
+  JobView,
+  PackOptions,
+  Settings,
+  StartOutcome,
+  Status,
+  UiEvent,
+} from "./types";
 
 const GAME: GameInfo = {
   kind: "folder",
@@ -42,6 +52,7 @@ class FakeBackend implements Backend {
   cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
   online = true;
   found: Found[] = [];
+  installed: InstalledGame[] = [];
   private listeners: ((e: UiEvent) => void)[] = [];
   private droppers: ((d: DropEvent) => void)[] = [];
 
@@ -69,6 +80,19 @@ class FakeBackend implements Backend {
     return this.online ? { state: "running", version: "0.1.0-alpha.3" } : { state: "notReachable" };
   });
   discover = vi.fn(async () => this.found);
+  library = vi.fn(async () => ({ games: this.installed, truncated: false }));
+  installedTitle = vi.fn(async (_titleId: string): Promise<InstalledGame | null> => null);
+  libraryIcons = vi.fn(async (ids: string[]) =>
+    ids.includes("PPSA00001") ? [{ titleId: "PPSA00001", dataUrl: "data:image/png;base64,AA==" }] : [],
+  );
+  measureApp = vi.fn(async () => ({
+    bytes: 2_000_000_000,
+    appBytes: 1_000_000_000,
+    updateBytes: 500_000_000,
+    dlcBytes: 500_000_000,
+    partial: false,
+  }));
+  freeSpace = vi.fn(async () => ({ total: 1_000_000_000_000, free: 500_000_000_000, usable: 480_000_000_000, reserve: 10_000_000_000 }));
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   onEvent(cb: (e: UiEvent) => void) {
     this.listeners.push(cb);
@@ -128,6 +152,31 @@ describe("before a game", () => {
     await backend.drop("/Games/Ashen Tide", "/Games/Other");
     expect(await screen.findByText("Drop one game at a time.")).toBeInTheDocument();
     expect(backend.inspect).not.toHaveBeenCalled();
+  });
+});
+
+describe("a game the console already has", () => {
+  it("says so, and marks the DLC that is already there", async () => {
+    backend.installedTitle.mockResolvedValueOnce({
+      titleId: "PPSA01234",
+      title: "Ashen Tide",
+      version: "01.050.000",
+      updateInstalled: true,
+      dlc: ["TIDEBREAKER00000"],
+      external: false,
+      found: "appmeta+app",
+    });
+    await showGame();
+
+    expect(await screen.findByText("Already on the PS5")).toBeInTheDocument();
+    expect(screen.getByText("Update installed")).toBeInTheDocument();
+    expect(screen.getByText("installed")).toBeInTheDocument();
+    expect(backend.installedTitle).toHaveBeenCalledWith("PPSA01234");
+  });
+
+  it("says nothing when the game is not installed", async () => {
+    await showGame();
+    expect(screen.queryByText("Already on the PS5")).not.toBeInTheDocument();
   });
 });
 
@@ -427,5 +476,80 @@ describe("PS5", () => {
     backend.emit({ type: "job", job: steps("done") });
     expect(await screen.findByText("Every file checked")).toBeInTheDocument();
     expect(screen.getByText("On the PS5", { selector: "p" })).toBeInTheDocument();
+  });
+});
+
+
+describe("the PS5's library", () => {
+  const INSTALLED: InstalledGame[] = [
+    {
+      titleId: "PPSA00001",
+      title: "Ashen Tide",
+      version: "01.050.000",
+      updateInstalled: true,
+      dlc: ["TIDEBREAKER00000", "SPDLC02"],
+      external: false,
+      found: "appmeta+app",
+    },
+    {
+      titleId: "PPSA00002",
+      title: "Second Wind",
+      version: null,
+      updateInstalled: false,
+      dlc: [],
+      external: true,
+      found: "app",
+    },
+  ];
+
+  async function openLibrary() {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: /See what/ }));
+    return screen.findByRole("heading", { name: "On the PS5" });
+  }
+
+  it("lists what is installed with its update, add-ons and drive", async () => {
+    backend.installed = INSTALLED;
+    await openLibrary();
+
+    expect(await screen.findByText("2 titles installed")).toBeInTheDocument();
+    expect(screen.getByText("Ashen Tide")).toBeInTheDocument();
+    expect(screen.getByText("PPSA00001")).toBeInTheDocument();
+    expect(screen.getByText("2 DLC")).toBeInTheDocument();
+    expect(screen.getByText("Extended storage")).toBeInTheDocument();
+    expect(backend.library).toHaveBeenCalled();
+  });
+
+  it("measures a title's size only when asked", async () => {
+    backend.installed = INSTALLED;
+    await openLibrary();
+
+    await userEvent.click(await screen.findAllByRole("button", { name: "Measure" }).then((b) => b[0]));
+    expect(await screen.findByText("2.0 GB")).toBeInTheDocument();
+    expect(backend.measureApp).toHaveBeenCalledWith("PPSA00001");
+  });
+
+  it("filters by name or title id", async () => {
+    backend.installed = INSTALLED;
+    await openLibrary();
+
+    await userEvent.type(screen.getByRole("searchbox", { name: "Search games" }), "second");
+    expect(screen.getByText("Second Wind")).toBeInTheDocument();
+    expect(screen.queryByText("Ashen Tide")).not.toBeInTheDocument();
+  });
+
+  it("says why it couldn't read the console", async () => {
+    backend.library.mockRejectedValueOnce("The PS5 isn't reachable. Check it's on and the Kite helper is running.");
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: /See what/ }));
+    expect(await screen.findByText(/isn't reachable/)).toBeInTheDocument();
+  });
+
+  it("goes back to the drop screen", async () => {
+    backend.installed = INSTALLED;
+    await openLibrary();
+
+    await userEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
   });
 });

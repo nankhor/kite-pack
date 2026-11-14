@@ -89,6 +89,50 @@ export type Status =
   | { state: "running"; version: string }
   | { state: "refused"; reason: string };
 
+/** One title installed on the PS5 (kite-ps5's InstalledGame). */
+export interface InstalledGame {
+  titleId: string;
+  title: string;
+  /** `contentVersion` from the console's param.json: the base content, not the update. */
+  version: string | null;
+  updateInstalled: boolean;
+  /** One label per installed add-on, sorted. */
+  dlc: string[];
+  /** Its content folder is on an extended drive. */
+  external: boolean;
+  /** `appmeta`, `app`, or both, joined by `+`. */
+  found: string;
+}
+
+/** What the PS5 has installed, and whether the list is the whole console. */
+export interface Library {
+  games: InstalledGame[];
+  truncated: boolean;
+}
+
+/** One title's tile as a data: URL. */
+export interface GameIcon {
+  titleId: string;
+  dataUrl: string;
+}
+
+/** What a title takes on the console (kite-ps5's Measured). */
+export interface Measured {
+  bytes: number;
+  appBytes: number;
+  updateBytes: number;
+  dlcBytes: number;
+  partial: boolean;
+}
+
+/** Room on the volume games go to. */
+export interface FreeSpace {
+  total: number;
+  free: number;
+  usable: number;
+  reserve: number;
+}
+
 /** A Kite helper that answered on the network. */
 export interface Found {
   address: string;

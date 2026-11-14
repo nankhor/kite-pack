@@ -113,6 +113,51 @@ struct Candidate {
     found: Vec<&'static str>,
 }
 
+/// One title, if it is installed: what the screen shows beside a game before packing it, so a
+/// game that is already on the console is not packed blind. `None` when none of the three
+/// sources has it.
+pub fn installed_title(
+    console: &Console,
+    keys: &Keys,
+    title_id: &str,
+) -> Result<Option<InstalledGame>, Ps5Error> {
+    if !looks_like_title_id(title_id) {
+        return Err(Ps5Error::Failed("That isn't a title id".into()));
+    }
+    runtime().block_on(async {
+        let session = open(console, &keys.checker, keys).await?;
+        let out = read_one(&session, title_id).await;
+        session.close().await;
+        out.map_err(meta::into_ps5)
+    })
+}
+
+/// Where one title was found, or none of the three (`external` only says which drive to read
+/// its `sce_sys` from; it is false when the title is not there at all).
+async fn read_one(s: &Session, title_id: &str) -> Result<Option<InstalledGame>, MetaError> {
+    let mut found: Vec<&'static str> = Vec::new();
+    let mut external = false;
+    if meta::stat(s, &format!("{APPMETA}/{title_id}")).await.map(|e| e.is_folder()).unwrap_or(false) {
+        found.push("appmeta");
+    }
+    if meta::stat(s, &format!("{APP}/{title_id}")).await.map(|e| e.is_folder()).unwrap_or(false) {
+        found.push("app");
+    }
+    if found.is_empty() {
+        for root in EXT_ROOTS {
+            if meta::stat(s, &format!("{root}/{title_id}")).await.map(|e| e.is_folder()).unwrap_or(false) {
+                found.push("app");
+                external = true;
+                break;
+            }
+        }
+    }
+    if found.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(read_game(s, title_id, external, &found).await?))
+}
+
 /// The ids on this console, from the three sources. A source that cannot be read is skipped:
 /// a busy console must not read as an empty one, and the caller sees the titles it did get.
 async fn title_ids(s: &Session) -> (Vec<Candidate>, bool) {
@@ -156,38 +201,48 @@ async fn title_ids(s: &Session) -> (Vec<Candidate>, bool) {
     (found, truncated)
 }
 
+/// One title: its name and version, its update, and its add-ons.
+async fn read_game(
+    s: &Session,
+    title_id: &str,
+    external: bool,
+    found: &[&'static str],
+) -> Result<InstalledGame, MetaError> {
+    let addcont = format!("{ADDCONT}/{title_id}");
+    let patch_dir = format!("{PATCH}/{title_id}");
+    let (param, dlc, patch) =
+        tokio::join!(read_param(s, title_id), meta::list_lenient(s, &addcont), meta::stat(s, &patch_dir));
+
+    let mut labels: Vec<String> = dlc
+        .unwrap_or_default()
+        .iter()
+        .filter(|e| e.is_folder())
+        .map(|e| e.name.clone())
+        .collect();
+    labels.sort();
+
+    let (title, version) = match param {
+        Some(p) => (p.title.unwrap_or_else(|| title_id.to_string()), p.version),
+        None => (title_id.to_string(), None),
+    };
+
+    Ok(InstalledGame {
+        title_id: title_id.to_string(),
+        title,
+        version,
+        update_installed: patch.as_ref().map(|e| e.is_folder()).unwrap_or(false),
+        dlc: labels,
+        external,
+        found: found.join("+"),
+    })
+}
+
 async fn read_library(s: &Session) -> Result<Library, MetaError> {
     let (found, mut truncated) = title_ids(s).await;
 
     let mut games = Vec::with_capacity(found.len());
     for c in found {
-        let addcont = format!("{ADDCONT}/{}", c.id);
-        let patch_dir = format!("{PATCH}/{}", c.id);
-        let (param, dlc, patch) =
-            tokio::join!(read_param(s, &c.id), meta::list_lenient(s, &addcont), meta::stat(s, &patch_dir));
-
-        let mut labels: Vec<String> = dlc
-            .unwrap_or_default()
-            .iter()
-            .filter(|e| e.is_folder())
-            .map(|e| e.name.clone())
-            .collect();
-        labels.sort();
-
-        let (title, version) = match param {
-            Some(p) => (p.title.unwrap_or_else(|| c.id.clone()), p.version),
-            None => (c.id.clone(), None),
-        };
-
-        games.push(InstalledGame {
-            title_id: c.id,
-            title,
-            version,
-            update_installed: patch.as_ref().map(|e| e.is_folder()).unwrap_or(false),
-            dlc: labels,
-            external: c.external,
-            found: c.found.join("+"),
-        });
+        games.push(read_game(s, &c.id, c.external, &c.found).await?);
     }
 
     games.sort_by(|a, b| {

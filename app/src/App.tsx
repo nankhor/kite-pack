@@ -5,6 +5,7 @@ import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
 import { Header } from "./parts/Header";
+import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
 import { SettingsPage } from "./parts/Settings";
 import { Steps } from "./parts/Steps";
@@ -69,6 +70,20 @@ export default function App({ backend }: { backend: Backend }) {
     if ("address" in patch || "helperPort" in patch) await refreshStatus();
   }
 
+  /** What the console already has of this game, for the screen's "already on the PS5". Silent
+   * when the console cannot be read: the game can still be packed and sent. */
+  async function loadOnPs5(titleId: string | null) {
+    if (!titleId) {
+      dispatch({ type: "onPs5", game: null });
+      return;
+    }
+    try {
+      dispatch({ type: "onPs5", game: await backend.installedTitle(titleId) });
+    } catch {
+      dispatch({ type: "onPs5", game: null });
+    }
+  }
+
   async function open(path: string) {
     if (current.current.phase === "running") {
       dispatch({ type: "message", text: "A game is already being packed." });
@@ -77,6 +92,7 @@ export default function App({ backend }: { backend: Backend }) {
     try {
       const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
       dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
+      void loadOnPs5(game.titleId);
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
     }
@@ -212,6 +228,19 @@ export default function App({ backend }: { backend: Backend }) {
     );
   }
 
+  if (s.view === "library") {
+    return (
+      <div className="screen">
+        {header}
+        <Library
+          backend={backend}
+          statusNote={s.status?.state === "notReachable" ? "The PS5 isn't reachable; check the Kite helper is running." : null}
+          onBack={() => dispatch({ type: "view", view: "main" })}
+        />
+      </div>
+    );
+  }
+
   if (s.phase === "empty" || !s.game) {
     return (
       <div className={s.dragging ? "screen dragging" : "screen"}>
@@ -220,6 +249,7 @@ export default function App({ backend }: { backend: Backend }) {
           message={s.message}
           onChooseFolder={() => void choose(backend.pickFolder)}
           onChooseFile={() => void choose(backend.pickFile)}
+          onSeeLibrary={() => dispatch({ type: "view", view: "library" })}
         />
       </div>
     );
@@ -238,7 +268,14 @@ export default function App({ backend }: { backend: Backend }) {
     <div className={s.dragging ? "screen dragging" : "screen"}>
       {header}
       <div className="spacer" />
-      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} headline={sent ? "On the PS5" : "Packed"} />
+      <Game
+        game={s.game}
+        source={s.source ?? ""}
+        job={s.job}
+        done={done}
+        onPs5={s.onPs5}
+        headline={sent ? "On the PS5" : "Packed"}
+      />
       {s.message && (
         <p role="alert" className="message">
           {s.message}

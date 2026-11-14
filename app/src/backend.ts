@@ -5,7 +5,21 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
+import type {
+  Found,
+  FreeSpace,
+  GameIcon,
+  GameInfo,
+  InstalledGame,
+  JobView,
+  Library,
+  Measured,
+  PackOptions,
+  Settings,
+  StartOutcome,
+  Status,
+  UiEvent,
+} from "./types";
 
 export type DropEvent = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
 
@@ -30,6 +44,16 @@ export interface Backend {
   discover(): Promise<Found[]>;
   /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
   startHelper(): Promise<StartOutcome>;
+  /** What the PS5 has installed (reads the console; takes a couple of seconds). */
+  library(): Promise<Library>;
+  /** One title on the console by id, or null when it is not installed. */
+  installedTitle(titleId: string): Promise<InstalledGame | null>;
+  /** The tiles of those titles, as data: URLs. Titles with no icon are left out. */
+  libraryIcons(ids: string[]): Promise<GameIcon[]>;
+  /** App, update and DLC bytes of one installed title (walks the console's folders). */
+  measureApp(titleId: string): Promise<Measured>;
+  /** The room left where games go. */
+  freeSpace(path: string): Promise<FreeSpace>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -72,6 +96,11 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
+  library: () => invoke("library"),
+  installedTitle: (titleId) => invoke("installed_title", { titleId }),
+  libraryIcons: (ids) => invoke("library_icons", { ids }),
+  measureApp: (titleId) => invoke("measure_app", { titleId }),
+  freeSpace: (path) => invoke("free_space", { path }),
   startHelper: () => invoke("start_helper"),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>

@@ -9,12 +9,30 @@ What is in this repository:
 - **kite-pipeline**: the job and its steps (pack, delete the original, send, install DLC, delete the packed folder). Jobs are saved after every change, so they can carry on after a crash or restart.
 - **kite-forge**: reads game folders, images and archives, and packs them with [PS5 Dump Forge](https://github.com/quer3q/ps5-dump-forge).
 - **kite-session**: the app's side of a job: one at a time, reported as events for the screen.
-- **kite-ps5**: finds the Kite helper on the home network, connects to it and sends packed copies over [AVA1](https://github.com/phantomptr/ava1).
+- **kite-ps5**: finds the Kite helper on the home network, reads what the PS5 has installed, connects to it and sends packed copies over [AVA1](https://github.com/phantomptr/ava1).
 - **helper**: the Kite helper, `kite-helper.elf`, which runs on the PS5 (AVA1's C node plus a little of ours).
 - **kite-cli**: the `kite-pack` command-line tool.
 - **app**: the desktop app (Tauri 2 and React), in `app/`.
 
 Installing DLC comes next.
+
+## What is on the PS5
+
+The start screen has **See what's on the PS5**: it lists every title the console has, with its
+tile, name, title id, version, whether its update is installed, how many add-ons it has, and
+which drive it is on. **Measure** on a title shows how much room it takes, app, update and
+add-ons counted separately.
+
+Opening a game also says whether the console already has it, and marks the DLC that is already
+installed, so nothing is packed or sent blind.
+
+All of it is read-only and comes from the console's own folders: `/user/appmeta`, `/user/app`,
+`/user/patch` and `/user/addcont`. Nothing else is touched, and no Sony installer API is called.
+A title that only another tool's `app.db` entry knows about (no folder of its own) is not
+listed; the screen says so rather than pretending the list is complete.
+
+This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
+screen asks you to start the new one.
 
 ## Download
 

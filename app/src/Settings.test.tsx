@@ -28,6 +28,11 @@ class FakeBackend implements Backend {
   ps5Status = vi.fn(async () => this.status);
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
+  library = vi.fn(async () => ({ games: [], truncated: false }));
+  installedTitle = vi.fn(async () => null);
+  libraryIcons = vi.fn(async () => []);
+  measureApp = vi.fn();
+  freeSpace = vi.fn();
   onEvent() {
     return () => {};
   }

@@ -6,7 +6,9 @@
 
 use kite_forge::{ForgePacker, GameInfo, inspect_game};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
-use kite_ps5::{Console, Found, Keys, Ps5Sender, Settings, StartOutcome, Status};
+use kite_ps5::{
+    Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings, StartOutcome, Status,
+};
 use kite_session::{Emit, JobView, Ports, Session, UiEvent};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -151,6 +153,61 @@ async fn discover() -> Result<Vec<Found>, String> {
     blocking(|| kite_ps5::discover(DISCOVER_WAIT)).await
 }
 
+/// One title on the console by id, for the game screen: `null` when it is not installed.
+#[tauri::command]
+async fn installed_title(app: AppHandle, title_id: String) -> Result<Option<kite_ps5::InstalledGame>, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::installed_title(&console, &ps5.keys, &title_id).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// What the PS5 has installed. Reads the console through the helper; changes nothing.
+#[tauri::command]
+async fn library(app: AppHandle) -> Result<Library, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::installed(&console, &ps5.keys).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// The tiles of the titles in `ids`, as data: URLs.
+#[tauri::command]
+async fn library_icons(app: AppHandle, ids: Vec<String>) -> Result<Vec<GameIcon>, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::icons(&console, &ps5.keys, &ids).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// What one installed title takes: its app folder, its update and its add-ons.
+#[tauri::command]
+async fn measure_app(app: AppHandle, title_id: String) -> Result<Measured, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::measure(&console, &ps5.keys, &title_id).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// The room left on the volume `path` is on (`/user/app`, or wherever games go).
+#[tauri::command]
+async fn free_space(app: AppHandle, path: String) -> Result<FreeSpace, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::free_space(&console, &ps5.keys, &path).map_err(|e| e.message())
+    })
+    .await?
+}
+
 #[tauri::command]
 async fn start_helper(app: AppHandle) -> Result<StartOutcome, String> {
     blocking(move || {
@@ -192,7 +249,12 @@ fn main() {
             save_settings,
             ps5_status,
             discover,
-            start_helper
+            start_helper,
+            library,
+            installed_title,
+            library_icons,
+            measure_app,
+            free_space
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

@@ -280,14 +280,37 @@ pub async fn freespace(s: &Session, path: &str) -> Result<FreeSpace, MetaError> 
     Ok(FreeSpace { total: r.u64()?, free: r.u64()?, usable: r.u64()?, reserve: r.u64()? })
 }
 
+/// AVA1's `ERR_UNKNOWN_METHOD`: the helper on the PS5 is older than this app.
+const ERR_UNKNOWN_METHOD: u16 = 6;
+
 /// The words the screen uses for a metadata failure.
 pub fn into_ps5(e: MetaError) -> Ps5Error {
     match e {
         MetaError::NotFound => Ps5Error::Failed("That isn't on the PS5".into()),
         MetaError::Path => Ps5Error::Failed("The helper won't read that folder".into()),
+        MetaError::Refused { code: ERR_UNKNOWN_METHOD, .. } => Ps5Error::Failed(
+            "The Kite helper on the PS5 is older than this app. Start the new helper from Settings.".into(),
+        ),
         MetaError::Refused { message, .. } if !message.is_empty() => Ps5Error::Failed(message),
         MetaError::Refused { .. } => Ps5Error::Failed("The PS5 refused".into()),
         MetaError::Protocol(why) => Ps5Error::Failed(why),
         MetaError::Network(e) => e,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_old_helper_is_named_in_words_rather_than_as_a_bare_code() {
+        let e = into_ps5(MetaError::Refused { code: ERR_UNKNOWN_METHOD, message: "unknown method".into() });
+        assert!(e.message().contains("older than this app"), "{}", e.message());
+    }
+
+    #[test]
+    fn a_missing_path_and_a_refused_one_read_differently() {
+        assert!(into_ps5(MetaError::NotFound).message().contains("isn't on the PS5"));
+        assert!(into_ps5(MetaError::Path).message().contains("won't read"));
     }
 }

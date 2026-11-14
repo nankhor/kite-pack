@@ -14,7 +14,8 @@ pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
 pub use launch::{StartOutcome, start_helper};
 pub use library::{
-    GameIcon, InstalledGame, Library, Measured, free_space, installed, icons, measure, read_file,
+    GameIcon, InstalledGame, Library, Measured, free_space, installed, installed_title, icons, measure,
+    read_file,
 };
 pub use meta::{Entry, FreeSpace, MetaError, Usage};
 pub use send::Ps5Sender;

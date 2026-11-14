@@ -162,33 +162,45 @@ static int parse_request(const uint8_t *body, uint32_t len, struct request *r) {
 
 /* ---- fs.list ---------------------------------------------------------------------------------- */
 
+/* Every entry of a folder, sorted. The array grows with what is actually there (a game folder
+ * has tens of entries, not thousands), and stops at KITE_FOLDER_MAX: past that the extra names
+ * are left out and `overflow` says so, rather than the helper allocating for a folder it will
+ * never be asked about in full. */
+#define KITE_FOLDER_MAX 65536u
+
 static int by_name(const void *a, const void *b) {
     const kite_entry_t *x = a, *y = b;
     return strcmp(x->name, y->name);
 }
 
-/* Every entry of a folder, sorted, capped at KITE_LIST_MAX * 256 so one absurd folder cannot
- * eat the helper's memory. The caller pages the sorted array, so a page is stable while a
- * folder is not changing under it. */
 static int read_folder(const char *real, kite_entry_t **out, size_t *count, int *overflow) {
     DIR *d = opendir(real);
     if (!d) return errno == ENOENT ? KITE_ERR_NOT_FOUND : AVA1_ERR_IO;
 
-    const size_t max = (size_t)KITE_LIST_MAX * 256u;
-    kite_entry_t *v = malloc(sizeof *v * (max + 1));
+    size_t cap = 64, n = 0;
+    kite_entry_t *v = malloc(sizeof *v * cap);
     if (!v) {
         closedir(d);
         return AVA1_ERR_INTERNAL;
     }
 
-    size_t n = 0;
     struct dirent *de;
     while ((de = readdir(d)) != NULL) {
         if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
         if (strlen(de->d_name) > KITE_NAME_MAX) continue;
-        if (n == max) {
+        if (n == KITE_FOLDER_MAX) {
             *overflow = 1;
             break;
+        }
+        if (n == cap) {
+            cap *= 2;
+            kite_entry_t *bigger = realloc(v, sizeof *v * cap);
+            if (!bigger) {
+                free(v);
+                closedir(d);
+                return AVA1_ERR_INTERNAL;
+            }
+            v = bigger;
         }
         struct stat st;
         if (fstatat(dirfd(d), de->d_name, &st, AT_SYMLINK_NOFOLLOW) != 0) continue;
@@ -235,7 +247,8 @@ static int fs_list(const struct request *rq, uint8_t *out, size_t cap, size_t *o
         if (w.full) break;
         emitted++;
     }
-    int more = (size_t)from + emitted < n || overflow;
+    (void)overflow; /* the names past KITE_FOLDER_MAX are not reachable by any page */
+    int more = (size_t)from + emitted < n;
     wr_u8(&w, (uint8_t)(more ? 1 : 0));
     wr_u64(&w, from + emitted);
     free(v);

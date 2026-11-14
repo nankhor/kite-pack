@@ -2,10 +2,12 @@ interface Props {
   message: string | null;
   onChooseFolder: () => void;
   onChooseFile: () => void;
+  /** Look at the PS5 instead of opening something on this computer. */
+  onSeeLibrary: () => void;
 }
 
 /** Before a game: one place to drop it, or pick it. */
-export function Empty({ message, onChooseFolder, onChooseFile }: Props) {
+export function Empty({ message, onChooseFolder, onChooseFile, onSeeLibrary }: Props) {
   return (
     <section className="empty" aria-label="Choose a game">
       <div className="drop-target">
@@ -19,6 +21,9 @@ export function Empty({ message, onChooseFolder, onChooseFile }: Props) {
             Choose file
           </button>
         </div>
+        <button className="link-button" onClick={onSeeLibrary}>
+          See what&rsquo;s on the PS5
+        </button>
         {message && (
           <p role="alert" className="message">
             {message}

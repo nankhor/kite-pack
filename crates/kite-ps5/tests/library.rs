@@ -2,7 +2,7 @@
 #![cfg(unix)]
 mod support;
 
-use kite_ps5::{free_space, installed, icons, measure, read_file, Keys};
+use kite_ps5::{free_space, installed, installed_title, icons, measure, read_file, Keys};
 use std::path::{Path, PathBuf};
 use support::Helper;
 
@@ -231,4 +231,24 @@ fn reports_the_room_left_where_games_go() {
     assert!(free.free <= free.total);
     assert!(free.usable <= free.free);
     assert_eq!(free.reserve, (free.total / 64).min(1024 * 1024 * 1024));
+}
+
+#[test]
+fn reads_one_title_by_id_for_the_game_screen() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = console_root(tmp.path());
+    full_game(&root, "PPSA00001", "Ashen Tide", "01.050.000");
+    let (helper, _) = helper(tmp.path(), &[]);
+    let console = helper.console();
+    let k = keys(tmp.path());
+
+    let got = installed_title(&console, &k, "PPSA00001").unwrap().unwrap();
+    assert_eq!(got.title, "Ashen Tide");
+    assert_eq!(got.version.as_deref(), Some("01.050.000"));
+    assert!(got.update_installed);
+    assert_eq!(got.dlc, ["DLC00001", "DLC00002"]);
+    assert_eq!(got.found, "appmeta+app");
+
+    assert!(installed_title(&console, &k, "PPSA09999").unwrap().is_none());
+    assert!(installed_title(&console, &k, "../../etc").is_err());
 }
