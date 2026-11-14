@@ -111,8 +111,12 @@ jobs:
             Windows) npx tauri build --no-bundle ;;
             macOS)
               npx tauri build --target universal-apple-darwin --bundles dmg
-              # The whole bundle must be signed (ad hoc), or a downloaded copy won't launch.
-              codesign --verify --deep --strict --verbose=2 "../target/universal-apple-darwin/release/bundle/macos/Kite Pack.app"
+              # The whole bundle must be signed (ad hoc), or a downloaded copy won't launch. Checked
+              # in the .dmg people download: Tauri removes the .app it made the .dmg from.
+              dmg=$(find ../target/universal-apple-darwin/release/bundle/dmg -name '*.dmg' | head -1)
+              hdiutil attach -nobrowse -readonly -mountpoint /tmp/kite-dmg "$dmg"
+              codesign --verify --deep --strict --verbose=2 "/tmp/kite-dmg/Kite Pack.app"
+              hdiutil detach /tmp/kite-dmg
               ;;
             Linux) npx tauri build --bundles appimage ;;
           esac
