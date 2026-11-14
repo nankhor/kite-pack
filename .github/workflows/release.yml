@@ -109,7 +109,11 @@ jobs:
           test -s ../helper-elf/kite-helper.elf
           case "$RUNNER_OS" in
             Windows) npx tauri build --no-bundle ;;
-            macOS) npx tauri build --target universal-apple-darwin --bundles dmg ;;
+            macOS)
+              npx tauri build --target universal-apple-darwin --bundles dmg
+              # The whole bundle must be signed (ad hoc), or a downloaded copy won't launch.
+              codesign --verify --deep --strict --verbose=2 "../target/universal-apple-darwin/release/bundle/macos/Kite Pack.app"
+              ;;
             Linux) npx tauri build --bundles appimage ;;
           esac
       - name: Name the file
