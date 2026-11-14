@@ -15,6 +15,9 @@ pub struct Settings {
     pub destination: String,
     /// Where packed copies go on this computer; None for beside the game.
     pub packed_folder: Option<PathBuf>,
+    /// The unzipped dlc_emu release: its modules go into a game's `fakelib/` when DLC is packed
+    /// into it. None until the user picks one; a dump that already carries them needs none.
+    pub dlc_tools: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -25,6 +28,7 @@ impl Default for Settings {
             loader_port: 9021,
             destination: "/data/homebrew".into(),
             packed_folder: None,
+            dlc_tools: None,
         }
     }
 }

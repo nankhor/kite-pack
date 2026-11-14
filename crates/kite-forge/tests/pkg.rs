@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 
 fn pack(source: &std::path::Path, out: &std::path::Path, format: OutputFormat) -> kite_pipeline::PackOutcome {
     std::fs::create_dir_all(out).unwrap();
-    let req = PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast };
+    let req = PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast, bundle: Default::default() };
     ForgePacker { full_verify: false }.pack(&req, &|_| {}, &AtomicBool::new(false)).unwrap()
 }
 

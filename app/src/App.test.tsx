@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
 import type {
+  BundlePlan,
   Found,
   GameInfo,
   InstalledGame,
@@ -49,7 +50,14 @@ class FakeBackend implements Backend {
   ]);
   left: JobView | null = null;
   initial: string | null = null;
-  cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
+  cfg: Settings = {
+    address: null,
+    helperPort: 9130,
+    loaderPort: 9021,
+    destination: "/data/homebrew",
+    packedFolder: null,
+    dlcTools: null,
+  };
   online = true;
   found: Found[] = [];
   installed: InstalledGame[] = [];
@@ -80,6 +88,40 @@ class FakeBackend implements Backend {
     return this.online ? { state: "running", version: "0.1.0-alpha.3" } : { state: "notReachable" };
   });
   discover = vi.fn(async () => this.found);
+  bundlePlan = vi.fn(async (_source: string, dlc: string[], backport: string | null): Promise<BundlePlan> => ({
+    items: [
+      ...dlc.map((path) => ({
+        path,
+        kind: "dlc" as const,
+        name: path.split("/").pop() ?? path,
+        titleId: "PPSA01234",
+        contentId: "UP0000-PPSA01234_00-TIDEBREAKER00000",
+        label: "TIDEBREAKER00000",
+        bytes: 6_100_000_000,
+        problem: null,
+      })),
+      ...(backport
+        ? [
+            {
+              path: backport,
+              kind: "backport" as const,
+              name: backport.split("/").pop() ?? backport,
+              titleId: "PPSA01234",
+              contentId: null,
+              label: null,
+              bytes: 2_000_000,
+              problem: null,
+            },
+          ]
+        : []),
+    ],
+    route: "inPack" as const,
+    problem: null,
+    emulatorFromSettings: false,
+  }));
+  pickDlcFolder = vi.fn(async (): Promise<string | null> => null);
+  pickDlcPackage = vi.fn(async (): Promise<string | null> => null);
+  pickBackport = vi.fn(async (): Promise<string | null> => null);
   library = vi.fn(async () => ({ games: this.installed, truncated: false }));
   installedTitle = vi.fn(async (_titleId: string): Promise<InstalledGame | null> => null);
   libraryIcons = vi.fn(async (ids: string[]) =>
@@ -229,6 +271,7 @@ describe("ready", () => {
       deleteOriginal: true,
       send: false,
       deletePacked: false,
+      bundle: { dlc: [], backport: null },
     });
   });
 
@@ -439,6 +482,7 @@ describe("PS5", () => {
       deleteOriginal: true,
       send: true,
       deletePacked: true,
+      bundle: { dlc: [], backport: null },
     });
   });
 
@@ -558,5 +602,84 @@ describe("the PS5's library", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
+  });
+});
+
+
+describe("inside the packed copy", () => {
+  async function withGame() {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await backend.drop("/Games/Ashen Tide");
+    await screen.findByRole("heading", { name: "Ashen Tide" });
+  }
+
+  it("adds a DLC folder and says what the pack will carry", async () => {
+    backend.pickDlcFolder.mockResolvedValueOnce("/Games/DLC/Tidebreaker");
+    await withGame();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add DLC folder" }));
+
+    expect(await screen.findByText("Tidebreaker")).toBeInTheDocument();
+    expect(await screen.findByText("1 add-on will be inside the packed copy.")).toBeInTheDocument();
+    expect(backend.bundlePlan).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      ["/Games/DLC/Tidebreaker"],
+      null,
+    );
+  });
+
+  it("keeps a DLC that cannot go in visible, with the packer's reason", async () => {
+    backend.pickDlcPackage.mockResolvedValueOnce("/Games/DLC/other.pkg");
+    const refusedPlan: BundlePlan = {
+      items: [
+        {
+          path: "/Games/DLC/other.pkg",
+          kind: "dlc",
+          name: "other.pkg",
+          titleId: "PPSA99999",
+          contentId: null,
+          label: null,
+          bytes: 1,
+          problem: "DLC for PPSA99999, not for PPSA01234",
+        },
+      ],
+      route: "unavailable",
+      problem: "DLC for PPSA99999, not for PPSA01234",
+      emulatorFromSettings: false,
+    };
+    backend.bundlePlan.mockImplementation(async (_source, dlc) =>
+      dlc.length > 0 ? refusedPlan : { items: [], route: "inPack", problem: null, emulatorFromSettings: false },
+    );
+    await withGame();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add DLC package" }));
+
+    expect(await screen.findByText("DLC for PPSA99999, not for PPSA01234")).toBeInTheDocument();
+  });
+
+  it("adds a backport folder and removes it again", async () => {
+    backend.pickBackport.mockResolvedValueOnce("/Games/Backport/v1.00");
+    await withGame();
+
+    await userEvent.click(screen.getByRole("button", { name: "Add backport" }));
+    expect(await screen.findByText("v1.00")).toBeInTheDocument();
+    expect(await screen.findByText("a backport will be inside the packed copy.")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Remove v1.00" }));
+    expect(screen.queryByText("a backport will be inside the packed copy.")).not.toBeInTheDocument();
+  });
+
+  it("hands the picks to the job", async () => {
+    backend.pickDlcFolder.mockResolvedValueOnce("/Games/DLC/Tidebreaker");
+    await withGame();
+    await userEvent.click(screen.getByRole("button", { name: "Add DLC folder" }));
+    await screen.findByText("Tidebreaker");
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+
+    expect(backend.start).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ bundle: { dlc: ["/Games/DLC/Tidebreaker"], backport: null } }),
+    );
   });
 });

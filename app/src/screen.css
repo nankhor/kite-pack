@@ -834,3 +834,98 @@
   flex-wrap: wrap;
   gap: 6px;
 }
+
+/* Inside the packed copy: DLC and a backport folded in before packing. */
+
+.bundle {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+}
+
+.bundle-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.bundle-head h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.bundle-hint {
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.bundle-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bundle-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bundle-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 13px;
+  max-width: 100%;
+}
+
+.bundle-chip.bad {
+  border-color: var(--warn);
+}
+
+.bundle-chip-kind {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.bundle-chip-size {
+  color: var(--dim);
+}
+
+.bundle-chip-remove {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.bundle-chip-remove:hover {
+  color: var(--text);
+}
+
+.bundle-note {
+  margin: 0;
+  color: var(--dim);
+  font-size: 13px;
+}
+
+.bundle-note.warn {
+  color: var(--warn);
+}

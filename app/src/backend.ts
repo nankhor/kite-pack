@@ -6,6 +6,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
+  BundlePlan,
   Found,
   FreeSpace,
   GameIcon,
@@ -44,6 +45,12 @@ export interface Backend {
   discover(): Promise<Found[]>;
   /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
   startHelper(): Promise<StartOutcome>;
+  /** What the picked DLC and backport would add to the packed copy, and whether they can go in. */
+  bundlePlan(source: string, dlc: string[], backport: string | null): Promise<BundlePlan>;
+  /** A DLC package (`.pkg`) or folder, and a backport folder. */
+  pickDlcPackage(): Promise<string | null>;
+  pickDlcFolder(): Promise<string | null>;
+  pickBackport(): Promise<string | null>;
   /** What the PS5 has installed (reads the console; takes a couple of seconds). */
   library(): Promise<Library>;
   /** One title on the console by id, or null when it is not installed. */
@@ -96,6 +103,11 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
+  bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
+  pickDlcPackage: async () =>
+    single(await open({ multiple: false, filters: [{ name: "DLC package", extensions: ["pkg"] }] })),
+  pickDlcFolder: async () => single(await open({ directory: true, multiple: false })),
+  pickBackport: async () => single(await open({ directory: true, multiple: false })),
   library: () => invoke("library"),
   installedTitle: (titleId) => invoke("installed_title", { titleId }),
   libraryIcons: (ids) => invoke("library_icons", { ids }),

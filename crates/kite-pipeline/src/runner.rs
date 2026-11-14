@@ -284,6 +284,7 @@ impl Runner<'_> {
             output_dir: job.options.output_dir.clone(),
             format: job.options.format,
             level: job.options.level,
+            bundle: job.options.bundle.clone(),
         };
         let progress = |progress: Progress| events(RunEvent::Progress { index, progress });
         match self.packer.pack(&req, &progress, cancel) {

@@ -54,6 +54,17 @@ struct PackOptions {
     send: bool,
     #[serde(default)]
     delete_packed: bool,
+    /// DLC and a backport to put inside the packed copy.
+    #[serde(default)]
+    bundle: BundleOptions,
+}
+
+/// What the screen picked to go inside the pack; the emulator comes from Settings.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct BundleOptions {
+    dlc: Vec<PathBuf>,
+    backport: Option<PathBuf>,
 }
 
 fn emitter(app: AppHandle) -> Emit {
@@ -89,6 +100,11 @@ fn start(
     } else {
         None
     };
+    let bundle = kite_pipeline::Bundle {
+        dlc: options.bundle.dlc,
+        backport: options.bundle.backport,
+        emulator: ps5.settings().dlc_tools.clone(),
+    };
     let options = Options {
         format: options.format,
         level: options.level,
@@ -97,6 +113,7 @@ fn start(
         delete_packed: options.delete_packed && send.is_some(),
         send,
         dlc: vec![],
+        bundle,
     };
     session.start(source, options, emitter(app))
 }
@@ -151,6 +168,22 @@ async fn ps5_status(app: AppHandle) -> Result<Status, String> {
 #[tauri::command]
 async fn discover() -> Result<Vec<Found>, String> {
     blocking(|| kite_ps5::discover(DISCOVER_WAIT)).await
+}
+
+/// What the picked DLC and backport would add to a packed copy, and whether they can go in.
+#[tauri::command]
+async fn bundle_plan(
+    app: AppHandle,
+    source: PathBuf,
+    dlc: Vec<PathBuf>,
+    backport: Option<PathBuf>,
+) -> Result<kite_forge::BundlePlan, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let bundle = kite_pipeline::Bundle { dlc, backport, emulator: ps5.settings().dlc_tools };
+        Ok(kite_forge::bundle::plan(&source, &bundle))
+    })
+    .await?
 }
 
 /// One title on the console by id, for the game screen: `null` when it is not installed.
@@ -252,6 +285,7 @@ fn main() {
             start_helper,
             library,
             installed_title,
+            bundle_plan,
             library_icons,
             measure_app,
             free_space

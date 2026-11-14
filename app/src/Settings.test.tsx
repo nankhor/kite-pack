@@ -6,7 +6,14 @@ import type { Backend } from "./backend";
 import type { Found, Settings, StartOutcome, Status } from "./types";
 
 class FakeBackend implements Backend {
-  cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
+  cfg: Settings = {
+    address: null,
+    helperPort: 9130,
+    loaderPort: 9021,
+    destination: "/data/homebrew",
+    packedFolder: null,
+    dlcTools: null,
+  };
   status: Status = { state: "notSetUp" };
   found: Found[] = [];
   inspect = vi.fn(async () => {
@@ -29,6 +36,10 @@ class FakeBackend implements Backend {
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   library = vi.fn(async () => ({ games: [], truncated: false }));
+  bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFromSettings: false }));
+  pickDlcFolder = vi.fn(async () => null);
+  pickDlcPackage = vi.fn(async () => null);
+  pickBackport = vi.fn(async () => null);
   installedTitle = vi.fn(async () => null);
   libraryIcons = vi.fn(async () => []);
   measureApp = vi.fn();

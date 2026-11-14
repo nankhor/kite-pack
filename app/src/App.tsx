@@ -4,6 +4,7 @@ import { footerNote, stepRows } from "./model";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
+import { Bundle } from "./parts/Bundle";
 import { Header } from "./parts/Header";
 import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
@@ -167,7 +168,12 @@ export default function App({ backend }: { backend: Backend }) {
     dispatch({ type: "starting" });
     const send = s.options.send && sendable;
     try {
-      const options = { ...s.options, send, deletePacked: send && s.options.deletePacked };
+      const options = {
+        ...s.options,
+        bundle: s.bundle,
+        send,
+        deletePacked: send && s.options.deletePacked,
+      };
       dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
@@ -189,12 +195,46 @@ export default function App({ backend }: { backend: Backend }) {
     dispatch({ type: "back" });
   }
 
+  /** Adds one picked DLC (a folder or a package) to what the pack will carry. */
+  async function addDlc(pick: () => Promise<string | null>) {
+    const path = await pick();
+    if (!path) return;
+    const bundle = current.current.bundle;
+    if (bundle.dlc.includes(path)) return;
+    dispatch({ type: "bundle", bundle: { ...bundle, dlc: [...bundle.dlc, path] } });
+  }
+
+  async function addBackport() {
+    const path = await backend.pickBackport();
+    if (!path) return;
+    dispatch({ type: "bundle", bundle: { ...current.current.bundle, backport: path } });
+  }
+
   async function changeOutput() {
     const dir = await backend.pickFolder();
     if (!dir) return;
     dispatch({ type: "options", patch: { outputDir: dir } });
     await saveSettings({ packedFolder: dir });
   }
+
+  // Whether what was picked can go into the pack; read whenever the picks (or the game) change.
+  const bundle = s.bundle;
+  const source = s.source;
+  useEffect(() => {
+    if (!source) return;
+    let stale = false;
+    backend
+      .bundlePlan(source, bundle.dlc, bundle.backport)
+      .then((plan) => {
+        if (!stale) dispatch({ type: "plan", plan });
+      })
+      .catch(() => {
+        if (!stale) dispatch({ type: "plan", plan: null });
+      });
+    return () => {
+      stale = true;
+    };
+  }, [backend, source, bundle]);
 
   const header = (
     <Header
@@ -293,6 +333,16 @@ export default function App({ backend }: { backend: Backend }) {
         />
       ) : (
         s.job && <Steps rows={stepRows(s.job, s.progress, Date.now())} />
+      )}
+      {s.phase === "ready" && (
+        <Bundle
+          selection={s.bundle}
+          plan={s.bundlePlan}
+          onAddFolder={() => void addDlc(backend.pickDlcFolder)}
+          onAddPackage={() => void addDlc(backend.pickDlcPackage)}
+          onAddBackport={() => void addBackport()}
+          onRemove={(bundle) => dispatch({ type: "bundle", bundle })}
+        />
       )}
       <Footer
         phase={s.phase}

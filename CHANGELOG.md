@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+DLC and backports inside the pack.
+
+- **Inside the packed copy.** On the game screen, **Add DLC folder**, **Add DLC package** and
+  **Add backport** fold files into the packed copy before it is written, so one thing goes to the
+  PS5 and the DLC works without installing it separately. What was added is listed with its size,
+  and a DLC for another game, a bad backport folder or a missing emulator is refused in plain
+  words before anything is written.
+- **DLC the way the console reads it**: each one's files under `addcontN/`, an entry in
+  `dlc_emu.ini` (content id, `download_status`, `mount_point`) and, when the dump has none of its
+  own, the DLC emulator's modules in `fakelib/`. A dump that already carries the emulator, or the
+  same DLC twice, is left alone. DLC already listed in the dump's `dlc_emu.ini` is not added again.
+- **The DLC emulator is picked once** in Settings (the unzipped `dlc_emu` release); Kite Pack
+  does not ship it. A dump with no emulator and no folder picked says so, rather than packing DLC
+  nothing would read.
+- **A backport is an overlay**: its `eboot.bin`, `sce_sys/` and `fakelib/` replace the game's
+  before packing, and its title id is checked against the game's.
+- **Nothing is written to your dump.** The game is staged beside it as a copy-on-write clone
+  (APFS, btrfs/XFS) or a copy, the DLC and backport are folded into the clone, and the clone is
+  removed when packing ends.
+- DLC and backports fold into a **game folder**; an image or a `.pkg` still packs as it is.
+
 See what is on the PS5.
 
 - **On the PS5.** A new screen, from **See what's on the PS5** on the start screen, lists what the

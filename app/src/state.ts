@@ -1,6 +1,8 @@
 // The screen's state and how each event moves it.
 
 import type {
+  BundlePlan,
+  BundleSelection,
   GameInfo,
   InstalledGame,
   JobView,
@@ -35,6 +37,10 @@ export interface State {
   status: Status | null;
   /** The game as the console has it, or null when it is not installed (or could not be read). */
   onPs5: InstalledGame | null;
+  /** DLC and a backport to fold into the packed copy. */
+  bundle: BundleSelection;
+  /** Whether they can go in; null until the plan is read. */
+  bundlePlan: BundlePlan | null;
 }
 
 export type Action =
@@ -51,14 +57,24 @@ export type Action =
   | { type: "view"; view: "main" | "settings" | "library" }
   | { type: "settings"; settings: Settings }
   | { type: "status"; status: Status }
-  | { type: "onPs5"; game: InstalledGame | null };
+  | { type: "onPs5"; game: InstalledGame | null }
+  | { type: "bundle"; bundle: BundleSelection }
+  | { type: "plan"; plan: BundlePlan | null };
 
 export const initial: State = {
   phase: "empty",
   game: null,
   source: null,
   message: null,
-  options: { format: "folder", level: "fast", outputDir: "", deleteOriginal: false, send: false, deletePacked: false },
+  options: {
+    format: "folder",
+    level: "fast",
+    outputDir: "",
+    deleteOriginal: false,
+    send: false,
+    deletePacked: false,
+    bundle: { dlc: [], backport: null },
+  },
   job: null,
   progress: null,
   dragging: false,
@@ -67,6 +83,8 @@ export const initial: State = {
   settings: null,
   status: null,
   onPs5: null,
+  bundle: { dlc: [], backport: null },
+  bundlePlan: null,
 };
 
 function phaseOf(job: JobView): Phase {
@@ -130,6 +148,8 @@ export function reduce(s: State, a: Action): State {
         job: null,
         progress: null,
         onPs5: null,
+        bundle: { dlc: [], backport: null },
+        bundlePlan: null,
       };
     case "message":
       return { ...s, message: a.text, starting: false };
@@ -173,5 +193,9 @@ export function reduce(s: State, a: Action): State {
       return { ...s, status: a.status };
     case "onPs5":
       return { ...s, onPs5: a.game };
+    case "bundle":
+      return { ...s, bundle: a.bundle, bundlePlan: null };
+    case "plan":
+      return { ...s, bundlePlan: a.plan };
   }
 }

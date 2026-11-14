@@ -131,6 +131,7 @@ mod tests {
             send: send.then(|| SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() }),
             delete_packed: false,
             dlc: vec![],
+            bundle: Default::default(),
         }
     }
 

@@ -57,6 +57,8 @@ export interface PackOptions {
   deleteOriginal: boolean;
   send: boolean;
   deletePacked: boolean;
+  /** DLC and a backport to fold in before packing. */
+  bundle: BundleSelection;
 }
 
 /** The running step's progress, as the screen tracks it. */
@@ -81,6 +83,8 @@ export interface Settings {
   destination: string;
   /** Where packed copies go on this computer; null for next to each game. */
   packedFolder: string | null;
+  /** The unzipped dlc_emu release, for dumps that carry no DLC emulator of their own. */
+  dlcTools: string | null;
 }
 
 export type Status =
@@ -131,6 +135,34 @@ export interface FreeSpace {
   free: number;
   usable: number;
   reserve: number;
+}
+
+/** One thing picked to go inside the packed copy (kite-forge's BundleItem). */
+export interface BundleItem {
+  path: string;
+  kind: "dlc" | "backport";
+  name: string;
+  titleId: string | null;
+  contentId: string | null;
+  label: string | null;
+  bytes: number;
+  /** Why it can't go in, in the screen's words; null when it can. */
+  problem: string | null;
+}
+
+/** Whether the picked DLC and backport can go into the packed copy. */
+export interface BundlePlan {
+  items: BundleItem[];
+  route: "inPack" | "unavailable";
+  problem: string | null;
+  /** The DLC emulator will come from the folder picked in Settings. */
+  emulatorFromSettings: boolean;
+}
+
+/** What the screen picked to put inside the pack. */
+export interface BundleSelection {
+  dlc: string[];
+  backport: string | null;
 }
 
 /** A Kite helper that answered on the network. */

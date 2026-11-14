@@ -31,6 +31,22 @@ All of it is read-only and comes from the console's own folders: `/user/appmeta`
 A title that only another tool's `app.db` entry knows about (no folder of its own) is not
 listed; the screen says so rather than pretending the list is complete.
 
+## DLC and backports inside the pack
+
+On the game screen, **Add DLC folder**, **Add DLC package** and **Add backport** put files inside
+the packed copy before it is written, so one thing goes to the PS5 and the DLC is there without
+being installed separately.
+
+- DLC is added the way the console's DLC emulator reads it: the files under `addcontN/`, an entry
+  in `dlc_emu.ini`, and the emulator's modules in `fakelib/` when the dump has none of its own.
+  Pick the unzipped `dlc_emu` release once in Settings; Kite Pack doesn't ship it. A dump that
+  already carries the emulator needs nothing.
+- A backport is a folder whose files replace the game's (`eboot.bin`, `sce_sys/`, `fakelib/`).
+- The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
+  btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed
+  once packing ends.
+- This works on a game folder. An image or a `.pkg` packs exactly as it is.
+
 This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
 screen asks you to start the new one.
 

@@ -160,6 +160,7 @@ fn pack(source: PathBuf, out: PathBuf, format: OutputFormat, level: Level, delet
         send: None,
         delete_packed: false,
         dlc: vec![],
+        bundle: Default::default(),
     };
     let mut job = match Job::new(source, options) {
         Ok(job) => job,
