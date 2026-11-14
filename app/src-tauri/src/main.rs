@@ -4,11 +4,14 @@
 //! Kite Pack's desktop app: the screen in `app/src`, the session from `kite-session`, the PS5
 //! side from `kite-ps5`.
 
-use kite_forge::{ForgePacker, GameInfo, inspect_game};
+mod history;
+
+use history::{Entry, History};
+use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
 use kite_ps5::{Console, Found, Keys, Ps5Sender, Settings, StartOutcome, Status};
 use kite_session::{Emit, JobView, Ports, Session, UiEvent};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -52,6 +55,26 @@ struct PackOptions {
     send: bool,
     #[serde(default)]
     delete_packed: bool,
+    /// DLC packages to install on the PS5 after the game; only when sending.
+    #[serde(default)]
+    dlc: Vec<PathBuf>,
+}
+
+/// A DLC package found in a chosen folder.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PickedDlc {
+    path: PathBuf,
+    info: DlcInfo,
+}
+
+/// What a chosen folder holds: DLC for the game, and the packages that aren't.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DlcFolder {
+    found: Vec<PickedDlc>,
+    /// File names of the packages that aren't DLC for this game, or can't be read.
+    skipped: Vec<String>,
 }
 
 fn emitter(app: AppHandle) -> Emit {
@@ -81,22 +104,67 @@ fn start(
 ) -> Result<JobView, String> {
     let send = if options.send {
         let settings = ps5.settings();
-        let address = settings.address.ok_or("Set up your PS5 in Settings first.")?;
+        let address = settings.address.ok_or("Set up your PS5 in the PS5 tab first.")?;
         // The port goes with the address, so a job resumed later reaches the same helper.
         Some(SendTarget { console: format!("{address}:{}", settings.helper_port), destination: settings.destination })
     } else {
         None
     };
+    let sending = send.is_some();
     let options = Options {
         format: options.format,
         level: options.level,
         output_dir: options.output_dir,
         delete_original: options.delete_original,
-        delete_packed: options.delete_packed && send.is_some(),
+        delete_packed: options.delete_packed && sending,
         send,
-        dlc: vec![],
+        dlc: if sending { options.dlc } else { vec![] },
     };
     session.start(source, options, emitter(app))
+}
+
+/// Checks a picked package is DLC for the game, and reads its name, size and icon.
+#[tauri::command]
+async fn check_dlc(path: PathBuf, title_id: String) -> Result<DlcInfo, String> {
+    blocking(move || kite_forge::check_dlc(&path, &title_id)).await?
+}
+
+/// Every `.pkg` in a folder (not its subfolders) that is DLC for the game, by name.
+#[tauri::command]
+async fn dlc_in_folder(path: PathBuf, title_id: String) -> Result<DlcFolder, String> {
+    blocking(move || {
+        let mut pkgs: Vec<PathBuf> = std::fs::read_dir(&path)
+            .map_err(|e| format!("Couldn't read the folder: {e}"))?
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pkg")))
+            .collect();
+        pkgs.sort();
+        let mut folder = DlcFolder { found: vec![], skipped: vec![] };
+        for pkg in pkgs {
+            match kite_forge::check_dlc(&pkg, &title_id) {
+                Ok(info) => folder.found.push(PickedDlc { path: pkg, info }),
+                Err(_) => folder.skipped.push(pkg.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+            }
+        }
+        Ok(folder)
+    })
+    .await?
+}
+
+/// Finished jobs, newest first.
+#[tauri::command]
+async fn load_history(app: AppHandle) -> Result<Vec<Entry>, String> {
+    blocking(move || app.state::<History>().load()).await
+}
+
+#[tauri::command]
+fn add_history(history: State<'_, History>, entry: Entry) -> Result<(), String> {
+    history.add(entry).map_err(|e| format!("Couldn't save the history: {e}"))
+}
+
+#[tauri::command]
+fn clear_history(history: State<'_, History>) -> Result<(), String> {
+    history.clear().map_err(|e| format!("Couldn't clear the history: {e}"))
 }
 
 #[tauri::command]
@@ -178,6 +246,7 @@ fn main() {
             };
             app.manage(Session::new(data.join("jobs"), ports)?);
             app.manage(Ps5 { keys, settings_path, settings: Mutex::new(settings) });
+            app.manage(History::new(data));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -192,7 +261,12 @@ fn main() {
             save_settings,
             ps5_status,
             discover,
-            start_helper
+            start_helper,
+            check_dlc,
+            dlc_in_folder,
+            load_history,
+            add_history,
+            clear_history
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

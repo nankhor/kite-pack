@@ -3,7 +3,19 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
-import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
+import type {
+  DlcFolder,
+  DlcInfo,
+  Found,
+  GameInfo,
+  HistoryEntry,
+  JobView,
+  PackOptions,
+  Settings,
+  StartOutcome,
+  Status,
+  UiEvent,
+} from "./types";
 
 const GAME: GameInfo = {
   kind: "folder",
@@ -70,6 +82,30 @@ class FakeBackend implements Backend {
   });
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
+  /** DLC packages for Ashen Tide, by path; anything else isn't its DLC. */
+  dlc = new Map<string, DlcInfo>();
+  dlcPicked: string[] = [];
+  checkDlc = vi.fn(async (path: string, _titleId: string) => {
+    const info = this.dlc.get(path);
+    if (!info) throw "This isn't DLC for PPSA01234";
+    return info;
+  });
+  dlcInFolder = vi.fn(
+    async (_path: string, _titleId: string): Promise<DlcFolder> => ({
+      found: [...this.dlc].map(([path, info]) => ({ path, info })),
+      skipped: ["Patch.pkg"],
+    }),
+  );
+  pickDlcFiles = vi.fn(async () => this.dlcPicked);
+  past: HistoryEntry[] = [];
+  history = vi.fn(async () => this.past);
+  addHistory = vi.fn(async (entry: HistoryEntry) => {
+    this.past = [entry, ...this.past.filter((e) => e.id !== entry.id)];
+  });
+  clearHistory = vi.fn(async () => {
+    this.past = [];
+  });
+  appVersion = vi.fn(async () => "0.1.3");
   onEvent(cb: (e: UiEvent) => void) {
     this.listeners.push(cb);
     return () => {};
@@ -155,7 +191,7 @@ describe("ready", () => {
 
   it("keeps Send off until a PS5 is set up", async () => {
     await showGame();
-    expect(await screen.findByText("Set up your PS5 in Settings first.")).toBeInTheDocument();
+    expect(await screen.findByText("Set up your PS5 in the PS5 tab first.")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Send to PS5" })).toBeDisabled();
     expect(screen.queryByText("Delete the packed folder")).not.toBeInTheDocument();
   });
@@ -180,6 +216,7 @@ describe("ready", () => {
       deleteOriginal: true,
       send: false,
       deletePacked: false,
+      dlc: [],
     });
   });
 
@@ -207,9 +244,10 @@ describe("packing", () => {
 
   it("shows the step, its progress and Cancel", async () => {
     await packing();
-    expect(screen.getByText("Pack")).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Steps" })).getByText("Pack")).toBeInTheDocument();
     backend.emit({ type: "progress", id: "job-1", index: 0, done: 62, total: 100 });
-    expect(screen.getByText(/^62%/)).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Steps" })).getByText(/^62%/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /^Pack\s*62%$/ })).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "Pack" })).toHaveAttribute("aria-valuenow", "62");
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(backend.cancel).toHaveBeenCalled();
@@ -329,11 +367,12 @@ describe("on launch", () => {
 describe("PS5", () => {
   const ADDRESS = "192.168.1.42";
 
-  it("says when no PS5 is set up, and opens Settings", async () => {
+  it("says when no PS5 is set up, and opens the PS5 tab", async () => {
     render(<App backend={backend} />);
     const chip = await screen.findByRole("button", { name: /Not set up/ });
     await userEvent.click(chip);
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "PS5" })).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows a running helper", async () => {
@@ -390,6 +429,7 @@ describe("PS5", () => {
       deleteOriginal: true,
       send: true,
       deletePacked: true,
+      dlc: [],
     });
   });
 
@@ -418,7 +458,7 @@ describe("PS5", () => {
     backend.emit({ type: "job", job: steps("running") });
     backend.emit({ type: "progress", id: "job-1", index: 1, done: 38, total: 100 });
     expect(screen.getByText("Send to PS5")).toBeInTheDocument();
-    expect(screen.getByText(/^38%/)).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Steps" })).getByText(/^38%/)).toBeInTheDocument();
     backend.emit({ type: "job", job: steps("waiting") });
     expect(screen.getByText("Paused at 38%")).toBeInTheDocument();
     expect(
@@ -427,5 +467,178 @@ describe("PS5", () => {
     backend.emit({ type: "job", job: steps("done") });
     expect(await screen.findByText("Every file checked")).toBeInTheDocument();
     expect(screen.getByText("On the PS5", { selector: "p" })).toBeInTheDocument();
+  });
+});
+
+describe("tabs", () => {
+  it("moves between Pack, PS5 and History", async () => {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    expect(screen.getByRole("tab", { name: "Pack" })).toHaveAttribute("aria-selected", "true");
+    await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
+    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("tab", { name: "Pack" }));
+    expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
+  });
+
+  it("moves with the arrow keys", async () => {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    screen.getByRole("tab", { name: "Pack" }).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(await screen.findByRole("heading", { name: "Your PS5" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "PS5" })).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(await screen.findByRole("tab", { name: "History" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("opens Settings from the gear, with the versions", async () => {
+    backend.cfg.address = "192.168.1.42";
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(await screen.findByText("0.1.3")).toBeInTheDocument();
+    expect(await screen.findByText("0.1.0-alpha.3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps a running job in sight from the other tabs", async () => {
+    await showGame();
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    backend.emit({ type: "job", job: job({ steps: [{ kind: "pack", state: "running", note: null }] }) });
+    backend.emit({ type: "progress", id: "job-1", index: 0, done: 62, total: 100 });
+    await userEvent.click(screen.getByRole("tab", { name: "History" }));
+    expect(screen.getByRole("tab", { name: /^Pack\s*62%$/ })).toBeInTheDocument();
+  });
+
+  it("opens a dropped game on the Pack tab", async () => {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("tab", { name: "History" }));
+    await backend.drop("/Games/Ashen Tide");
+    expect(await screen.findByRole("heading", { name: "Ashen Tide" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Pack" })).toHaveAttribute("aria-selected", "true");
+  });
+});
+
+describe("DLC", () => {
+  const SUITS: DlcInfo = { contentId: "x-SUITS", label: "SUITS0000000000", name: "Suit Pack", bytes: 640_000_000, iconDataUrl: null };
+  const MAP: DlcInfo = { contentId: "x-MAP", label: "MAP000000000000", name: "Arena Map", bytes: 410_000_000, iconDataUrl: null };
+
+  async function readyToSend() {
+    backend.cfg.address = "192.168.1.42";
+    backend.dlc.set("/DLC/suits.pkg", SUITS).set("/DLC/map.pkg", MAP);
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+  }
+
+  it("waits for Send before taking DLC", async () => {
+    await showGame();
+    expect(screen.getByText("Turn on Send to PS5 to install DLC.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add packages" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Add a folder" })).toBeDisabled();
+  });
+
+  it("adds packages, says which aren't DLC for the game, and lists them", async () => {
+    await readyToSend();
+    backend.dlcPicked = ["/DLC/suits.pkg", "/DLC/map.pkg", "/DLC/Patch.pkg"];
+    await userEvent.click(screen.getByRole("button", { name: "Add packages" }));
+    const summary = await screen.findByRole("button", { name: /2 DLC/ });
+    expect(screen.getByText("Not DLC for this game: Patch.pkg.")).toBeInTheDocument();
+    expect(screen.getByText("Packs into /Games, sends to the PS5, then installs 2 DLC.")).toBeInTheDocument();
+    await userEvent.click(summary);
+    const list = screen.getByRole("region", { name: "DLC to install" });
+    expect(within(list).getByText("Suit Pack")).toBeInTheDocument();
+    expect(within(list).getByText("Arena Map")).toBeInTheDocument();
+    await userEvent.click(within(list).getByRole("button", { name: "Remove Suit Pack" }));
+    expect(screen.getByRole("button", { name: /1 DLC/ })).toBeInTheDocument();
+  });
+
+  it("takes every DLC in a folder", async () => {
+    await readyToSend();
+    await userEvent.click(screen.getByRole("button", { name: "Add a folder" }));
+    expect(await screen.findByRole("button", { name: /2 DLC/ })).toBeInTheDocument();
+    expect(backend.dlcInFolder).toHaveBeenCalledWith("/Games/Ashen Tide", "PPSA01234");
+    expect(screen.getByText("Not DLC for this game: Patch.pkg.")).toBeInTheDocument();
+  });
+
+  it("packs with the DLC, and shows its install as one line", async () => {
+    await readyToSend();
+    backend.dlcPicked = ["/DLC/suits.pkg", "/DLC/map.pkg"];
+    await userEvent.click(screen.getByRole("button", { name: "Add packages" }));
+    await screen.findByRole("button", { name: /2 DLC/ });
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ send: true, dlc: ["/DLC/suits.pkg", "/DLC/map.pkg"] }),
+    );
+    backend.emit({
+      type: "job",
+      job: job({
+        steps: [
+          { kind: "pack", state: "done", note: "x" },
+          { kind: "send", state: "done", note: null },
+          { kind: "installDlc", state: "done", note: null, pkg: "/DLC/suits.pkg" },
+          { kind: "installDlc", state: "running", note: null, pkg: "/DLC/map.pkg" },
+        ],
+      }),
+    });
+    expect(screen.getAllByText("Install DLC")).toHaveLength(1);
+    expect(screen.getByText("2 of 2: Arena Map")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "See all 2" }));
+    const each = screen.getByRole("region", { name: "Each DLC" });
+    expect(within(each).getByText("Installed")).toBeInTheDocument();
+    expect(within(each).getByText("Installing")).toBeInTheDocument();
+  });
+});
+
+describe("History", () => {
+  it("keeps a finished job and lists it", async () => {
+    await showGame();
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    backend.emit({
+      type: "job",
+      job: job({
+        steps: [{ kind: "pack", state: "done", note: "x" }],
+        state: "finished",
+        packed: "/Games/[Ashen Tide]-[PPSA01234]",
+        packedBytes: 51_600_000_000,
+      }),
+    });
+    await waitFor(() => expect(backend.addHistory).toHaveBeenCalledTimes(1));
+    expect(backend.addHistory).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "job-1", title: "Ashen Tide", sent: false, packed: "/Games/[Ashen Tide]-[PPSA01234]" }),
+    );
+    await userEvent.click(screen.getByRole("tab", { name: /History/ }));
+    expect(await screen.findByText("Ashen Tide")).toBeInTheDocument();
+    expect(screen.getByText("32.6 GB saved")).toBeInTheDocument();
+    expect(screen.getByText("Packed copy kept")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Show folder" }));
+    expect(backend.reveal).toHaveBeenCalledWith("/Games/[Ashen Tide]-[PPSA01234]");
+  });
+
+  it("clears the history", async () => {
+    backend.past = [
+      {
+        id: "a",
+        title: "Ashen Tide",
+        titleId: "PPSA01234",
+        finishedAt: Date.now(),
+        sourceBytes: 84_200_000_000,
+        packedBytes: 51_600_000_000,
+        sent: true,
+        packed: null,
+        dlc: 2,
+      },
+    ];
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("tab", { name: "History" }));
+    expect(await screen.findByText("With 2 DLC, installed on the PS5")).toBeInTheDocument();
+    expect(screen.getByText("On the PS5")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
+    expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
+    expect(backend.clearHistory).toHaveBeenCalled();
   });
 });

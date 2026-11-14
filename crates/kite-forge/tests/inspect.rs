@@ -62,6 +62,16 @@ fn dlc_for_this_game_is_accepted() {
     assert_eq!(info.label, "TIDEBREAKER00000");
     assert_eq!(info.content_id, "UP0000-PPSA01234_00-TIDEBREAKER00000");
     assert_eq!(info.name.as_deref(), Some("Tidebreaker Expansion"));
+    assert_eq!(info.icon_data_url, None);
+}
+
+#[test]
+fn dlc_keeps_its_own_icon() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dlc = make_dlc_folder(tmp.path(), "tidebreaker");
+    std::fs::write(dlc.join("sce_sys/icon0.png"), b"\x89PNG\r\n\x1a\nicon").unwrap();
+    let info = check_dlc(&dlc, "PPSA01234").unwrap();
+    assert!(info.icon_data_url.unwrap().starts_with("data:image/png;base64,"));
 }
 
 #[test]

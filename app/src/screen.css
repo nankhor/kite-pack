@@ -2,7 +2,7 @@
 
 .screen {
   min-height: 100vh;
-  padding: 28px clamp(20px, 5vw, 64px) 36px;
+  padding: 18px clamp(20px, 5vw, 64px) 36px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -23,21 +23,84 @@
 .header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: stretch;
+  gap: 0 36px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .app-name {
+  align-self: center;
   font-weight: 800;
   font-size: 18px;
   letter-spacing: -0.01em;
 }
 
+/* Tabs: underlined, the chosen one white. */
+
+.tabs {
+  display: flex;
+  gap: 28px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 2px 2px 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--label);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 700;
+  border-bottom-color: var(--text);
+}
+
+.tab-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tab-badge.mint {
+  color: var(--mint-text);
+  background: rgba(110, 231, 168, 0.12);
+  border: 1px solid rgba(110, 231, 168, 0.3);
+}
+
+.tab-badge.amber {
+  color: var(--warn);
+  background: rgba(255, 197, 107, 0.12);
+  border: 1px solid rgba(255, 197, 107, 0.3);
+}
+
 .header-actions {
+  margin-left: auto;
+  align-self: center;
+  padding: 7px 0;
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .ps5-chip {
@@ -51,6 +114,11 @@
   border: 1px solid var(--line);
   font-size: 14px;
   cursor: pointer;
+}
+
+.icon-button.on {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--text);
 }
 
 .icon-button {
@@ -579,7 +647,7 @@
 
 .settings-head h1 {
   margin: 0;
-  font-size: clamp(36px, 4.5vw, 52px);
+  font-size: 40px;
   line-height: 1;
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -677,4 +745,334 @@
 .small-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* DLC to install after the game: one line, and the list it opens. */
+
+.dlc {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dlc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.dlc-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.dlc-hint {
+  color: var(--label);
+  font-size: 14px;
+}
+
+.dlc.blocked .dlc-head,
+.dlc.blocked .dlc-summary {
+  opacity: 0.55;
+}
+
+.dlc-controls {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dlc-summary,
+.add-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px 0 16px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.dlc-summary {
+  border: 1px solid var(--line-strong);
+  background: var(--fill);
+}
+
+.dlc-count {
+  font-weight: 700;
+}
+
+.dlc-total {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.add-button {
+  gap: 8px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  font-weight: 600;
+}
+
+.add-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.popover {
+  position: absolute;
+  z-index: 5;
+  width: min(460px, 100%);
+  box-sizing: border-box;
+  padding: 8px 8px 10px;
+  border-radius: 18px;
+  background: #1b1e23;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dlc-controls .popover {
+  left: 0;
+  bottom: calc(100% + 10px);
+}
+
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 10px;
+}
+
+.popover-title {
+  flex: 1;
+  font-weight: 800;
+}
+
+.popover-total {
+  color: var(--label);
+  font-weight: 500;
+}
+
+.popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.popover-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 6px 0 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+
+.popover-n {
+  width: 22px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.popover-name {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-size {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.popover-note {
+  margin: 0;
+  padding: 4px 10px 0;
+  color: var(--label);
+  font-size: 13px;
+}
+
+.dlc-icon {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.dlc-icon.stand-in {
+  opacity: 0.4;
+}
+
+.dlc-icon.blank {
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+  border: 1px solid var(--line);
+}
+
+.round-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* The DLC step's list of packages. */
+
+.step.has-list {
+  position: relative;
+}
+
+.step-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.step-popover {
+  right: 0;
+  bottom: calc(100% + 10px);
+}
+
+.popover-state {
+  font-weight: 600;
+  color: var(--dim);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-installed .popover-state {
+  color: var(--mint-text);
+}
+
+.item-installing .popover-state {
+  color: var(--text);
+}
+
+.item-failed .popover-state {
+  color: var(--warn);
+}
+
+/* History */
+
+.history-sum {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--note);
+}
+
+.saved-total,
+.saved-cell {
+  color: var(--mint-text);
+  font-weight: 700;
+}
+
+.table-box {
+  overflow-x: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--label);
+  padding: 0 16px 10px 0;
+  white-space: nowrap;
+}
+
+.history-table td {
+  padding: 12px 16px 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.history-table .num {
+  font-variant-numeric: tabular-nums;
+}
+
+.history-table .when {
+  color: var(--note);
+}
+
+.history-game {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.history-icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.history-icon.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+  border: 1px solid var(--line);
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.history-name {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+
+.history-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.history-dlc {
+  color: var(--label);
+  font-size: 13px;
+}
+
+.history-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.on-ps5 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }

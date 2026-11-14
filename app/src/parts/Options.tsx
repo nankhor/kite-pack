@@ -73,7 +73,7 @@ function sendState(status: Status | null, destination: string): [boolean, string
     case "refused":
       return [false, status.reason];
     default:
-      return [false, "Set up your PS5 in Settings first."];
+      return [false, "Set up your PS5 in the PS5 tab first."];
   }
 }
 

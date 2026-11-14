@@ -1,16 +1,19 @@
-import { useEffect, useReducer, useRef } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { footerNote, stepRows } from "./model";
+import { footerNote, historyEntry, packBadge, stepRows } from "./model";
+import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
-import { Header } from "./parts/Header";
+import { Header, tabId } from "./parts/Header";
+import { HistoryPage } from "./parts/History";
 import { Options } from "./parts/Options";
+import { Ps5Page } from "./parts/Ps5";
 import { SettingsPage } from "./parts/Settings";
 import { Steps } from "./parts/Steps";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
-import type { GameInfo, Settings, Status } from "./types";
+import type { GameInfo, PickedDlc, Settings, Status, View } from "./types";
 
 /** How often the PS5 chip checks the helper while the app is open. */
 const STATUS_EVERY_MS = 10_000;
@@ -35,11 +38,26 @@ export function canSend(status: Status | null): boolean {
   return status?.state === "running" || status?.state === "notReachable";
 }
 
-export default function App({ backend }: { backend: Backend }) {
+/** The names of picked DLC by path, for the steps. */
+function dlcNames(dlc: PickedDlc[]): Record<string, string> {
+  return Object.fromEntries(dlc.map((d) => [d.path, d.info.name ?? d.info.label]));
+}
+
+/** "a.pkg, b.pkg and 3 more". */
+function fileList(names: string[]): string {
+  const shown = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+}
+
+export default function App({ backend, now = Date.now }: { backend: Backend; now?: () => number }) {
   const [s, dispatch] = useReducer(reduce, initial);
   const current = useRef(s);
   current.current = s;
   const booted = useRef(false);
+  const [version, setVersion] = useState<string | null>(null);
+  const [checkingDlc, setCheckingDlc] = useState(false);
+  // Jobs already written to History, so each goes in once.
+  const recorded = useRef(new Set<string>());
   // Settings load once; anything that needs them waits on this.
   const settingsReady = useRef<Promise<Settings> | null>(null);
 
@@ -109,6 +127,20 @@ export default function App({ backend }: { backend: Backend }) {
   }, [backend]);
 
   useEffect(() => {
+    void backend
+      .appVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, [backend]);
+
+  // A finished job goes into History, once.
+  useEffect(() => {
+    if (s.phase !== "done" || !s.job || !s.game || recorded.current.has(s.job.id)) return;
+    recorded.current.add(s.job.id);
+    void backend.addHistory(historyEntry(s.job, s.game, now())).catch(() => {});
+  }, [s.phase, s.job, s.game, backend, now]);
+
+  useEffect(() => {
     if (booted.current) return;
     booted.current = true;
     // The PS5: with none saved, take the one helper that answers on the network.
@@ -151,7 +183,12 @@ export default function App({ backend }: { backend: Backend }) {
     dispatch({ type: "starting" });
     const send = s.options.send && sendable;
     try {
-      const options = { ...s.options, send, deletePacked: send && s.options.deletePacked };
+      const options = {
+        ...s.options,
+        send,
+        deletePacked: send && s.options.deletePacked,
+        dlc: send ? s.dlc.map((d) => d.path) : [],
+      };
       dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
@@ -180,34 +217,116 @@ export default function App({ backend }: { backend: Backend }) {
     await saveSettings({ packedFolder: dir });
   }
 
-  const header = (
-    <Header
-      status={s.status}
-      onOpenSettings={() => {
-        dispatch({ type: "view", view: "settings" });
-        void refreshStatus();
-      }}
-    />
+  /** Adds picked DLC, skipping ones already there, and says which weren't DLC for this game. */
+  function addDlc(found: PickedDlc[], refused: string[]) {
+    const have = current.current.dlc;
+    const fresh = found.filter((d) => !have.some((h) => h.path === d.path));
+    dispatch({ type: "dlc", dlc: [...have, ...fresh] });
+    dispatch({ type: "message", text: refused.length ? `Not DLC for this game: ${fileList(refused)}.` : null });
+  }
+
+  async function addDlcFiles() {
+    const titleId = current.current.game?.titleId;
+    if (!titleId) return;
+    const paths = (await backend.pickDlcFiles()).filter((p) => !current.current.dlc.some((d) => d.path === p));
+    if (paths.length === 0) return;
+    setCheckingDlc(true);
+    const checked = await Promise.allSettled(paths.map((path) => backend.checkDlc(path, titleId)));
+    setCheckingDlc(false);
+    const found: PickedDlc[] = [];
+    const refused: string[] = [];
+    checked.forEach((c, i) => {
+      if (c.status === "fulfilled") found.push({ path: paths[i], info: c.value });
+      else refused.push(baseName(paths[i]));
+    });
+    addDlc(found, refused);
+  }
+
+  async function addDlcFolder() {
+    const titleId = current.current.game?.titleId;
+    if (!titleId) return;
+    const dir = await backend.pickFolder();
+    if (!dir) return;
+    setCheckingDlc(true);
+    try {
+      const folder = await backend.dlcInFolder(dir, titleId);
+      if (folder.found.length === 0) {
+        dispatch({ type: "message", text: "No DLC for this game in that folder." });
+        return;
+      }
+      addDlc(folder.found, folder.skipped);
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+    } finally {
+      setCheckingDlc(false);
+    }
+  }
+
+  const showView = useCallback(
+    (view: View) => {
+      dispatch({ type: "view", view });
+      if (view === "ps5" || view === "settings") void refreshStatus();
+    },
+    // refreshStatus reads the backend only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [backend],
   );
+  const loadHistory = useCallback(() => backend.history(), [backend]);
+
+  const header = <Header view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} onView={showView} />;
+  const panel = (view: View) => ({ role: "tabpanel", "aria-labelledby": tabId(view) }) as const;
+
+  if (s.view === "ps5" && s.settings) {
+    return (
+      <div className="screen">
+        {header}
+        <div className="page" {...panel("ps5")}>
+          <Ps5Page
+            settings={s.settings}
+            status={s.status}
+            onSave={saveSettings}
+            onDiscover={() => backend.discover()}
+            onStartHelper={async () => {
+              const outcome = await backend.startHelper();
+              // The helper takes a few seconds to start on the PS5.
+              setTimeout(() => void refreshStatus(), 4000);
+              return outcome;
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (s.view === "history") {
+    return (
+      <div className="screen">
+        {header}
+        <div className="page" {...panel("history")}>
+          <HistoryPage
+            load={loadHistory}
+            onClear={() => backend.clearHistory()}
+            onShow={(path) => void backend.reveal(path)}
+            now={now}
+          />
+        </div>
+      </div>
+    );
+  }
 
   if (s.view === "settings" && s.settings) {
     return (
       <div className="screen">
         {header}
-        <SettingsPage
-          settings={s.settings}
-          status={s.status}
-          onSave={saveSettings}
-          onDiscover={() => backend.discover()}
-          onStartHelper={async () => {
-            const outcome = await backend.startHelper();
-            // The helper takes a few seconds to start on the PS5.
-            setTimeout(() => void refreshStatus(), 4000);
-            return outcome;
-          }}
-          onPickFolder={() => backend.pickFolder()}
-          onDone={() => dispatch({ type: "view", view: "main" })}
-        />
+        <div className="page">
+          <SettingsPage
+            settings={s.settings}
+            status={s.status}
+            version={version}
+            onSave={saveSettings}
+            onPickFolder={() => backend.pickFolder()}
+          />
+        </div>
       </div>
     );
   }
@@ -229,10 +348,14 @@ export default function App({ backend }: { backend: Backend }) {
   const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
   const packedKept =
     !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
+  const sending = s.options.send && sendable;
   const note =
     s.phase === "ready" || !s.job
-      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: s.options.send && sendable })
+      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, dlc: s.dlc.length })
       : footerNote({ kind: s.phase, job: s.job });
+  let dlcBlocked: string | null = null;
+  if (!s.game.titleId) dlcBlocked = "This game has no title ID, so its DLC can't be matched.";
+  else if (!sending) dlcBlocked = "Turn on Send to PS5 to install DLC.";
 
   return (
     <div className={s.dragging ? "screen dragging" : "screen"}>
@@ -254,7 +377,19 @@ export default function App({ backend }: { backend: Backend }) {
           onChangeFolder={() => void changeOutput()}
         />
       ) : (
-        s.job && <Steps rows={stepRows(s.job, s.progress, Date.now())} />
+        s.job && <Steps rows={stepRows(s.job, s.progress, now(), dlcNames(s.dlc))} />
+      )}
+      {s.phase === "ready" && (
+        <Dlc
+          picked={s.dlc}
+          blocked={dlcBlocked}
+          busy={checkingDlc}
+          gameIcon={s.game.iconDataUrl}
+          onAddFiles={() => void addDlcFiles()}
+          onAddFolder={() => void addDlcFolder()}
+          onRemove={(path) => dispatch({ type: "dlc", dlc: s.dlc.filter((d) => d.path !== path) })}
+          onRemoveAll={() => dispatch({ type: "dlc", dlc: [] })}
+        />
       )}
       <Footer
         phase={s.phase}

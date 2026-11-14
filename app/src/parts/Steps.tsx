@@ -1,4 +1,5 @@
-import type { StepRow } from "../model";
+import { useState } from "react";
+import type { DlcItem, StepRow } from "../model";
 
 function StepIcon({ state }: { state: StepRow["state"] }) {
   switch (state) {
@@ -39,32 +40,78 @@ function StepIcon({ state }: { state: StepRow["state"] }) {
   }
 }
 
+const ITEM_WORDS: Record<DlcItem["state"], string> = {
+  waiting: "Waiting",
+  installing: "Installing",
+  installed: "Installed",
+  failed: "Failed",
+};
+
+/** One step; the DLC step can open its list of packages. */
+function Row({ row }: { row: StepRow }) {
+  const [open, setOpen] = useState(false);
+  const items = row.items ?? [];
+  const listId = "dlc-states";
+  return (
+    <li className={`step ${row.state}${items.length ? " has-list" : ""}`}>
+      <div className="step-line">
+        <span className="step-icon" aria-hidden="true">
+          <StepIcon state={row.state} />
+        </span>
+        <span className="step-label">
+          {row.label}
+          {items.length > 1 && (
+            <button className="small-button" aria-expanded={open} aria-controls={listId} onClick={() => setOpen(!open)}>
+              {open ? "Hide the list" : `See all ${items.length}`}
+            </button>
+          )}
+        </span>
+        <span className="step-status">{row.status}</span>
+      </div>
+      {row.bar !== null && (
+        <div
+          className="bar"
+          role="progressbar"
+          aria-label={row.label}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={row.bar}
+        >
+          <div className="bar-fill" style={{ width: `${row.bar}%` }} />
+        </div>
+      )}
+      {open && items.length > 1 && (
+        <div
+          id={listId}
+          className="popover step-popover"
+          role="region"
+          aria-label="Each DLC"
+          onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
+        >
+          <ol className="popover-list">
+            {items.map((item, i) => (
+              <li key={i} className={`item-${item.state}`}>
+                <span className="popover-n">{i + 1}</span>
+                <span className="popover-name">{item.name}</span>
+                <span className="popover-state" title={item.note ?? undefined}>
+                  {ITEM_WORDS[item.state]}
+                  {item.note ? `: ${item.note}` : ""}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+    </li>
+  );
+}
+
 /** After Pack: each chosen step, in order. */
 export function Steps({ rows }: { rows: StepRow[] }) {
   return (
     <ol className="steps" aria-label="Steps">
       {rows.map((row) => (
-        <li key={row.label} className={`step ${row.state}`}>
-          <div className="step-line">
-            <span className="step-icon" aria-hidden="true">
-              <StepIcon state={row.state} />
-            </span>
-            <span className="step-label">{row.label}</span>
-            <span className="step-status">{row.status}</span>
-          </div>
-          {row.bar !== null && (
-            <div
-              className="bar"
-              role="progressbar"
-              aria-label={row.label}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={row.bar}
-            >
-              <div className="bar-fill" style={{ width: `${row.bar}%` }} />
-            </div>
-          )}
-        </li>
+        <Row key={row.label} row={row} />
       ))}
     </ol>
   );

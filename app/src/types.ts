@@ -5,6 +5,21 @@ export interface DlcInfo {
   label: string;
   name: string | null;
   bytes: number;
+  /** The package's own icon; none for DLC found inside a dump, and for some small DLC. */
+  iconDataUrl?: string | null;
+}
+
+/** A DLC package picked to install after the game. */
+export interface PickedDlc {
+  path: string;
+  info: DlcInfo;
+}
+
+/** What a chosen folder holds for the game. */
+export interface DlcFolder {
+  found: PickedDlc[];
+  /** File names of the packages that aren't DLC for this game. */
+  skipped: string[];
 }
 
 export interface GameInfo {
@@ -27,6 +42,8 @@ export interface StepView {
   kind: StepKind;
   state: StepState;
   note: string | null;
+  /** The package an installDlc step installs. */
+  pkg?: string | null;
 }
 
 export interface JobView {
@@ -57,6 +74,8 @@ export interface PackOptions {
   deleteOriginal: boolean;
   send: boolean;
   deletePacked: boolean;
+  /** DLC packages to install after the game; only sent along when sending. */
+  dlc?: string[];
 }
 
 /** The running step's progress, as the screen tracks it. */
@@ -97,3 +116,22 @@ export interface Found {
 }
 
 export type StartOutcome = "alreadyRunning" | "sent";
+
+/** A finished job, for the History tab (the app's history.rs Entry). */
+export interface HistoryEntry {
+  id: string;
+  title: string;
+  titleId: string | null;
+  /** ms since 1970. */
+  finishedAt: number;
+  sourceBytes: number;
+  packedBytes: number | null;
+  sent: boolean;
+  /** The packed copy, when it was kept on this computer. */
+  packed: string | null;
+  dlc: number;
+  iconDataUrl?: string | null;
+}
+
+/** The app's tabs, and Settings behind the gear. */
+export type View = "pack" | "ps5" | "history" | "settings";

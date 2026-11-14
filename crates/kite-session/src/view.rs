@@ -53,6 +53,8 @@ pub struct StepView {
     pub state: String,
     /// What a done step came to, or why a step failed.
     pub note: Option<String>,
+    /// The package an `installDlc` step installs; none for the other steps.
+    pub pkg: Option<PathBuf>,
 }
 
 impl JobView {
@@ -78,6 +80,10 @@ impl JobView {
 }
 
 fn step_view(kind: &StepKind, state: &StepState) -> StepView {
+    let pkg = match kind {
+        StepKind::InstallDlc { pkg } => Some(pkg.clone()),
+        _ => None,
+    };
     let kind = match kind {
         StepKind::Pack => "pack",
         StepKind::DeleteOriginal => "deleteOriginal",
@@ -92,7 +98,7 @@ fn step_view(kind: &StepKind, state: &StepState) -> StepView {
         StepState::Done { note } => ("done", Some(note.clone())),
         StepState::Failed { reason } => ("failed", Some(reason.clone())),
     };
-    StepView { kind: kind.into(), state: state.into(), note }
+    StepView { kind: kind.into(), state: state.into(), note, pkg }
 }
 
 /// The size on disk of a packed copy: a file's length, or the sum of a folder's files.
@@ -110,4 +116,28 @@ pub fn packed_size(path: &Path) -> u64 {
         .filter_map(|e| e.metadata().ok())
         .map(|m| m.len())
         .sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kite_pipeline::{Level, Options, OutputFormat, SendTarget};
+
+    #[test]
+    fn dlc_steps_name_their_package() {
+        let options = Options {
+            format: OutputFormat::Folder,
+            level: Level::Fast,
+            output_dir: PathBuf::from("/out"),
+            delete_original: false,
+            send: Some(SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() }),
+            delete_packed: false,
+            dlc: vec![PathBuf::from("/dlc/suits.pkg"), PathBuf::from("/dlc/map.pkg")],
+        };
+        let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
+        let view = JobView::at_rest(&job);
+        let dlc: Vec<_> = view.steps.iter().filter(|s| s.kind == "installDlc").map(|s| s.pkg.clone()).collect();
+        assert_eq!(dlc, vec![Some(PathBuf::from("/dlc/suits.pkg")), Some(PathBuf::from("/dlc/map.pkg"))]);
+        assert!(view.steps.iter().filter(|s| s.kind != "installDlc").all(|s| s.pkg.is_none()));
+    }
 }

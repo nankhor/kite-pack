@@ -1,11 +1,24 @@
 // Everything the screen asks of the app, behind one interface so tests can stand in for it.
 
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
+import type {
+  DlcFolder,
+  DlcInfo,
+  Found,
+  GameInfo,
+  HistoryEntry,
+  JobView,
+  PackOptions,
+  Settings,
+  StartOutcome,
+  Status,
+  UiEvent,
+} from "./types";
 
 export type DropEvent = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
 
@@ -30,6 +43,17 @@ export interface Backend {
   discover(): Promise<Found[]>;
   /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
   startHelper(): Promise<StartOutcome>;
+  /** Reads a DLC package for the game `titleId`; rejects when it isn't DLC for it. */
+  checkDlc(path: string, titleId: string): Promise<DlcInfo>;
+  /** The DLC for `titleId` among the packages in a folder. */
+  dlcInFolder(path: string, titleId: string): Promise<DlcFolder>;
+  /** DLC packages, several at once; empty when nothing was picked. */
+  pickDlcFiles(): Promise<string[]>;
+  /** Finished jobs, newest first. */
+  history(): Promise<HistoryEntry[]>;
+  addHistory(entry: HistoryEntry): Promise<void>;
+  clearHistory(): Promise<void>;
+  appVersion(): Promise<string>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -73,6 +97,17 @@ export const tauriBackend: Backend = {
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
   startHelper: () => invoke("start_helper"),
+  checkDlc: (path, titleId) => invoke("check_dlc", { path, titleId }),
+  dlcInFolder: (path, titleId) => invoke("dlc_in_folder", { path, titleId }),
+  pickDlcFiles: async () => {
+    const picked = await open({ multiple: true, filters: [{ name: "DLC packages", extensions: ["pkg"] }] });
+    if (picked === null) return [];
+    return Array.isArray(picked) ? picked : [picked];
+  },
+  history: () => invoke("load_history"),
+  addHistory: (entry) => invoke("add_history", { entry }),
+  clearHistory: () => invoke("clear_history"),
+  appVersion: () => getVersion(),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>
     unlistener(

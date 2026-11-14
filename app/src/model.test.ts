@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { footerNote, formatSize, formatSpeed, minutesLeft, speed, stepRows, updateLabel } from "./model";
-import type { JobView, ProgressState, StepView } from "./types";
+import {
+  footerNote,
+  formatSize,
+  formatSpeed,
+  formatWhen,
+  historyEntry,
+  minutesLeft,
+  packBadge,
+  speed,
+  stepRows,
+  updateLabel,
+} from "./model";
+import type { GameInfo, JobView, ProgressState, StepView } from "./types";
 
 const job = (steps: StepView[], extra: Partial<JobView> = {}): JobView => ({
   id: "j1",
@@ -240,5 +251,159 @@ describe("sending", () => {
     expect(footerNote({ kind: "done", job: sent })).toBe(
       "Deleted folders stay in the Trash until you empty it. Play the game once first.",
     );
+  });
+});
+
+describe("DLC steps", () => {
+  const dlc = (state: StepView["state"], pkg: string, note: string | null = null): StepView => ({
+    kind: "installDlc",
+    state,
+    note,
+    pkg,
+  });
+  const before: StepView[] = [
+    { kind: "pack", state: "done", note: "x" },
+    { kind: "send", state: "done", note: null },
+  ];
+  const names = { "/dlc/a.pkg": "Suit Pack", "/dlc/b.pkg": "Arena Map", "/dlc/c.pkg": "Soundtrack" };
+
+  it("shows every DLC as one row", () => {
+    const steps = [...before, dlc("pending", "/dlc/a.pkg"), dlc("pending", "/dlc/b.pkg")];
+    const rows = stepRows(job([...steps, { kind: "deletePacked", state: "pending", note: null }]), null, 0, names);
+    expect(rows.map((r) => r.label)).toEqual(["Pack", "Send to PS5", "Install DLC", "Delete the packed folder"]);
+    expect(rows[2]).toMatchObject({ state: "pending", status: "2 DLC, after the game is on the PS5", bar: null });
+  });
+
+  it("names the DLC installing now and counts through them", () => {
+    const steps = [...before, dlc("done", "/dlc/a.pkg"), dlc("running", "/dlc/b.pkg"), dlc("pending", "/dlc/c.pkg")];
+    const row = stepRows(job(steps), null, 0, names)[2];
+    expect(row).toMatchObject({ state: "active", status: "2 of 3: Arena Map", bar: 33 });
+    expect(row.items).toEqual([
+      { name: "Suit Pack", state: "installed", note: null },
+      { name: "Arena Map", state: "installing", note: null },
+      { name: "Soundtrack", state: "waiting", note: null },
+    ]);
+  });
+
+  it("keeps going past a failed DLC, and says so", () => {
+    const steps = [...before, dlc("failed", "/dlc/a.pkg", "No room on the PS5"), dlc("running", "/dlc/b.pkg"), dlc("pending", "/dlc/c.pkg")];
+    const row = stepRows(job(steps), null, 0, names)[2];
+    expect(row.status).toBe("2 of 3: Arena Map · 1 failed");
+    expect(row.items?.[0]).toEqual({ name: "Suit Pack", state: "failed", note: "No room on the PS5" });
+  });
+
+  it("ends failed when one didn't install", () => {
+    const steps = [...before, dlc("failed", "/dlc/a.pkg", "x"), dlc("done", "/dlc/b.pkg"), dlc("done", "/dlc/c.pkg")];
+    expect(stepRows(job(steps), null, 0, names)[2]).toMatchObject({ state: "failed", status: "1 of 3 failed", bar: null });
+  });
+
+  it("says when they're all in", () => {
+    const steps = [...before, dlc("done", "/dlc/a.pkg"), dlc("done", "/dlc/b.pkg")];
+    expect(stepRows(job(steps), null, 0, names)[2]).toMatchObject({ state: "done", status: "2 installed" });
+    expect(stepRows(job([...before, dlc("done", "/dlc/a.pkg")]), null, 0, names)[2].status).toBe("Installed");
+  });
+
+  it("waits with the PS5", () => {
+    const steps = [...before, dlc("done", "/dlc/a.pkg"), dlc("waiting", "/dlc/b.pkg"), dlc("pending", "/dlc/c.pkg")];
+    expect(stepRows(job(steps), null, 0, names)[2]).toMatchObject({ state: "paused", status: "Waiting for the PS5 at 2 of 3" });
+  });
+
+  it("uses the file name for a DLC it has no name for", () => {
+    const row = stepRows(job([...before, dlc("running", "C:\\DLC\\Deluxe_Upgrade.pkg")]), null, 0, {})[2];
+    expect(row.status).toBe("1 of 1: Deluxe_Upgrade");
+  });
+});
+
+describe("packBadge", () => {
+  const packing = job([{ kind: "pack", state: "running", note: null }]);
+
+  it("is empty without a job", () => {
+    expect(packBadge(null, null)).toBeNull();
+  });
+
+  it("shows how far the running step is", () => {
+    expect(packBadge(packing, progress({ index: 0, done: 62, total: 100 }))).toEqual({ text: "62%", tone: "mint" });
+    expect(packBadge(packing, null)).toEqual({ text: "Working", tone: "mint" });
+  });
+
+  it("counts through the DLC", () => {
+    const steps: StepView[] = [
+      { kind: "send", state: "done", note: null },
+      { kind: "installDlc", state: "done", note: null, pkg: "/a.pkg" },
+      { kind: "installDlc", state: "running", note: null, pkg: "/b.pkg" },
+      { kind: "installDlc", state: "pending", note: null, pkg: "/c.pkg" },
+    ];
+    expect(packBadge(job(steps), null)).toEqual({ text: "DLC 2/3", tone: "mint" });
+  });
+
+  it("says when it waits, failed or is done", () => {
+    expect(packBadge(job([{ kind: "send", state: "waiting", note: null }]), null)).toEqual({ text: "Paused", tone: "amber" });
+    expect(packBadge(job([], { state: "failed" }), null)).toEqual({ text: "Failed", tone: "amber" });
+    expect(packBadge(job([], { state: "finished" }), null)).toEqual({ text: "Done", tone: "mint" });
+  });
+});
+
+describe("formatWhen", () => {
+  const now = new Date(2026, 10, 14, 15, 0).getTime();
+
+  it("says today and yesterday with the time, then the date", () => {
+    expect(formatWhen(new Date(2026, 10, 14, 10, 42).getTime(), now)).toBe("Today, 10:42");
+    expect(formatWhen(new Date(2026, 10, 13, 23, 5).getTime(), now)).toBe("Yesterday, 23:05");
+    expect(formatWhen(new Date(2026, 10, 12, 9, 0).getTime(), now)).toBe("12 Nov");
+    expect(formatWhen(new Date(2025, 10, 12, 9, 0).getTime(), now)).toBe("12 Nov 2025");
+  });
+});
+
+describe("historyEntry", () => {
+  const game: GameInfo = {
+    kind: "folder",
+    title: "Ashen Tide",
+    titleId: "PPSA01234",
+    contentId: null,
+    version: null,
+    totalBytes: 84_200_000_000,
+    dlcs: [],
+    iconDataUrl: "data:image/png;base64,AAAA",
+    findings: [],
+  };
+
+  it("records what was packed, sent and kept", () => {
+    const finished = job(
+      [
+        { kind: "pack", state: "done", note: null },
+        { kind: "send", state: "done", note: null },
+        { kind: "installDlc", state: "done", note: null, pkg: "/a.pkg" },
+        { kind: "installDlc", state: "done", note: null, pkg: "/b.pkg" },
+        { kind: "deletePacked", state: "done", note: null },
+      ],
+      { state: "finished", packed: "/Games/Packed/ashen", packedBytes: 51_600_000_000 },
+    );
+    expect(historyEntry(finished, game, 1_000)).toEqual({
+      id: "j1",
+      title: "Ashen Tide",
+      titleId: "PPSA01234",
+      finishedAt: 1_000,
+      sourceBytes: 84_200_000_000,
+      packedBytes: 51_600_000_000,
+      sent: true,
+      packed: null,
+      dlc: 2,
+      iconDataUrl: "data:image/png;base64,AAAA",
+    });
+  });
+
+  it("keeps where the packed copy is when it stayed", () => {
+    const kept = job([{ kind: "pack", state: "done", note: null }], { state: "finished", packed: "/Games/Packed/ashen" });
+    const entry = historyEntry(kept, { ...game, title: null }, 1);
+    expect(entry).toMatchObject({ title: "PPSA01234", sent: false, packed: "/Games/Packed/ashen", dlc: 0 });
+  });
+});
+
+describe("footerNote with DLC", () => {
+  it("counts the DLC it will install", () => {
+    expect(footerNote({ kind: "ready", outputDir: "/Games", send: true, dlc: 20 })).toBe(
+      "Packs into /Games, sends to the PS5, then installs 20 DLC.",
+    );
+    expect(footerNote({ kind: "ready", outputDir: "/Games", send: false, dlc: 20 })).toBe("Packs into /Games.");
   });
 });

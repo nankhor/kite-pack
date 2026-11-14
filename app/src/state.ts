@@ -1,6 +1,6 @@
 // The screen's state and how each event moves it.
 
-import type { GameInfo, JobView, PackOptions, ProgressState, Settings, Status, UiEvent } from "./types";
+import type { GameInfo, JobView, PackOptions, PickedDlc, ProgressState, Settings, Status, UiEvent, View } from "./types";
 
 /** How far back the speed looks, in ms. */
 const SPEED_WINDOW = 10_000;
@@ -19,8 +19,10 @@ export interface State {
   dragging: boolean;
   /** Pack was pressed and its reply hasn't come back: updates may arrive first. */
   starting: boolean;
-  /** The main screen or Settings. */
-  view: "main" | "settings";
+  /** The tab shown, or Settings. */
+  view: View;
+  /** DLC picked to install on the PS5 after the game. */
+  dlc: PickedDlc[];
   settings: Settings | null;
   /** How the PS5 stands; null until first checked. */
   status: Status | null;
@@ -37,7 +39,8 @@ export type Action =
   | { type: "back" }
   | { type: "reset" }
   | { type: "drag"; on: boolean }
-  | { type: "view"; view: "main" | "settings" }
+  | { type: "view"; view: View }
+  | { type: "dlc"; dlc: PickedDlc[] }
   | { type: "settings"; settings: Settings }
   | { type: "status"; status: Status };
 
@@ -51,7 +54,8 @@ export const initial: State = {
   progress: null,
   dragging: false,
   starting: false,
-  view: "main",
+  view: "pack",
+  dlc: [],
   settings: null,
   status: null,
 };
@@ -116,6 +120,8 @@ export function reduce(s: State, a: Action): State {
         options: { ...s.options, outputDir: a.outputDir },
         job: null,
         progress: null,
+        dlc: [],
+        view: "pack",
       };
     case "message":
       return { ...s, message: a.text, starting: false };
@@ -153,6 +159,8 @@ export function reduce(s: State, a: Action): State {
       return { ...s, dragging: a.on };
     case "view":
       return { ...s, view: a.view };
+    case "dlc":
+      return { ...s, dlc: a.dlc };
     case "settings":
       return { ...s, settings: a.settings };
     case "status":
