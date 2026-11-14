@@ -750,6 +750,7 @@
 /* DLC to install after the game: one line, and the list it opens. */
 
 .dlc {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -779,7 +780,6 @@
 }
 
 .dlc-controls {
-  position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -841,7 +841,8 @@
   gap: 6px;
 }
 
-.dlc-controls .popover {
+/* Placed by .dlc, so it opens above the whole DLC row and covers none of it. */
+.dlc .popover {
   left: 0;
   bottom: calc(100% + 10px);
 }

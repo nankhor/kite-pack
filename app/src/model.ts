@@ -111,12 +111,12 @@ function runningStatus(step: StepView, p: ProgressState | null, now: number): [s
   return [words, hasBar ? 0 : null];
 }
 
-function pendingStatus(kind: StepKind): string {
+function pendingStatus(kind: StepKind, withDlc: boolean): string {
   switch (kind) {
     case "deleteOriginal":
       return "After the packed copy is checked";
     case "deletePacked":
-      return "After the PS5 confirms every file";
+      return withDlc ? "After the PS5 confirms the game and every DLC" : "After the PS5 confirms every file";
     case "pack":
       return "Waiting to start";
     case "send":
@@ -168,7 +168,12 @@ function stepRow(step: StepView, index: number, job: JobView, progress: Progress
       return { label, state: "active", status, bar };
     }
     default:
-      return { label, state: "pending", status: pendingStatus(step.kind), bar: step.kind === "send" ? 0 : null };
+      return {
+        label,
+        state: "pending",
+        status: pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
+        bar: step.kind === "send" ? 0 : null,
+      };
   }
 }
 
@@ -302,6 +307,9 @@ export function footerNote(input: NoteInput): string {
       }
       if (steps.some((s) => s.kind === "send" && s.state === "running")) {
         return "Each file is checked on the PS5 as it lands.";
+      }
+      if (steps.some((s) => s.kind === "installDlc" && s.state === "running")) {
+        return "The PS5 installs each DLC with its own installer. If one fails, the rest still go.";
       }
       return "You can leave this running. If you close Kite Pack, it carries on next time.";
     }

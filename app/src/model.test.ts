@@ -308,6 +308,14 @@ describe("DLC steps", () => {
     expect(stepRows(job(steps), null, 0, names)[2]).toMatchObject({ state: "paused", status: "Waiting for the PS5 at 2 of 3" });
   });
 
+  it("deletes the packed folder only after the DLC, and says so", () => {
+    const steps = [...before, dlc("running", "/dlc/a.pkg"), { kind: "deletePacked" as const, state: "pending" as const, note: null }];
+    expect(stepRows(job(steps), null, 0, names)[3].status).toBe("After the PS5 confirms the game and every DLC");
+    expect(footerNote({ kind: "running", job: job(steps) })).toBe(
+      "The PS5 installs each DLC with its own installer. If one fails, the rest still go.",
+    );
+  });
+
   it("uses the file name for a DLC it has no name for", () => {
     const row = stepRows(job([...before, dlc("running", "C:\\DLC\\Deluxe_Upgrade.pkg")]), null, 0, {})[2];
     expect(row.status).toBe("1 of 1: Deluxe_Upgrade");
