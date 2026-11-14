@@ -407,11 +407,14 @@ describe("historyEntry", () => {
   });
 });
 
-describe("footerNote with DLC", () => {
-  it("counts the DLC it will install", () => {
-    expect(footerNote({ kind: "ready", outputDir: "/Games", send: true, dlc: 20 })).toBe(
-      "Packs into /Games, sends to the PS5, then installs 20 DLC.",
+describe("footerNote with DLC inside the pack", () => {
+  it("counts the add-ons the packed copy will carry", () => {
+    expect(footerNote({ kind: "ready", outputDir: "/Games", send: true, bundled: 20 })).toBe(
+      "Packs into /Games with 20 add-ons inside, then sends to the PS5 by itself.",
     );
-    expect(footerNote({ kind: "ready", outputDir: "/Games", send: false, dlc: 20 })).toBe("Packs into /Games.");
+    expect(footerNote({ kind: "ready", outputDir: "/Games", send: false, bundled: 20 })).toBe(
+      "Packs into /Games with 20 add-ons inside.",
+    );
+    expect(footerNote({ kind: "ready", outputDir: "/Games", bundled: 1 })).toBe("Packs into /Games with 1 add-on inside.");
   });
 });

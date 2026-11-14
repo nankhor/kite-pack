@@ -5,12 +5,14 @@ interface Props {
   status: Status | null;
   /** Kite Pack's own version; null until read. */
   version: string | null;
+  /** The dlc_emu release the app carries; null until read. */
+  dlcEmuVersion: string | null;
   onSave: (patch: Partial<Settings>) => Promise<void>;
   onPickFolder: () => Promise<string | null>;
 }
 
 /** Behind the gear: where packed copies go, and which versions are running. */
-export function SettingsPage({ settings, status, version, onSave, onPickFolder }: Props) {
+export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave, onPickFolder }: Props) {
   async function pickFolder() {
     const dir = await onPickFolder();
     if (dir) await onSave({ packedFolder: dir });
@@ -40,6 +42,13 @@ export function SettingsPage({ settings, status, version, onSave, onPickFolder }
               )}
             </div>
           </div>
+          <div className="field">
+            <span className="field-label">DLC emulator</span>
+            <p className="field-hint">
+              {dlcEmuVersion ? `dlc_emu ${dlcEmuVersion} is included` : "dlc_emu is included"} — added to games whose dump
+              has no emulator of its own, so the DLC packed into them can be seen. Nothing to install.
+            </p>
+          </div>
         </div>
 
         <div className="column">
@@ -52,6 +61,10 @@ export function SettingsPage({ settings, status, version, onSave, onPickFolder }
             <div>
               <dt>Kite helper on the PS5</dt>
               <dd>{status?.state === "running" ? status.version : "Not running"}</dd>
+            </div>
+            <div>
+              <dt>DLC emulator</dt>
+              <dd>{dlcEmuVersion ? `dlc_emu ${dlcEmuVersion}, included` : "Included"}</dd>
             </div>
           </dl>
           <p className="field-hint">The source and the release notes are at github.com/nankhor/kite-pack.</p>

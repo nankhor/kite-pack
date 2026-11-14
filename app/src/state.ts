@@ -1,6 +1,19 @@
 // The screen's state and how each event moves it.
 
-import type { GameInfo, JobView, PackOptions, PickedDlc, ProgressState, Settings, Status, UiEvent, View } from "./types";
+import type {
+  BundlePlan,
+  BundleSelection,
+  GameInfo,
+  InstalledGame,
+  JobView,
+  PackOptions,
+  PickedDlc,
+  ProgressState,
+  Settings,
+  Status,
+  UiEvent,
+  View,
+} from "./types";
 
 /** How far back the speed looks, in ms. */
 const SPEED_WINDOW = 10_000;
@@ -26,6 +39,12 @@ export interface State {
   settings: Settings | null;
   /** How the PS5 stands; null until first checked. */
   status: Status | null;
+  /** The game as the console has it, or null when it is not installed (or could not be read). */
+  onPs5: InstalledGame | null;
+  /** DLC and a backport to fold into the packed copy. */
+  bundle: BundleSelection;
+  /** Whether they can go in; null until the plan is read. */
+  bundlePlan: BundlePlan | null;
 }
 
 export type Action =
@@ -42,14 +61,25 @@ export type Action =
   | { type: "view"; view: View }
   | { type: "dlc"; dlc: PickedDlc[] }
   | { type: "settings"; settings: Settings }
-  | { type: "status"; status: Status };
+  | { type: "status"; status: Status }
+  | { type: "onPs5"; game: InstalledGame | null }
+  | { type: "bundle"; bundle: BundleSelection }
+  | { type: "plan"; plan: BundlePlan | null };
 
 export const initial: State = {
   phase: "empty",
   game: null,
   source: null,
   message: null,
-  options: { format: "folder", level: "fast", outputDir: "", deleteOriginal: false, send: false, deletePacked: false },
+  options: {
+    format: "folder",
+    level: "fast",
+    outputDir: "",
+    deleteOriginal: false,
+    send: false,
+    deletePacked: false,
+    bundle: { dlc: [], backport: null },
+  },
   job: null,
   progress: null,
   dragging: false,
@@ -58,6 +88,9 @@ export const initial: State = {
   dlc: [],
   settings: null,
   status: null,
+  onPs5: null,
+  bundle: { dlc: [], backport: null },
+  bundlePlan: null,
 };
 
 function phaseOf(job: JobView): Phase {
@@ -165,5 +198,11 @@ export function reduce(s: State, a: Action): State {
       return { ...s, settings: a.settings };
     case "status":
       return { ...s, status: a.status };
+    case "onPs5":
+      return { ...s, onPs5: a.game };
+    case "bundle":
+      return { ...s, bundle: a.bundle, bundlePlan: null };
+    case "plan":
+      return { ...s, bundlePlan: a.plan };
   }
 }

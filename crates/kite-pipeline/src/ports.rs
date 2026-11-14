@@ -12,6 +12,8 @@ pub struct PackRequest {
     pub output_dir: PathBuf,
     pub format: OutputFormat,
     pub level: Level,
+    /// DLC and a backport to fold in before packing; empty packs the source as it is.
+    pub bundle: crate::Bundle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -9,7 +9,9 @@ mod history;
 use history::{Entry, History};
 use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
-use kite_ps5::{Console, Found, Keys, Ps5Sender, Settings, StartOutcome, Status};
+use kite_ps5::{
+    Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings, StartOutcome, Status,
+};
 use kite_session::{Emit, JobView, Ports, Session, UiEvent};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -55,9 +57,21 @@ struct PackOptions {
     send: bool,
     #[serde(default)]
     delete_packed: bool,
-    /// DLC packages to install on the PS5 after the game; only when sending.
+    /// DLC packages to install on the PS5 after the game; only when sending. Not used by the
+    /// screen yet (the helper cannot install packages), kept for when it can.
     #[serde(default)]
     dlc: Vec<PathBuf>,
+    /// DLC and a backport to fold into the packed copy, before it is written.
+    #[serde(default)]
+    bundle: BundleOptions,
+}
+
+/// What the screen picked to go inside the pack.
+#[derive(Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+struct BundleOptions {
+    dlc: Vec<PathBuf>,
+    backport: Option<PathBuf>,
 }
 
 /// A DLC package found in a chosen folder.
@@ -119,6 +133,12 @@ fn start(
         delete_packed: options.delete_packed && sending,
         send,
         dlc: if sending { options.dlc } else { vec![] },
+        bundle: kite_pipeline::Bundle {
+            dlc: options.bundle.dlc,
+            backport: options.bundle.backport,
+            // The emulator is carried by the app; a dump with its own keeps it.
+            emulator: None,
+        },
     };
     session.start(source, options, emitter(app))
 }
@@ -219,6 +239,83 @@ async fn discover() -> Result<Vec<Found>, String> {
     blocking(|| kite_ps5::discover(DISCOVER_WAIT)).await
 }
 
+/// The DLC emulator release Kite Pack carries (it goes into packs whose dump has none).
+#[tauri::command]
+fn dlc_emu_version() -> &'static str {
+    kite_forge::dlc_emu::VERSION
+}
+
+/// What the picked DLC and backport would add to a packed copy, and whether they can go in.
+#[tauri::command]
+async fn bundle_plan(
+    app: AppHandle,
+    source: PathBuf,
+    dlc: Vec<PathBuf>,
+    backport: Option<PathBuf>,
+) -> Result<kite_forge::BundlePlan, String> {
+    blocking(move || {
+        let _ = app;
+        let bundle = kite_pipeline::Bundle { dlc, backport, emulator: None };
+        Ok(kite_forge::bundle::plan(&source, &bundle))
+    })
+    .await?
+}
+
+/// One title on the console by id, for the game screen: `null` when it is not installed.
+#[tauri::command]
+async fn installed_title(app: AppHandle, title_id: String) -> Result<Option<kite_ps5::InstalledGame>, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::installed_title(&console, &ps5.keys, &title_id).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// What the PS5 has installed. Reads the console through the helper; changes nothing.
+#[tauri::command]
+async fn library(app: AppHandle) -> Result<Library, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::installed(&console, &ps5.keys).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// The tiles of the titles in `ids`, as data: URLs.
+#[tauri::command]
+async fn library_icons(app: AppHandle, ids: Vec<String>) -> Result<Vec<GameIcon>, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::icons(&console, &ps5.keys, &ids).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// What one installed title takes: its app folder, its update and its add-ons.
+#[tauri::command]
+async fn measure_app(app: AppHandle, title_id: String) -> Result<Measured, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::measure(&console, &ps5.keys, &title_id).map_err(|e| e.message())
+    })
+    .await?
+}
+
+/// The room left on the volume `path` is on (`/user/app`, or wherever games go).
+#[tauri::command]
+async fn free_space(app: AppHandle, path: String) -> Result<FreeSpace, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        kite_ps5::free_space(&console, &ps5.keys, &path).map_err(|e| e.message())
+    })
+    .await?
+}
+
 #[tauri::command]
 async fn start_helper(app: AppHandle) -> Result<StartOutcome, String> {
     blocking(move || {
@@ -266,7 +363,14 @@ fn main() {
             dlc_in_folder,
             load_history,
             add_history,
-            clear_history
+            clear_history,
+            dlc_emu_version,
+            bundle_plan,
+            installed_title,
+            library,
+            library_icons,
+            measure_app,
+            free_space
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

@@ -6,7 +6,13 @@ import type { Backend } from "./backend";
 import type { Found, Settings, StartOutcome, Status } from "./types";
 
 class FakeBackend implements Backend {
-  cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
+  cfg: Settings = {
+    address: null,
+    helperPort: 9130,
+    loaderPort: 9021,
+    destination: "/data/homebrew",
+    packedFolder: null,
+  };
   status: Status = { state: "notSetUp" };
   found: Found[] = [];
   inspect = vi.fn(async () => {
@@ -28,6 +34,15 @@ class FakeBackend implements Backend {
   ps5Status = vi.fn(async () => this.status);
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
+  dlcEmuVersion = vi.fn(async () => "0.3");
+  bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFrom: "none" as const }));
+  pickDlcFolder = vi.fn(async () => null);
+  pickBackport = vi.fn(async () => null);
+  library = vi.fn(async () => ({ games: [], truncated: false }));
+  installedTitle = vi.fn(async () => null);
+  libraryIcons = vi.fn(async () => []);
+  measureApp = vi.fn();
+  freeSpace = vi.fn(async () => ({ total: 1, free: 1, usable: 1, reserve: 0 }));
   checkDlc = vi.fn();
   dlcInFolder = vi.fn();
   pickDlcFiles = vi.fn(async () => []);

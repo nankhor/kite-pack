@@ -41,6 +41,28 @@ pub struct SendTarget {
     pub destination: String,
 }
 
+/// Add-ons and a backport to put inside the packed copy, before it is written.
+///
+/// The DLC are installed into the game as the DLC emulator reads them: each one's files under
+/// an `addcontN/` folder, an entry in `dlc_emu.ini`, and the emulator's modules in `fakelib/`.
+/// A dump that already carries the emulator needs no `emulator` here.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Bundle {
+    /// DLC folders or fake `.pkg` files.
+    pub dlc: Vec<PathBuf>,
+    /// A backport folder: its files replace the game's (eboot.bin, sce_sys/, fakelib/).
+    pub backport: Option<PathBuf>,
+    /// The unzipped dlc_emu release, when the game's own `fakelib/` has no emulator.
+    pub emulator: Option<PathBuf>,
+}
+
+impl Bundle {
+    pub fn is_empty(&self) -> bool {
+        self.dlc.is_empty() && self.backport.is_none()
+    }
+}
+
 /// Everything the user chose before pressing Pack.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Options {
@@ -50,7 +72,11 @@ pub struct Options {
     pub delete_original: bool,
     pub send: Option<SendTarget>,
     pub delete_packed: bool,
+    /// DLC to install on the PS5 after the send (not to pack in).
     pub dlc: Vec<PathBuf>,
+    /// DLC and a backport to put inside the packed copy.
+    #[serde(default)]
+    pub bundle: Bundle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

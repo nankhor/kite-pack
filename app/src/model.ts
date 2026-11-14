@@ -27,7 +27,7 @@ export interface Badge {
 }
 
 export type NoteInput =
-  | { kind: "ready"; outputDir: string; send?: boolean; dlc?: number }
+  | { kind: "ready"; outputDir: string; send?: boolean; bundled?: number }
   | { kind: "running" | "failed" | "done"; job: JobView };
 
 /** Decimal sizes, as drives and Forge count them: "84.2 GB", "717 KB". */
@@ -276,7 +276,7 @@ export function formatWhen(at: number, now: number): string {
 }
 
 /** What History keeps of a finished job. */
-export function historyEntry(job: JobView, game: GameInfo, now: number): HistoryEntry {
+export function historyEntry(job: JobView, game: GameInfo, now: number, bundled = 0): HistoryEntry {
   const done = (kind: StepKind) => job.steps.some((st) => st.kind === kind && st.state === "done");
   return {
     id: job.id,
@@ -287,7 +287,7 @@ export function historyEntry(job: JobView, game: GameInfo, now: number): History
     packedBytes: job.packedBytes,
     sent: done("send"),
     packed: job.packed && !done("deletePacked") ? job.packed : null,
-    dlc: job.steps.filter((st) => st.kind === "installDlc" && st.state === "done").length,
+    dlc: bundled + job.steps.filter((st) => st.kind === "installDlc" && st.state === "done").length,
     iconDataUrl: game.iconDataUrl,
   };
 }
@@ -295,11 +295,12 @@ export function historyEntry(job: JobView, game: GameInfo, now: number): History
 /** The line beside the buttons. */
 export function footerNote(input: NoteInput): string {
   switch (input.kind) {
-    case "ready":
-      if (!input.send) return `Packs into ${input.outputDir}.`;
-      return input.dlc
-        ? `Packs into ${input.outputDir}, sends to the PS5, then installs ${input.dlc} DLC.`
-        : `Packs into ${input.outputDir}, then sends to the PS5 by itself.`;
+    case "ready": {
+      const inside = input.bundled ? ` with ${input.bundled} ${input.bundled === 1 ? "add-on" : "add-ons"} inside` : "";
+      return input.send
+        ? `Packs into ${input.outputDir}${inside}, then sends to the PS5 by itself.`
+        : `Packs into ${input.outputDir}${inside}.`;
+    }
     case "running": {
       const steps = input.job.steps;
       if (steps.some((s) => s.state === "waiting")) {

@@ -284,12 +284,20 @@ impl Runner<'_> {
             output_dir: job.options.output_dir.clone(),
             format: job.options.format,
             level: job.options.level,
+            bundle: job.options.bundle.clone(),
         };
         let progress = |progress: Progress| events(RunEvent::Progress { index, progress });
         match self.packer.pack(&req, &progress, cancel) {
             Ok(out) => {
                 job.packed = Some(out.output);
-                StepEnd::Done(format!("{} files, {} bytes, checked", out.files, out.bytes))
+                let mut note = format!("{} files, {} bytes, checked", out.files, out.bytes);
+                // What the packer folded in (DLC, a backport), when it says: the screen shows it
+                // under the step, so the packed copy's contents are visible before sending.
+                if let Some(what) = out.checks.iter().find_map(|c| c.strip_prefix("bundled: ")) {
+                    note.push_str(" · ");
+                    note.push_str(what);
+                }
+                StepEnd::Done(note)
             }
             Err(PackError::Failed(reason)) => StepEnd::Failed(reason),
             Err(PackError::Cancelled) => StepEnd::Cancelled,

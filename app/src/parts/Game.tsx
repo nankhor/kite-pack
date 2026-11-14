@@ -2,7 +2,7 @@ import { useState } from "react";
 import { glowShadow, useIconGlow } from "../glow";
 import { formatSize, updateLabel } from "../model";
 import { baseName } from "../paths";
-import type { GameInfo, JobView } from "../types";
+import type { GameInfo, InstalledGame, JobView } from "../types";
 
 interface Props {
   game: GameInfo;
@@ -11,12 +11,14 @@ interface Props {
   done: boolean;
   /** Above the title once done: "Packed", or "On the PS5" when it was sent. */
   headline: string;
+  /** This game as the console already has it, when it does. */
+  onPs5?: InstalledGame | null;
 }
 
 const SHOWN_DLC = 2;
 
 /** The game: its icon with a glow in its own colour, its name, facts and what the dump carries. */
-export function Game({ game, source, job, done, headline }: Props) {
+export function Game({ game, source, job, done, headline, onPs5 }: Props) {
   const glow = useIconGlow(game.iconDataUrl);
   const [allDlc, setAllDlc] = useState(false);
   const title = game.title ?? game.titleId ?? baseName(source);
@@ -64,6 +66,18 @@ export function Game({ game, source, job, done, headline }: Props) {
               <dd>{formatSize(packed)}</dd>
             </div>
           )}
+          {onPs5 && (
+            <div className="on-ps5">
+              <dt>Already on the PS5</dt>
+              <dd>
+                {onPs5.updateInstalled
+                  ? "Update installed"
+                  : onPs5.version
+                    ? `v${onPs5.version}`
+                    : "Installed"}
+              </dd>
+            </div>
+          )}
           {saved !== null && (
             <div className="saved">
               <dt>Saved</dt>
@@ -74,12 +88,16 @@ export function Game({ game, source, job, done, headline }: Props) {
         <div className="includes">
           <span className="includes-label">Includes</span>
           <span className={hasUpdate ? "chip update" : "chip"}>{update}</span>
-          {dlcs.map((d) => (
-            <span className="chip" key={d.contentId}>
-              <span className="chip-kind">DLC</span>
-              {d.name ?? d.label}, {formatSize(d.bytes)}
-            </span>
-          ))}
+          {dlcs.map((d) => {
+            const installed = onPs5?.dlc.includes(d.label) ?? false;
+            return (
+              <span className={installed ? "chip installed" : "chip"} key={d.contentId}>
+                <span className="chip-kind">DLC</span>
+                {d.name ?? d.label}, {formatSize(d.bytes)}
+                {installed && <span className="chip-note-inline">installed</span>}
+              </span>
+            );
+          })}
           {game.dlcs.length > SHOWN_DLC && (
             <button className="chip more" onClick={() => setAllDlc(!allDlc)}>
               {allDlc ? "Fewer" : `${game.dlcs.length - SHOWN_DLC} more DLC`}

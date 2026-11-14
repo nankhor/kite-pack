@@ -133,6 +133,7 @@ mod tests {
             send: Some(SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() }),
             delete_packed: false,
             dlc: vec![PathBuf::from("/dlc/suits.pkg"), PathBuf::from("/dlc/map.pkg")],
+            bundle: Default::default(),
         };
         let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
         let view = JobView::at_rest(&job);

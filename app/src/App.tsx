@@ -7,13 +7,14 @@ import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
 import { Header, tabId } from "./parts/Header";
 import { HistoryPage } from "./parts/History";
+import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
 import { Ps5Page } from "./parts/Ps5";
 import { SettingsPage } from "./parts/Settings";
 import { Steps } from "./parts/Steps";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
-import type { GameInfo, PickedDlc, Settings, Status, View } from "./types";
+import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
 
 /** How often the PS5 chip checks the helper while the app is open. */
 const STATUS_EVERY_MS = 10_000;
@@ -38,15 +39,9 @@ export function canSend(status: Status | null): boolean {
   return status?.state === "running" || status?.state === "notReachable";
 }
 
-/** The names of picked DLC by path, for the steps. */
-function dlcNames(dlc: PickedDlc[]): Record<string, string> {
-  return Object.fromEntries(dlc.map((d) => [d.path, d.info.name ?? d.info.label]));
-}
-
-/** "a.pkg, b.pkg and 3 more". */
-function fileList(names: string[]): string {
-  const shown = names.slice(0, 3).join(", ");
-  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+/** A DLC the console already has: it is not packed in again. */
+export function onConsole(label: string | null, installed: string[]): boolean {
+  return label !== null && installed.some((l) => l.toLowerCase() === label.toLowerCase());
 }
 
 export default function App({ backend, now = Date.now }: { backend: Backend; now?: () => number }) {
@@ -55,7 +50,11 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   current.current = s;
   const booted = useRef(false);
   const [version, setVersion] = useState<string | null>(null);
-  const [checkingDlc, setCheckingDlc] = useState(false);
+  const [dlcEmu, setDlcEmu] = useState<string | null>(null);
+  /** Reading the picks against the game. */
+  const [readingPicks, setReadingPicks] = useState(false);
+  /** The PS5 tab's installed games, read only when asked. */
+  const [showLibrary, setShowLibrary] = useState(false);
   // Jobs already written to History, so each goes in once.
   const recorded = useRef(new Set<string>());
   // Settings load once; anything that needs them waits on this.
@@ -87,6 +86,20 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     if ("address" in patch || "helperPort" in patch) await refreshStatus();
   }
 
+  /** What the console already has of this game, for the screen's "already on the PS5". Silent
+   * when the console cannot be read: the game can still be packed and sent. */
+  async function loadOnPs5(titleId: string | null) {
+    if (!titleId) {
+      dispatch({ type: "onPs5", game: null });
+      return;
+    }
+    try {
+      dispatch({ type: "onPs5", game: await backend.installedTitle(titleId) });
+    } catch {
+      dispatch({ type: "onPs5", game: null });
+    }
+  }
+
   async function open(path: string) {
     if (current.current.phase === "running") {
       dispatch({ type: "message", text: "A game is already being packed." });
@@ -95,6 +108,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     try {
       const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
       dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
+      void loadOnPs5(game.titleId);
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
     }
@@ -104,6 +118,14 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     const path = await pick();
     if (path) await open(path);
   }
+
+  useEffect(() => {
+    void backend.dlcEmuVersion().then(setDlcEmu).catch(() => {});
+    void backend
+      .appVersion()
+      .then(setVersion)
+      .catch(() => {});
+  }, [backend]);
 
   useEffect(() => {
     const stopEvents = backend.onEvent((event) => dispatch({ type: "event", event, now: Date.now() }));
@@ -126,19 +148,36 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [backend]);
 
+  // What the picked DLC and backport would add, read again whenever the picks or the game change.
+  const picks = s.bundle;
+  const source = s.source;
   useEffect(() => {
-    void backend
-      .appVersion()
-      .then(setVersion)
-      .catch(() => {});
-  }, [backend]);
+    if (!source) return;
+    let stale = false;
+    setReadingPicks(true);
+    backend
+      .bundlePlan(source, picks.dlc, picks.backport)
+      .then((plan) => {
+        if (!stale) dispatch({ type: "plan", plan });
+      })
+      .catch(() => {
+        if (!stale) dispatch({ type: "plan", plan: null });
+      })
+      .finally(() => {
+        if (!stale) setReadingPicks(false);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [backend, source, picks]);
 
-  // A finished job goes into History, once.
+  // A finished job goes into History, once; DLC packed in counts with it.
   useEffect(() => {
     if (s.phase !== "done" || !s.job || !s.game || recorded.current.has(s.job.id)) return;
     recorded.current.add(s.job.id);
-    void backend.addHistory(historyEntry(s.job, s.game, now())).catch(() => {});
-  }, [s.phase, s.job, s.game, backend, now]);
+    const bundled = (s.bundlePlan?.items ?? []).filter((i) => i.kind === "dlc" && i.route === "inPack" && !i.problem).length;
+    void backend.addHistory(historyEntry(s.job, s.game, now(), bundled)).catch(() => {});
+  }, [s.phase, s.job, s.game, s.bundlePlan, backend, now]);
 
   useEffect(() => {
     if (booted.current) return;
@@ -161,6 +200,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
       if (left) {
         const game = await backend.inspect(left.source).catch(() => standIn(left.source));
         dispatch({ type: "restored", job: left, game });
+        void loadOnPs5(game.titleId);
         if (left.state !== "failed") {
           try {
             dispatch({ type: "started", job: await backend.carryOn(left.id) });
@@ -177,17 +217,26 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   }, [backend]);
 
   const sendable = canSend(s.status);
+  const installedLabels = s.onPs5?.dlc ?? [];
 
   async function pack() {
     if (!s.source) return;
     dispatch({ type: "starting" });
     const send = s.options.send && sendable;
     try {
+      // Only what goes inside the packed copy is sent; DLC the console already has stays out.
+      const items = (s.bundlePlan?.items ?? []).filter(
+        (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
+      );
+      const dlc = items.filter((i) => i.kind === "dlc").map((i) => i.path);
+      const backport = items.find((i) => i.kind === "backport")?.path ?? null;
+      const bundle: BundleSelection | undefined = dlc.length || backport ? { dlc, backport } : undefined;
       const options = {
         ...s.options,
         send,
         deletePacked: send && s.options.deletePacked,
-        dlc: send ? s.dlc.map((d) => d.path) : [],
+        dlc: [],
+        bundle,
       };
       dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
@@ -217,49 +266,35 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     await saveSettings({ packedFolder: dir });
   }
 
-  /** Adds picked DLC, skipping ones already there, and says which weren't DLC for this game. */
-  function addDlc(found: PickedDlc[], refused: string[]) {
-    const have = current.current.dlc;
-    const fresh = found.filter((d) => !have.some((h) => h.path === d.path));
-    dispatch({ type: "dlc", dlc: [...have, ...fresh] });
-    dispatch({ type: "message", text: refused.length ? `Not DLC for this game: ${fileList(refused)}.` : null });
+  /** Appends what was picked to the packed-copy selection, without duplicates. */
+  function addPicks(paths: string[]) {
+    const have = current.current.bundle.dlc;
+    const fresh = paths.filter((p) => !have.includes(p));
+    if (fresh.length === 0) return;
+    dispatch({ type: "bundle", bundle: { ...current.current.bundle, dlc: [...have, ...fresh] } });
   }
 
-  async function addDlcFiles() {
-    const titleId = current.current.game?.titleId;
-    if (!titleId) return;
-    const paths = (await backend.pickDlcFiles()).filter((p) => !current.current.dlc.some((d) => d.path === p));
-    if (paths.length === 0) return;
-    setCheckingDlc(true);
-    const checked = await Promise.allSettled(paths.map((path) => backend.checkDlc(path, titleId)));
-    setCheckingDlc(false);
-    const found: PickedDlc[] = [];
-    const refused: string[] = [];
-    checked.forEach((c, i) => {
-      if (c.status === "fulfilled") found.push({ path: paths[i], info: c.value });
-      else refused.push(baseName(paths[i]));
-    });
-    addDlc(found, refused);
+  async function addDlcPackages() {
+    addPicks(await backend.pickDlcFiles());
   }
 
   async function addDlcFolder() {
-    const titleId = current.current.game?.titleId;
-    if (!titleId) return;
-    const dir = await backend.pickFolder();
+    const dir = await backend.pickDlcFolder();
+    if (dir) addPicks([dir]);
+  }
+
+  async function addBackport() {
+    const dir = await backend.pickBackport();
     if (!dir) return;
-    setCheckingDlc(true);
-    try {
-      const folder = await backend.dlcInFolder(dir, titleId);
-      if (folder.found.length === 0) {
-        dispatch({ type: "message", text: "No DLC for this game in that folder." });
-        return;
-      }
-      addDlc(folder.found, folder.skipped);
-    } catch (e) {
-      dispatch({ type: "message", text: String(e) });
-    } finally {
-      setCheckingDlc(false);
-    }
+    dispatch({ type: "bundle", bundle: { ...current.current.bundle, backport: dir } });
+  }
+
+  function removePick(path: string) {
+    const bundle = current.current.bundle;
+    dispatch({
+      type: "bundle",
+      bundle: { dlc: bundle.dlc.filter((p) => p !== path), backport: bundle.backport === path ? null : bundle.backport },
+    });
   }
 
   const showView = useCallback(
@@ -292,7 +327,27 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
               setTimeout(() => void refreshStatus(), 4000);
               return outcome;
             }}
-          />
+          >
+            <div className="console-games">
+              <div className="console-games-head">
+                <h2>What's installed</h2>
+                <button className="small-button" aria-expanded={showLibrary} onClick={() => setShowLibrary(!showLibrary)}>
+                  {showLibrary ? "Hide" : "Show what's installed"}
+                </button>
+              </div>
+              {showLibrary && (
+                <Library
+                  backend={backend}
+                  destination={s.settings.destination}
+                  statusNote={
+                    s.status?.state === "notReachable"
+                      ? "The PS5 isn't reachable; check the Kite helper is running."
+                      : null
+                  }
+                />
+              )}
+            </div>
+          </Ps5Page>
         </div>
       </div>
     );
@@ -323,6 +378,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
             settings={s.settings}
             status={s.status}
             version={version}
+            dlcEmuVersion={dlcEmu}
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
           />
@@ -339,6 +395,10 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           message={s.message}
           onChooseFolder={() => void choose(backend.pickFolder)}
           onChooseFile={() => void choose(backend.pickFile)}
+          onSeeLibrary={() => {
+            setShowLibrary(true);
+            showView("ps5");
+          }}
         />
       </div>
     );
@@ -346,22 +406,21 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
 
   const done = s.phase === "done";
   const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
-  const packedKept =
-    !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
+  const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
+  const goingIn = (s.bundlePlan?.items ?? []).filter(
+    (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
+  ).length;
   const note =
     s.phase === "ready" || !s.job
-      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, dlc: s.dlc.length })
+      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, bundled: goingIn })
       : footerNote({ kind: s.phase, job: s.job });
-  let dlcBlocked: string | null = null;
-  if (!s.game.titleId) dlcBlocked = "This game has no title ID, so its DLC can't be matched.";
-  else if (!sending) dlcBlocked = "Turn on Send to PS5 to install DLC.";
 
   return (
     <div className={s.dragging ? "screen dragging" : "screen"}>
       {header}
       <div className="spacer" />
-      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} headline={sent ? "On the PS5" : "Packed"} />
+      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} onPs5={s.onPs5} headline={sent ? "On the PS5" : "Packed"} />
       {s.message && (
         <p role="alert" className="message">
           {s.message}
@@ -377,18 +436,19 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           onChangeFolder={() => void changeOutput()}
         />
       ) : (
-        s.job && <Steps rows={stepRows(s.job, s.progress, now(), dlcNames(s.dlc))} />
+        s.job && <Steps rows={stepRows(s.job, s.progress, now())} />
       )}
       {s.phase === "ready" && (
         <Dlc
-          picked={s.dlc}
-          blocked={dlcBlocked}
-          busy={checkingDlc}
+          plan={s.bundlePlan}
+          busy={readingPicks}
+          installed={installedLabels}
           gameIcon={s.game.iconDataUrl}
-          onAddFiles={() => void addDlcFiles()}
+          onAddPackages={() => void addDlcPackages()}
           onAddFolder={() => void addDlcFolder()}
-          onRemove={(path) => dispatch({ type: "dlc", dlc: s.dlc.filter((d) => d.path !== path) })}
-          onRemoveAll={() => dispatch({ type: "dlc", dlc: [] })}
+          onAddBackport={() => void addBackport()}
+          onRemove={removePick}
+          onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
         />
       )}
       <Footer

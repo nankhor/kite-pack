@@ -26,6 +26,7 @@
 #include "ava1_server.h"
 #include "ava1_store.h"
 #include "ava1_wire.h"
+#include "meta.h"
 #include "notify.h"
 
 #ifndef KITE_VERSION
@@ -47,6 +48,11 @@ struct cidr {
 
 static char g_allow[MAX_ALLOW][PATH_MAX];
 static int g_nallow;
+/* Read-only roots for the metadata calls (meta.c). The console's own title folders are what a
+ * library needs and what a transfer never touches, so they are a separate list on purpose: a
+ * client that can read /user/appmeta must not thereby be able to write it. */
+static char g_read[MAX_ALLOW + 8][PATH_MAX];
+static int g_nread;
 static struct cidr g_trust[MAX_TRUST];
 static int g_ntrust;
 static volatile sig_atomic_t g_stop;
@@ -62,6 +68,15 @@ static int under(const char *abs, const char *root) {
 static int allowed(const char *abs) {
     for (int i = 0; i < g_nallow; i++)
         if (under(abs, g_allow[i])) return 1;
+    return 0;
+}
+
+/* What the metadata calls may read: the write roots (a shared folder is also readable) plus
+ * the console's title folders. A path outside both is refused before any file is opened. */
+static int meta_read_allowed(const char *abs) {
+    if (allowed(abs)) return 1;
+    for (int i = 0; i < g_nread; i++)
+        if (under(abs, g_read[i])) return 1;
     return 0;
 }
 
@@ -120,7 +135,11 @@ static int admit_new(const uint8_t key[32], const char *peer_name, uint32_t ip) 
 static int rpc(uint16_t method, const uint8_t *body, uint32_t len, uint8_t *out, size_t cap, size_t *out_len) {
     ava1_node_info_t ni;
     ava1_w_t w;
-    int rc = ava1_data_rpc(method, body, len, out, cap, out_len);
+    /* Read-only console metadata first: it owns method numbers the data plane leaves alone,
+     * and answers -1 for everything else so the data plane and node.info keep working. */
+    int rc = kite_meta_rpc(method, body, len, out, cap, out_len);
+    if (rc != -1) return rc;
+    rc = ava1_data_rpc(method, body, len, out, cap, out_len);
     if (rc != -1) return rc;
     if (method != AVA1_METHOD_NODE_INFO) return AVA1_ERR_UNKNOWN_METHOD;
     memset(&ni, 0, sizeof ni);
@@ -196,11 +215,21 @@ static void add_allow(const char *dir) {
     }
 }
 
+/* Adds a read-only root. Unlike a write root it is not created: a console folder that is not
+ * there (an empty /mnt/ext1) simply refuses, and the app reads "no such drive" from that. */
+static void add_read(const char *dir) {
+    char real[PATH_MAX];
+    if (g_nread < (int)(sizeof g_read / sizeof g_read[0])) {
+        snprintf(g_read[g_nread++], PATH_MAX, "%s", realpath(dir, real) ? real : dir);
+    }
+}
+
 int main(int argc, char **argv) {
     ava1_server_cfg_t cfg;
     ava1_data_cfg_t dc;
     char path[PATH_MAX + 32];
     const char *state = "/data/kite";
+    const char *root = "";
     unsigned port = DEFAULT_PORT;
     pthread_t disc;
     int rc;
@@ -208,16 +237,32 @@ int main(int argc, char **argv) {
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--state") && i + 1 < argc) state = argv[++i];
         else if (!strcmp(argv[i], "--allow") && i + 1 < argc) add_allow(argv[++i]);
+        else if (!strcmp(argv[i], "--read") && i + 1 < argc) add_read(argv[++i]);
+        else if (!strcmp(argv[i], "--root") && i + 1 < argc) root = argv[++i];
         else if (!strcmp(argv[i], "--port") && i + 1 < argc) port = (unsigned)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--trust") && i + 1 < argc) trust(argv[++i]);
         else {
-            fprintf(stderr, "usage: %s [--state DIR] [--allow DIR]... [--port N] [--trust CIDR]...\n", argv[0]);
+            fprintf(stderr,
+                    "usage: %s [--state DIR] [--allow DIR]... [--read DIR]... [--root DIR] "
+                    "[--port N] [--trust CIDR]...\n",
+                    argv[0]);
             return 2;
         }
     }
     if (g_nallow == 0) {
         add_allow("/data");
         add_allow("/mnt");
+    }
+    /* The console's own title folders: what a library reads and what a transfer never writes.
+     * --read adds to these rather than replacing them, so a test root still gets them all. */
+    static const char *const console_roots[] = {"/user/app",          "/user/appmeta",
+                                                "/user/patch",        "/user/addcont",
+                                                "/mnt/ext0/user/app", "/mnt/ext1/user/app"};
+    for (size_t i = 0; i < sizeof console_roots / sizeof console_roots[0]; i++) {
+        char joined[PATH_MAX];
+        if (root[0]) snprintf(joined, sizeof joined, "%s%s", root, console_roots[i]);
+        else snprintf(joined, sizeof joined, "%s", console_roots[i]);
+        add_read(joined);
     }
     if (g_ntrust == 0) {
         trust("10.0.0.0/8");
@@ -228,6 +273,7 @@ int main(int argc, char **argv) {
     }
     signal(SIGPIPE, SIG_IGN);
     mkdir(state, 0700);
+    kite_meta_init(root, meta_read_allowed);
 
     memset(&cfg, 0, sizeof cfg);
     cfg.port = (uint16_t)port;
@@ -259,7 +305,9 @@ int main(int argc, char **argv) {
         return 1;
     }
     cfg.data = ava1_data_hooks();
-    cfg.caps = AVA1_CAP_DATA_PLANE;
+    /* MGMT advertises the metadata methods above; without it a peer may assume the node
+     * serves only transfers (SPEC.md §5 step 2). */
+    cfg.caps = AVA1_CAP_DATA_PLANE | AVA1_CAP_MGMT;
 
     if ((rc = ava1_server_start(&cfg)) != 0) {
         fprintf(stderr, "kite helper: port %u: %s\n", port, strerror(-rc));

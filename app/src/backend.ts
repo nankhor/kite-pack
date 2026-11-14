@@ -7,12 +7,18 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
+  BundlePlan,
   DlcFolder,
   DlcInfo,
   Found,
+  FreeSpace,
+  GameIcon,
   GameInfo,
   HistoryEntry,
+  InstalledGame,
   JobView,
+  Library,
+  Measured,
   PackOptions,
   Settings,
   StartOutcome,
@@ -49,6 +55,24 @@ export interface Backend {
   dlcInFolder(path: string, titleId: string): Promise<DlcFolder>;
   /** DLC packages, several at once; empty when nothing was picked. */
   pickDlcFiles(): Promise<string[]>;
+  /** A DLC dump folder, for folding into the packed copy. */
+  pickDlcFolder(): Promise<string | null>;
+  /** A backport folder, for folding into the packed copy. */
+  pickBackport(): Promise<string | null>;
+  /** What the picked DLC and backport would add, and where each one goes. */
+  bundlePlan(source: string, dlc: string[], backport: string | null): Promise<BundlePlan>;
+  /** The DLC emulator release the app carries. */
+  dlcEmuVersion(): Promise<string>;
+  /** What the PS5 has installed (reads the console; takes a couple of seconds). */
+  library(): Promise<Library>;
+  /** One title on the console by id, or null when it is not installed. */
+  installedTitle(titleId: string): Promise<InstalledGame | null>;
+  /** The tiles of the given titles, as data: URLs. */
+  libraryIcons(ids: string[]): Promise<GameIcon[]>;
+  /** App, update and DLC bytes of one installed title. */
+  measureApp(titleId: string): Promise<Measured>;
+  /** The room left where games go. */
+  freeSpace(path: string): Promise<FreeSpace>;
   /** Finished jobs, newest first. */
   history(): Promise<HistoryEntry[]>;
   addHistory(entry: HistoryEntry): Promise<void>;
@@ -96,6 +120,15 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
+  dlcEmuVersion: () => invoke("dlc_emu_version"),
+  bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
+  pickDlcFolder: async () => single(await open({ directory: true, multiple: false })),
+  pickBackport: async () => single(await open({ directory: true, multiple: false })),
+  library: () => invoke("library"),
+  installedTitle: (titleId) => invoke("installed_title", { titleId }),
+  libraryIcons: (ids) => invoke("library_icons", { ids }),
+  measureApp: (titleId) => invoke("measure_app", { titleId }),
+  freeSpace: (path) => invoke("free_space", { path }),
   startHelper: () => invoke("start_helper"),
   checkDlc: (path, titleId) => invoke("check_dlc", { path, titleId }),
   dlcInFolder: (path, titleId) => invoke("dlc_in_folder", { path, titleId }),

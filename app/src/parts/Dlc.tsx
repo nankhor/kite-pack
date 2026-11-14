@@ -1,17 +1,19 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatSize } from "../model";
-import type { PickedDlc } from "../types";
+import type { BundleItem, BundlePlan } from "../types";
 
 interface Props {
-  picked: PickedDlc[];
-  /** Why DLC can't be added now (Send is off, say); null when it can. */
-  blocked: string | null;
-  /** Checking picked packages. */
+  /** What the picked DLC and backport would add; null until read. */
+  plan: BundlePlan | null;
+  /** Reading the picks. */
   busy: boolean;
+  /** DLC labels the console already has installed. */
+  installed: string[];
   /** Stands in for a DLC that has no icon of its own. */
   gameIcon: string | null;
-  onAddFiles: () => void;
+  onAddPackages: () => void;
   onAddFolder: () => void;
+  onAddBackport: () => void;
   onRemove: (path: string) => void;
   onRemoveAll: () => void;
 }
@@ -28,63 +30,140 @@ const PLUS = (
   </svg>
 );
 
-const name = (d: PickedDlc) => d.info.name ?? d.info.label;
+const CARET = (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 9l6 6 6-6" />
+  </svg>
+);
 
-function Icon({ dlc, gameIcon }: { dlc: PickedDlc; gameIcon: string | null }) {
-  if (dlc.info.iconDataUrl) return <img className="dlc-icon" src={dlc.info.iconDataUrl} alt="" />;
-  if (gameIcon) return <img className="dlc-icon stand-in" src={gameIcon} alt="" />;
+const name = (item: BundleItem) => item.name;
+const isInstalled = (item: BundleItem, installed: string[]) =>
+  item.label !== null && installed.some((l) => l.toLowerCase() === item.label!.toLowerCase());
+
+/** What an item's badge says, and why. */
+function badge(item: BundleItem, installed: string[]): [string, string] {
+  if (item.problem) return ["Can't go in", "bad"];
+  if (isInstalled(item, installed)) return ["On the PS5", "have"];
+  if (item.kind === "backport") return ["Backport", "kind"];
+  if (item.route === "install") return ["After install", "wait"];
+  return ["In the pack", "kind"];
+}
+
+function Icon({ item, gameIcon }: { item: BundleItem; gameIcon: string | null }) {
+  const src = item.iconDataUrl ?? (item.kind === "dlc" ? gameIcon : null);
+  if (src) return <img className="dlc-icon" src={src} alt="" />;
   return <span className="dlc-icon blank" aria-hidden="true" />;
 }
 
-/** DLC to install on the PS5 after the game: one line that opens the full list. */
-export function Dlc({ picked, blocked, busy, gameIcon, onAddFiles, onAddFolder, onRemove, onRemoveAll }: Props) {
+/** DLC and a backport folded into the packed copy, before it is written. */
+export function Dlc({
+  plan,
+  busy,
+  installed,
+  gameIcon,
+  onAddPackages,
+  onAddFolder,
+  onAddBackport,
+  onRemove,
+  onRemoveAll,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const shown = open && picked.length > 0;
-  const total = formatSize(picked.reduce((sum, d) => sum + d.info.bytes, 0));
+  const [menu, setMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const items = plan?.items ?? [];
+  const shown = open && items.length > 0;
+  const dlc = items.filter((i) => i.kind === "dlc");
+  const total = dlc.reduce((sum, d) => sum + d.bytes, 0);
+  const toInstall = items.filter((i) => i.route === "install" && !isInstalled(i, installed));
 
-  let hint = "Add .pkg files, or a folder of them. The PS5 installs each with its own installer, after the game.";
-  if (blocked) hint = blocked;
-  else if (busy) hint = "Checking the packages…";
-  else if (picked.length > 0) hint = "Installed one by one on the PS5, with its own installer, after the game.";
+  // A click anywhere else closes the Add DLC menu.
+  useEffect(() => {
+    if (!menu) return;
+    const away = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenu(false);
+    };
+    document.addEventListener("mousedown", away);
+    return () => document.removeEventListener("mousedown", away);
+  }, [menu]);
+
+  let hint = "Add DLC packages, a DLC folder, or a backport. They go inside the packed copy, so the PS5 gets them with the game.";
+  if (busy) hint = "Reading what you picked…";
+  else if (items.length > 0) hint = "Folded into the packed copy before it is written.";
+  if (plan?.problem) hint = plan.problem;
+  else if (toInstall.length > 0) {
+    hint =
+      "An image or a .pkg can't carry DLC: installing it needs the PS5's package installer, which the Kite helper can't run yet.";
+  }
+
+  const label = (n: number) => `${n} ${n === 1 ? "add-on" : "add-ons"}`;
 
   return (
-    <section className={blocked ? "dlc blocked" : "dlc"} aria-label="DLC">
+    <section className={plan?.problem ? "dlc blocked" : "dlc"} aria-label="DLC and a backport">
       <div className="dlc-head">
-        <h2>DLC</h2>
+        <h2>Inside the packed copy</h2>
         <span className="dlc-hint">{hint}</span>
       </div>
       <div className="dlc-controls">
-        {picked.length > 0 && (
-          <button
-            className="dlc-summary"
-            aria-expanded={shown}
-            aria-controls="dlc-list"
-            onClick={() => setOpen(!open)}
-          >
-            <span className="dlc-count">{picked.length} DLC</span>
-            <span className="dlc-total">{total}</span>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d={shown ? "M6 15l6-6 6 6" : "M6 9l6 6 6-6"} />
-            </svg>
+        {items.length > 0 && (
+          <button className="dlc-summary" aria-expanded={shown} aria-controls="dlc-list" onClick={() => setOpen(!open)}>
+            <span className="dlc-count">
+              {label(dlc.length)}
+              {items.some((i) => i.kind === "backport") ? " · 1 backport" : ""}
+            </span>
+            {dlc.length > 0 && <span className="dlc-total">{formatSize(total)}</span>}
+            {CARET}
           </button>
         )}
-        <button className="add-button" onClick={onAddFiles} disabled={!!blocked || busy}>
-          {PLUS}Add packages
-        </button>
-        <button className="add-button" onClick={onAddFolder} disabled={!!blocked || busy}>
-          {PLUS}Add a folder
+        <div className="add-dlc" ref={menuRef}>
+          <button
+            className="add-button"
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            disabled={busy}
+            onClick={() => setMenu(!menu)}
+          >
+            {PLUS}Add DLC{CARET}
+          </button>
+          {menu && (
+            <div className="add-menu" role="menu" aria-label="Add DLC">
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  onAddPackages();
+                }}
+              >
+                Packages…
+                <span>One or more .pkg files</span>
+              </button>
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setMenu(false);
+                  onAddFolder();
+                }}
+              >
+                Folder…
+                <span>A DLC dump folder, or a folder of packages</span>
+              </button>
+            </div>
+          )}
+        </div>
+        <button className="add-button" onClick={onAddBackport} disabled={busy}>
+          {PLUS}Add backport
         </button>
         {shown && (
           <div
             id="dlc-list"
             className="popover"
             role="region"
-            aria-label="DLC to install"
+            aria-label="What goes inside the packed copy"
             onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
           >
             <div className="popover-head">
               <span className="popover-title">
-                {picked.length} DLC <span className="popover-total">· {total}</span>
+                {label(dlc.length)}
+                {dlc.length > 0 && <span className="popover-total"> · {formatSize(total)}</span>}
               </span>
               <button
                 className="small-button"
@@ -100,19 +179,32 @@ export function Dlc({ picked, blocked, busy, gameIcon, onAddFiles, onAddFolder, 
               </button>
             </div>
             <ol className="popover-list">
-              {picked.map((d, i) => (
-                <li key={d.path}>
-                  <span className="popover-n">{i + 1}</span>
-                  <Icon dlc={d} gameIcon={gameIcon} />
-                  <span className="popover-name">{name(d)}</span>
-                  <span className="popover-size">{formatSize(d.info.bytes)}</span>
-                  <button className="round-button" aria-label={`Remove ${name(d)}`} onClick={() => onRemove(d.path)}>
-                    {X}
-                  </button>
-                </li>
-              ))}
+              {items.map((item, i) => {
+                const [word, tone] = badge(item, installed);
+                return (
+                  <li key={`${item.kind}:${item.path}`}>
+                    <span className="popover-n">{i + 1}</span>
+                    <Icon item={item} gameIcon={gameIcon} />
+                    <span className="popover-name">{name(item)}</span>
+                    <span className={`dlc-badge ${tone}`}>{word}</span>
+                    <span className="popover-size">{item.bytes > 0 ? formatSize(item.bytes) : ""}</span>
+                    <button
+                      className="round-button"
+                      aria-label={`Remove ${name(item)}`}
+                      onClick={() => onRemove(item.path)}
+                    >
+                      {X}
+                    </button>
+                  </li>
+                );
+              })}
             </ol>
-            <p className="popover-note">Installed in this order, after the game.</p>
+            {plan?.emulatorFrom === "builtin" && dlc.length > 0 && (
+              <p className="popover-note">The DLC emulator Kite Pack carries goes into the game's fakelib/.</p>
+            )}
+            {toInstall.length > 0 && (
+              <p className="popover-note">Marked “After install” will not be packed: there is no package installer yet.</p>
+            )}
           </div>
         )}
       </div>
