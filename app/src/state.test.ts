@@ -50,3 +50,12 @@ describe("progress", () => {
     expect(s.progress).toMatchObject({ startedAt: 0, recent: [{ at: 0, done: 100 }] });
   });
 });
+
+describe("picks for the packed copy", () => {
+  it("clear the last note when they change", () => {
+    const noted = reduce(initial, { type: "message", text: "None of the 2 packages in that folder is DLC for Ashen Tide." });
+    const picked = reduce(noted, { type: "bundle", bundle: { dlc: ["/DLC/suits.pkg"], backport: null } });
+    expect(picked.message).toBeNull();
+    expect(picked.bundle.dlc).toEqual(["/DLC/suits.pkg"]);
+  });
+});

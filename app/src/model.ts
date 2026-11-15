@@ -434,3 +434,18 @@ export function jobBar(
   const detail = part.fill === null ? "" : row.status;
   return { head: DOING[part.kind], detail, tone: "plain", overall, parts };
 }
+
+/** What adding a folder of packages did: how many DLC went in, and what was left out. Null when all of it went in. */
+export function folderNote(added: number, skipped: string[], game: string): string | null {
+  const n = skipped.length;
+  if (added === 0) {
+    return n === 1
+      ? `The package in that folder isn't DLC for ${game}.`
+      : `None of the ${n} packages in that folder is DLC for ${game}.`;
+  }
+  if (n === 0) return null;
+  const shown = skipped.slice(0, 3).join(", ");
+  const rest = n > 3 ? ` and ${n - 3} more` : "";
+  const files = n === 1 ? "1 file that isn't" : `${n} files that aren't`;
+  return `Added ${added} DLC from the folder. Left out ${files} DLC for this game: ${shown}${rest}.`;
+}

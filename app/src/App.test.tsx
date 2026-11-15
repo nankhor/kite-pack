@@ -156,10 +156,12 @@ class FakeBackend implements Backend {
     if (!info) throw "This isn't DLC for PPSA01234";
     return info;
   });
+  /** Files in a picked folder that aren't DLC for the game. */
+  folderSkipped: string[] = [];
   dlcInFolder = vi.fn(
-    async (_path: string, _titleId: string): Promise<DlcFolder> => ({
-      found: [...this.dlc].map(([path, info]) => ({ path, info })),
-      skipped: ["Patch.pkg"],
+    async (path: string, _titleId: string): Promise<DlcFolder> => ({
+      found: [...this.dlc].filter(([p]) => p.startsWith(`${path}/`)).map(([p, info]) => ({ path: p, info })),
+      skipped: this.folderSkipped,
     }),
   );
   pickDlcFiles = vi.fn(async () => this.dlcPicked);
@@ -659,12 +661,35 @@ describe("inside the packed copy", () => {
     expect(within(list).getAllByText("In the pack")).toHaveLength(2);
   });
 
-  it("adds a DLC folder from the menu", async () => {
+  it("adds a DLC dump folder from the menu", async () => {
     await showGame();
     await addFolder("/DLC/Tidebreaker");
 
     expect(await screen.findByRole("button", { name: /1 add-on/ })).toBeInTheDocument();
+    expect(backend.dlcInFolder).toHaveBeenCalledWith("/DLC/Tidebreaker", "PPSA01234");
     expect(backend.bundlePlan).toHaveBeenLastCalledWith("/Games/Ashen Tide", ["/DLC/Tidebreaker"], null);
+  });
+
+  it("adds every DLC package in a picked folder, and says what it left out", async () => {
+    const info = (label: string) => ({ contentId: `UP0000-PPSA01234_00-${label}`, label, name: label, bytes: 1_000_000 });
+    backend.dlc.set("/DLC/All/suits.pkg", info("SUITS00000000000"));
+    backend.dlc.set("/DLC/All/map.pkg", info("MAP0000000000000"));
+    backend.folderSkipped = ["Patch.pkg"];
+    await showGame();
+    await addFolder("/DLC/All");
+
+    expect(await screen.findByRole("button", { name: /2 add-ons/ })).toBeInTheDocument();
+    expect(backend.bundlePlan).toHaveBeenLastCalledWith("/Games/Ashen Tide", ["/DLC/All/suits.pkg", "/DLC/All/map.pkg"], null);
+    expect(screen.getByRole("alert")).toHaveTextContent("Added 2 DLC from the folder. Left out 1 file that isn't DLC for this game: Patch.pkg.");
+  });
+
+  it("adds nothing when no package in the folder is DLC for the game", async () => {
+    backend.folderSkipped = ["Other Game.pkg", "Patch.pkg"];
+    await showGame();
+    await addFolder("/DLC/Other");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("None of the 2 packages in that folder is DLC for Ashen Tide.");
+    expect(screen.queryByRole("button", { name: /add-on/ })).not.toBeInTheDocument();
   });
 
   it("adds a backport, and it is listed as one", async () => {

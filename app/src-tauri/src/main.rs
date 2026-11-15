@@ -5,6 +5,7 @@
 //! side from `kite-ps5`.
 
 mod history;
+mod packages;
 
 use history::{Entry, History};
 use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
@@ -149,21 +150,16 @@ async fn check_dlc(path: PathBuf, title_id: String) -> Result<DlcInfo, String> {
     blocking(move || kite_forge::check_dlc(&path, &title_id)).await?
 }
 
-/// Every `.pkg` in a folder (not its subfolders) that is DLC for the game, by name.
+/// Every `.pkg` in a folder, and up to two folders down, that is DLC for the game; the rest by name.
 #[tauri::command]
 async fn dlc_in_folder(path: PathBuf, title_id: String) -> Result<DlcFolder, String> {
     blocking(move || {
-        let mut pkgs: Vec<PathBuf> = std::fs::read_dir(&path)
-            .map_err(|e| format!("Couldn't read the folder: {e}"))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x.eq_ignore_ascii_case("pkg")))
-            .collect();
-        pkgs.sort();
+        let pkgs = packages::packages_in(&path).map_err(|e| format!("Couldn't read the folder: {e}"))?;
         let mut folder = DlcFolder { found: vec![], skipped: vec![] };
         for pkg in pkgs {
             match kite_forge::check_dlc(&pkg, &title_id) {
                 Ok(info) => folder.found.push(PickedDlc { path: pkg, info }),
-                Err(_) => folder.skipped.push(pkg.file_name().unwrap_or_default().to_string_lossy().into_owned()),
+                Err(_) => folder.skipped.push(packages::shown_name(&path, &pkg)),
             }
         }
         Ok(folder)
