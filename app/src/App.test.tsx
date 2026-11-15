@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -655,10 +655,57 @@ describe("inside the packed copy", () => {
     expect(screen.getByText("Packs into /Games with 2 add-ons inside.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /2 add-ons/ }));
-    const list = screen.getByRole("region", { name: "What goes inside the packed copy" });
+    const list = screen.getByRole("dialog", { name: "What goes inside the packed copy" });
     expect(within(list).getByText("suits.pkg")).toBeInTheDocument();
     expect(within(list).getByText("map.pkg")).toBeInTheDocument();
     expect(within(list).getAllByText("In the pack")).toHaveLength(2);
+  });
+
+  it("shows each DLC's install in a window over the page", async () => {
+    await showGame();
+    await userEvent.click(within(screen.getByRole("complementary", { name: "Pack and send" })).getByRole("button", { name: "Pack" }));
+    const dlcStep = (state: "done" | "running" | "pending", pkg: string) => ({ kind: "installDlc" as const, state, note: null, pkg });
+    backend.emit({
+      type: "job",
+      job: job({
+        rev: 3,
+        steps: [
+          { kind: "pack", state: "done", note: null },
+          { kind: "send", state: "done", note: "Sent and checked" },
+          dlcStep("done", "/data/dlc/Suits.pkg"),
+          dlcStep("running", "/data/dlc/Map.pkg"),
+          dlcStep("pending", "/data/dlc/Theme.pkg"),
+        ],
+      }),
+    });
+    await userEvent.click(await screen.findByRole("button", { name: "See all 3 DLC" }));
+    const list = screen.getByRole("dialog", { name: "Each DLC" });
+    expect(within(list).getByText("3 DLC")).toBeInTheDocument();
+    expect(within(list).getByText("· 1 installed")).toBeInTheDocument();
+    expect(within(list).getByRole("button", { name: "Close the list" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Each DLC" })).not.toBeInTheDocument();
+  });
+
+  it("opens the list as a window over the page, closed by Escape, Close or a click beside it", async () => {
+    await showGame();
+    await addPackages("/DLC/suits.pkg", "/DLC/map.pkg");
+    const summary = await screen.findByRole("button", { name: /2 add-ons/ });
+
+    await userEvent.click(summary);
+    const list = screen.getByRole("dialog", { name: "What goes inside the packed copy" });
+    expect(list).toHaveAttribute("aria-modal", "true");
+    expect(within(list).getByRole("button", { name: "Close the list" })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "What goes inside the packed copy" })).not.toBeInTheDocument();
+
+    await userEvent.click(summary);
+    fireEvent.mouseDown(document.querySelector(".sheet-backdrop")!);
+    expect(screen.queryByRole("dialog", { name: "What goes inside the packed copy" })).not.toBeInTheDocument();
+
+    await userEvent.click(summary);
+    await userEvent.click(screen.getByRole("button", { name: "Close the list" }));
+    expect(screen.queryByRole("dialog", { name: "What goes inside the packed copy" })).not.toBeInTheDocument();
   });
 
   it("adds a DLC dump folder from the menu", async () => {
@@ -699,7 +746,7 @@ describe("inside the packed copy", () => {
 
     expect(await screen.findByRole("button", { name: /1 backport/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /1 backport/ }));
-    const list = screen.getByRole("region", { name: "What goes inside the packed copy" });
+    const list = screen.getByRole("dialog", { name: "What goes inside the packed copy" });
     expect(within(list).getByText("Backport")).toBeInTheDocument();
     expect(within(list).getByText("v1.00")).toBeInTheDocument();
   });

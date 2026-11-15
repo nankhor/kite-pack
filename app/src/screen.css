@@ -1501,6 +1501,7 @@
 .popover-size {
   color: var(--label);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .popover-note {
@@ -1855,4 +1856,40 @@
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* The DLC lists (what goes in the pack, and each DLC's install): a window over the page, wide
+   enough for names, rather than a pop-up squeezed into the panel and cut off by its scrolling. */
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(8, 9, 11, 0.6);
+}
+
+body .screen .popover.sheet {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translate(-50%, -50%);
+  width: min(620px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  padding: 10px 10px 12px;
+}
+
+.popover.sheet .popover-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+}
+
+/* The Add DLC menu opens upwards in the panel: under it, the panel would scroll. */
+.pack-panel .add-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
 }

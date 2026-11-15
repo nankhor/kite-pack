@@ -100,14 +100,30 @@ export function JobBar({ bar }: { bar: Bar }) {
           <button className="small-button" aria-expanded={open} aria-controls="dlc-states" onClick={() => setOpen(!open)}>
             {open ? "Hide the DLC list" : `See all ${dlc.items!.length} DLC`}
           </button>
+          {open && <div className="sheet-backdrop" aria-hidden="true" onMouseDown={() => setOpen(false)} />}
           {open && (
             <div
               id="dlc-states"
-              className="popover step-popover"
-              role="region"
+              className="popover step-popover sheet"
+              role="dialog"
+              aria-modal="true"
               aria-label="Each DLC"
               onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
             >
+              <div className="popover-head">
+                <span className="popover-title">
+                  {dlc.items!.length} DLC
+                  <span className="popover-total">
+                    {" "}
+                    · {dlc.items!.filter((i) => i.state === "installed").length} installed
+                  </span>
+                </span>
+                <button className="round-button" aria-label="Close the list" autoFocus onClick={() => setOpen(false)}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </div>
               <ol className="popover-list" ref={list}>
                 {dlc.items!.map((item, i) => (
                   <li key={i} className={`item-${item.state}`}>
