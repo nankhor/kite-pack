@@ -1,8 +1,8 @@
 // A game's story, studio and pictures from IGDB, through Kite Pack's own Worker (worker/ in the
 // repo), which holds the IGDB keys. Each game is looked up once and kept on this computer.
 
-/** Where the Worker answers. Empty until it is put online: then the page shows the game's own icon. */
-export const DETAILS_URL = "";
+/** Where the Worker (worker/) answers. Empty: no lookups, and the page shows the game's own icon. */
+export const DETAILS_URL = "https://kite-details.nankhor.workers.dev";
 
 /** One game, as the Worker answers. Pictures are IGDB image ids: see igdbImage. */
 export interface GameDetails {
