@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { footerNote, historyEntry, packBadge, stepRows } from "./model";
+import { footerNote, historyEntry, jobBar, packBadge } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
 import { Header, tabId } from "./parts/Header";
 import { HistoryPage } from "./parts/History";
+import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
 import { SettingsPage } from "./parts/Settings";
-import { Steps } from "./parts/Steps";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
 import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
@@ -429,7 +429,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           onChangeFolder={() => void changeOutput()}
         />
       ) : (
-        s.job && <Steps rows={stepRows(s.job, s.progress, now())} />
+        s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
       )}
       {s.phase === "ready" && (
         <Dlc

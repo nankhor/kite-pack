@@ -328,3 +328,103 @@ export function footerNote(input: NoteInput): string {
     }
   }
 }
+
+/** One part of the job's bar: one step, or all the DLC together. */
+export interface BarPart {
+  kind: StepKind;
+  label: string;
+  /** Its share of the bar: about how long the step takes, never too thin to read. */
+  weight: number;
+  /** 0 to 100; null while it runs with nothing to count (a move to the Trash). */
+  fill: number | null;
+  state: StepRow["state"];
+  /** The short line under the part. */
+  note: string;
+  /** For the DLC part: each package and how it stands. */
+  items?: DlcItem[];
+}
+
+/** The job as one bar: the line above it, and its parts. */
+export interface JobBar {
+  head: string;
+  detail: string;
+  tone: "plain" | "amber" | "mint" | "fail";
+  /** The whole job, 0 to 100. */
+  overall: number;
+  parts: BarPart[];
+}
+
+const PART_LABELS: Record<StepKind, string> = {
+  pack: "Pack",
+  deleteOriginal: "Original to the Trash",
+  send: "Send to PS5",
+  installDlc: "Install DLC",
+  deletePacked: "Packed copy to the Trash",
+};
+
+const PART_WEIGHTS: Record<StepKind, number> = { pack: 38, deleteOriginal: 10, send: 34, installDlc: 16, deletePacked: 10 };
+
+const DOING: Record<StepKind, string> = {
+  pack: "Packing",
+  deleteOriginal: "Moving the original to the Trash",
+  send: "Sending to PS5",
+  installDlc: "Installing DLC",
+  deletePacked: "Moving the packed copy to the Trash",
+};
+
+/**
+ * The job as one bar, its parts the job's own steps (the DLC as one). `names` gives each DLC
+ * package's name by path; `inside` is how many add-ons were folded into the packed copy.
+ */
+export function jobBar(
+  job: JobView,
+  progress: ProgressState | null,
+  now: number,
+  { names = {}, inside = 0 }: { names?: Record<string, string>; inside?: number } = {},
+): JobBar {
+  const rows = stepRows(job, progress, now, names);
+  // The kind of each row: the steps in order, the DLC steps counted once, as stepRows does.
+  const kinds = job.steps.map((st) => st.kind).filter((k, i, all) => k !== "installDlc" || all.indexOf(k) === i);
+  const parts: BarPart[] = rows.map((row, i) => {
+    const kind = kinds[i];
+    const index = job.steps.findIndex((st) => st.kind === kind);
+    const p = progress && progress.index === index && progress.total > 0 ? progress : null;
+    let fill: number | null = row.state === "done" || row.state === "failed" ? 100 : (row.bar ?? 0);
+    let note = row.status;
+    if (row.state === "done" && kind === "pack" && inside > 0) {
+      note = `${row.status}, ${inside} ${inside === 1 ? "add-on" : "add-ons"} inside`;
+    } else if (row.state === "active") {
+      if (kind === "pack") note = p ? `${row.bar}% packed` : "";
+      else if (kind === "send") note = p ? `${formatSize(p.done)} of ${formatSize(p.total)}` : "";
+      else if (kind === "deleteOriginal" || kind === "deletePacked") {
+        fill = null;
+        note = "";
+      }
+    } else if (row.state === "paused") {
+      note = "Paused";
+    }
+    return { kind, label: PART_LABELS[kind], weight: PART_WEIGHTS[kind], fill, state: row.state, note, items: row.items };
+  });
+
+  const total = parts.reduce((t, part) => t + part.weight, 0) || 1;
+  const filled = parts.reduce((t, part) => t + part.weight * (part.fill ?? 50), 0);
+  const overall = Math.round(filled / total);
+
+  const at = parts.findIndex((part) => part.state === "active" || part.state === "paused" || part.state === "failed");
+  if (job.state === "finished") {
+    const sent = job.steps.some((st) => st.kind === "send" && st.state === "done");
+    return {
+      head: sent ? "On the PS5" : "Packed",
+      detail: sent ? "Sent and checked" : "Packed and checked",
+      tone: "mint",
+      overall: 100,
+      parts,
+    };
+  }
+  if (at < 0) return { head: "Starting", detail: "", tone: "plain", overall, parts };
+  const part = parts[at];
+  const row = rows[at];
+  if (part.state === "failed") return { head: `${part.label} failed`, detail: row.status, tone: "fail", overall, parts };
+  if (part.state === "paused") return { head: "Waiting for the PS5", detail: row.status, tone: "amber", overall, parts };
+  return { head: DOING[part.kind], detail: row.status, tone: "plain", overall, parts };
+}
