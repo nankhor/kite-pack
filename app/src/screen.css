@@ -1020,10 +1020,10 @@
   cursor: pointer;
 }
 
-/* The DLC part's list of packages, above the whole bar. */
+/* The DLC part's list of packages: above the whole bar, on the side of its button. */
 
 .job .step-popover {
-  right: 0;
+  left: 0;
   bottom: calc(100% + 10px);
 }
 

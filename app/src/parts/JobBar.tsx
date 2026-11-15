@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { BarPart, DlcItem, JobBar as Bar } from "../model";
 
 function PartIcon({ state }: { state: BarPart["state"] }) {
@@ -50,7 +50,15 @@ const ITEM_WORDS: Record<DlcItem["state"], string> = {
 /** While a job runs: one bar for the whole job, in parts, and what is happening now above it. */
 export function JobBar({ bar }: { bar: Bar }) {
   const [open, setOpen] = useState(false);
+  const list = useRef<HTMLOListElement>(null);
   const dlc = bar.parts.find((p) => (p.items?.length ?? 0) > 1);
+
+  // The list opens on the DLC installing now, not on the first ones, long done.
+  useEffect(() => {
+    const ol = list.current;
+    const now = ol?.querySelector<HTMLElement>(".item-installing, .item-failed");
+    if (ol && now) ol.scrollTop = now.offsetTop - ol.offsetTop - (ol.clientHeight - now.offsetHeight) / 2;
+  }, [open]);
   return (
     <section className="job" aria-label="Progress">
       <div className="job-head">
@@ -100,7 +108,7 @@ export function JobBar({ bar }: { bar: Bar }) {
               aria-label="Each DLC"
               onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
             >
-              <ol className="popover-list">
+              <ol className="popover-list" ref={list}>
                 {dlc.items!.map((item, i) => (
                   <li key={i} className={`item-${item.state}`}>
                     <span className="popover-n">{i + 1}</span>
