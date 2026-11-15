@@ -327,16 +327,44 @@
 
 /* The Pack page, option B: the game on the left, packing on the right. */
 
+/* The Pack page fills the window: each side scrolls on its own, and Pack stays in view. */
+.screen.pack-screen {
+  height: 100vh;
+  min-height: 0;
+  padding-bottom: 24px;
+}
+
 .pack-page {
   flex: 1;
+  min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: minmax(0, 1fr);
   gap: 28px;
 }
 
+/* Room for focus rings inside the scrolling sides. */
+.pack-main,
+.panel-body {
+  min-height: 0;
+  overflow-y: auto;
+  margin: -4px;
+  padding: 4px;
+}
+
 @media (max-width: 920px) {
+  .screen.pack-screen {
+    height: auto;
+  }
+
   .pack-page {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .pack-main,
+  .panel-body {
+    overflow: visible;
   }
 }
 
@@ -722,6 +750,7 @@
 
 .pack-panel {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -729,6 +758,13 @@
   border-radius: 22px;
   background: var(--fill);
   border: 1px solid var(--line);
+}
+
+.panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .pack-panel .facts {
@@ -764,13 +800,25 @@
   font-size: 14px;
 }
 
-/* Pack on top, the other way out under it. */
 .pack-panel .buttons {
-  flex-direction: column-reverse;
+  flex-wrap: nowrap;
 }
 
 .pack-panel .button {
-  width: 100%;
+  flex: none;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.pack-panel .button.primary,
+.pack-panel .buttons .button:only-child {
+  flex: 1;
+}
+
+/* The DLC list opens under the bar here: above it, the panel would cut it off. */
+.pack-panel .job .step-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
 }
 
 /* The bar, sized to the panel: its parts share the width and the steps list under it. */

@@ -458,7 +458,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   const view = details.key === detailsKey ? details.view : { state: "loading" as const };
 
   return (
-    <div className={s.dragging ? "screen dragging" : "screen"}>
+    <div className={s.dragging ? "screen pack-screen dragging" : "screen pack-screen"}>
       {header}
       <div className="pack-page">
         <div className="pack-main">
@@ -480,32 +480,33 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           )}
         </div>
         <aside className="pack-panel" aria-label="Pack and send">
-          <Facts game={s.game} job={s.job} done={done} onPs5={s.onPs5} />
-          {s.phase === "ready" ? (
-            <Options
-              options={s.options}
-              status={s.status}
-              destination={s.settings?.destination ?? "/data/homebrew"}
-              onChange={(patch) => dispatch({ type: "options", patch })}
-              onChangeFolder={() => void changeOutput()}
-            />
-          ) : (
-            s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
-          )}
-          {s.phase === "ready" && (
-            <Dlc
-              plan={s.bundlePlan}
-              busy={readingPicks}
-              installed={installedLabels}
-              gameIcon={s.game.iconDataUrl}
-              onAddPackages={() => void addDlcPackages()}
-              onAddFolder={() => void addDlcFolder()}
-              onAddBackport={() => void addBackport()}
-              onRemove={removePick}
-              onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
-            />
-          )}
-          <div className="spacer" />
+          <div className="panel-body">
+            <Facts game={s.game} job={s.job} done={done} onPs5={s.onPs5} />
+            {s.phase === "ready" ? (
+              <Options
+                options={s.options}
+                status={s.status}
+                destination={s.settings?.destination ?? "/data/homebrew"}
+                onChange={(patch) => dispatch({ type: "options", patch })}
+                onChangeFolder={() => void changeOutput()}
+              />
+            ) : (
+              s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
+            )}
+            {s.phase === "ready" && (
+              <Dlc
+                plan={s.bundlePlan}
+                busy={readingPicks}
+                installed={installedLabels}
+                gameIcon={s.game.iconDataUrl}
+                onAddPackages={() => void addDlcPackages()}
+                onAddFolder={() => void addDlcFolder()}
+                onAddBackport={() => void addBackport()}
+                onRemove={removePick}
+                onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
+              />
+            )}
+          </div>
           <Footer
             phase={s.phase}
             note={note}
