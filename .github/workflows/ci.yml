@@ -33,6 +33,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked --no-fail-fast
 
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - name: Game details Worker tests
+        working-directory: worker
+        run: |
+          npm ci
+          npm test
+          npm run check
+
   helper:
     runs-on: ubuntu-24.04
     steps:

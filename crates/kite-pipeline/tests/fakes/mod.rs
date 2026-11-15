@@ -179,6 +179,7 @@ impl World {
             send: send.then(|| SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() }),
             delete_packed,
             dlc: (0..dlc).map(|i| self.tmp.path().join(format!("{i}.pkg"))).collect(),
+            bundle: Default::default(),
         }
     }
 

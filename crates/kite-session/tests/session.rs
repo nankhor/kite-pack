@@ -75,6 +75,7 @@ impl World {
             send: None,
             delete_packed: false,
             dlc: vec![],
+            bundle: Default::default(),
         }
     }
 }

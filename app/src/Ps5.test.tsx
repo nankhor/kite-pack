@@ -6,7 +6,13 @@ import type { Backend } from "./backend";
 import type { Found, Settings, StartOutcome, Status } from "./types";
 
 class FakeBackend implements Backend {
-  cfg: Settings = { address: null, helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: null };
+  cfg: Settings = {
+    address: null,
+    helperPort: 9130,
+    loaderPort: 9021,
+    destination: "/data/homebrew",
+    packedFolder: null,
+  };
   status: Status = { state: "notSetUp" };
   found: Found[] = [];
   inspect = vi.fn(async () => {
@@ -28,6 +34,27 @@ class FakeBackend implements Backend {
   ps5Status = vi.fn(async () => this.status);
   discover = vi.fn(async () => this.found);
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
+  dlcEmuVersion = vi.fn(async () => "0.3");
+  bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFrom: "none" as const }));
+  pickDlcFolder = vi.fn(async () => null);
+  pickBackport = vi.fn(async () => null);
+  library = vi.fn(async () => ({ games: [], truncated: false }));
+  installedTitle = vi.fn(async () => null);
+  libraryIcons = vi.fn(async () => []);
+  measureApp = vi.fn();
+  freeSpace = vi.fn(async () => ({ total: 1, free: 1, usable: 1, reserve: 0 }));
+  checkDlc = vi.fn();
+  dlcInFolder = vi.fn();
+  pickDlcFiles = vi.fn(async () => []);
+  history = vi.fn(async () => []);
+  addHistory = vi.fn(async () => {});
+  clearHistory = vi.fn(async () => {});
+  appVersion = vi.fn(async () => "0.1.3");
+  gameDetails = vi.fn(async () => null);
+  searchGames = vi.fn(async () => []);
+  pickGame = vi.fn(async () => {});
+  detailsOn = vi.fn(async () => true);
+  setDetailsOn = vi.fn(async () => {});
   onEvent() {
     return () => {};
   }
@@ -48,7 +75,7 @@ async function openSettings() {
   await screen.findByRole("heading", { name: "Settings" });
 }
 
-describe("Settings", () => {
+describe("the PS5 connection, in Settings", () => {
   it("finds the PS5 on the network and uses it", async () => {
     await openSettings();
     backend.found = [{ address: "192.168.1.42", port: 9130, version: "0.1.0-alpha.3" }, { address: "192.168.1.43", port: 9130, version: "0.1.0-alpha.3" }];
@@ -118,9 +145,34 @@ describe("Settings", () => {
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ destination: "/mnt/ext0/homebrew" }));
   });
 
-  it("goes back with Done", async () => {
-    await openSettings();
-    await userEvent.click(screen.getByRole("button", { name: "Done" }));
-    expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
+  it("is only in Settings: the PS5 tab is the console's games", async () => {
+    backend.cfg.address = "192.168.1.42";
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("tab", { name: "PS5" }));
+    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Find my PS5" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
+  });
+});
+
+describe("Settings", () => {
+  it("changes where packed copies go, and back to next to each game", async () => {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("Next to each game")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Change" }));
+    expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ packedFolder: "/Packed" }));
+    expect(await screen.findByText("/Packed")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Next to each game" }));
+    expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ packedFolder: null }));
+  });
+
+  it("shows Kite Pack's version, and the helper's when it runs", async () => {
+    backend.cfg.address = "192.168.1.42";
+    backend.status = { state: "running", version: "0.1.0" };
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(await screen.findByText("0.1.3")).toBeInTheDocument();
+    expect(await screen.findByText("0.1.0")).toBeInTheDocument();
   });
 });

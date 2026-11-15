@@ -1,5 +1,53 @@
 # Changelog
 
+## Unreleased
+
+Tabs, History, and DLC and backports inside the pack.
+
+- **Tabs.** Pack, PS5 and History across the top; Settings behind the gear. The Pack tab's badge
+  keeps a running job in sight from any tab.
+- **PS5 tab.** The connection and where games go moved out of Settings, and **Show what's
+  installed** reads the console underneath them.
+- **History.** Each finished job, newest first, with its icon, sizes, how much it saved and where
+  the packed copy is.
+- **DLC and backports inside the pack.**
+
+- **Inside the packed copy.** One **Add DLC** button (**Packages…** or **Folder…**) and **Add
+  backport** fold files into the packed copy before it is written, so one thing goes to the PS5
+  and the DLC works without installing it separately. Each entry says where it goes — in the
+  pack, already on the PS5, or after an install that this build cannot do yet — and a DLC for
+  another game or a bad backport folder is refused in plain words before anything is written.
+- **DLC the way the console reads it**: each one's files under `addcontN/`, an entry in
+  `dlc_emu.ini` (content id, `download_status`, `mount_point`) and, when the dump has none of its
+  own, the DLC emulator's modules in `fakelib/`. A dump that already carries the emulator, or the
+  same DLC twice, is left alone. DLC already listed in the dump's `dlc_emu.ini` is not added again.
+- **The DLC emulator is included.** Kite Pack carries [dlc_emu](https://github.com/drakmor/dlc_emu)
+  0.3 (GPL-3.0; source and modules under `third_party/dlc_emu/`), so a dump with no emulator of
+  its own gets one with no setup step. Settings says which release is included. A dump that
+  already carries an emulator keeps its own.
+- **A backport is an overlay**: its `eboot.bin`, `sce_sys/` and `fakelib/` replace the game's
+  before packing, and its title id is checked against the game's.
+- **Nothing is written to your dump.** The game is staged beside it as a copy-on-write clone
+  (APFS, btrfs/XFS) or a copy, the DLC and backport are folded into the clone, and the clone is
+  removed when packing ends.
+- DLC and backports fold into a **game folder**; an image or a `.pkg` still packs as it is.
+
+See what is on the PS5.
+
+- **On the PS5.** The PS5 tab's **Show what's installed** (and **See what's on the PS5** on the
+  start screen) lists what the console has installed: tile, name, title id, version, whether the
+  update is installed, how many add-ons, and which drive. **Measure** shows what one title takes,
+  app, update and add-ons counted separately, and the screen says how much room is left where
+  games go.
+- **Already on the PS5.** Opening a game now says whether the console already has it, and marks the
+  DLC that is already there.
+- **Kite helper 0.2.0** answers the read-only calls the screen needs (list, stat, read, a recursive
+  size and free space). Packing and sending are unchanged, and an older helper keeps working: the
+  new screen asks you to start the new one.
+- Nothing on the console is changed. The app reads `/user/appmeta`, `/user/app`, `/user/patch` and
+  `/user/addcont` — those four folders, nothing else — and a path is resolved before the helper's
+  policy sees it, so a symlink cannot lead elsewhere.
+
 ## 0.1.3
 
 The Mac app opens.

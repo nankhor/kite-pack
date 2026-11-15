@@ -14,6 +14,24 @@ pub struct ForgePacker {
     pub full_verify: bool,
 }
 
+/// What the staging step folded in, in one line for the job's checks.
+fn bundle_note(s: &crate::bundle::Staged) -> String {
+    let mut parts = Vec::new();
+    if s.dlc > 0 {
+        parts.push(format!("{} DLC inside", s.dlc));
+    }
+    if s.emulator_added {
+        parts.push("DLC emulator added".into());
+    }
+    if s.backport_files > 0 {
+        parts.push(format!("backport: {} files replaced", s.backport_files));
+    }
+    if parts.is_empty() {
+        parts.push("nothing to bundle".into());
+    }
+    format!("bundled: {}", parts.join(", "))
+}
+
 pub fn to_forge_format(format: OutputFormat) -> Format {
     match format {
         OutputFormat::Folder => Format::Folder,
@@ -40,12 +58,24 @@ impl Packer for ForgePacker {
         let format = to_forge_format(req.format);
         std::fs::create_dir_all(&req.output_dir)
             .map_err(|e| failed(format!("Couldn't create {}: {e}", req.output_dir.display())))?;
+        // What the user picked (DLC, a backport) is folded into a staging tree first: Forge
+        // packs one folder, and the index it writes must describe the final files. The staging
+        // folder is dropped when this returns, leaving the game untouched.
+        let (pack_source, _staging, staged) = if req.bundle.is_empty() {
+            (req.source.clone(), None, None)
+        } else {
+            if cancel.load(Ordering::SeqCst) {
+                return Err(PackError::Cancelled);
+            }
+            let (staging, out) = crate::bundle::stage(&req.source, &req.bundle).map_err(PackError::Failed)?;
+            (staging.path().to_path_buf(), Some(staging), Some(out))
+        };
         // Forge never hands back a path that exists: a second pack gets "-2", "-3", ...
         let output = generated_output(&req.source, format, &req.output_dir, &[], Some(PackKind::Zstd), None)
             .map_err(failed)?;
         // Built through serde so every field Forge adds later keeps its own default.
         let request: ConvertRequest = serde_json::from_value(serde_json::json!({
-            "source": req.source,
+            "source": pack_source,
             "format": format,
             "output": output,
             "zstd_pack": true,
@@ -77,12 +107,18 @@ impl Packer for ForgePacker {
                 }
                 Ok(Event::Done { job, result }) if job == id => {
                     return match result {
-                        Ok(report) => Ok(PackOutcome {
-                            output: report.output,
-                            bytes: report.bytes,
-                            files: report.files,
-                            checks: report.checks,
-                        }),
+                        Ok(report) => {
+                            let mut checks = report.checks;
+                            if let Some(s) = &staged {
+                                checks.push(bundle_note(s));
+                            }
+                            Ok(PackOutcome {
+                                output: report.output,
+                                bytes: report.bytes,
+                                files: report.files,
+                                checks,
+                            })
+                        }
                         Err(why) if why.starts_with("cancelled") => Err(PackError::Cancelled),
                         Err(why) => Err(PackError::Failed(why)),
                     };

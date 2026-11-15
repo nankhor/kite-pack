@@ -9,12 +9,59 @@ What is in this repository:
 - **kite-pipeline**: the job and its steps (pack, delete the original, send, install DLC, delete the packed folder). Jobs are saved after every change, so they can carry on after a crash or restart.
 - **kite-forge**: reads game folders, images and archives, and packs them with [PS5 Dump Forge](https://github.com/quer3q/ps5-dump-forge).
 - **kite-session**: the app's side of a job: one at a time, reported as events for the screen.
-- **kite-ps5**: finds the Kite helper on the home network, connects to it and sends packed copies over [AVA1](https://github.com/phantomptr/ava1).
+- **kite-ps5**: finds the Kite helper on the home network, reads what the PS5 has installed, connects to it and sends packed copies over [AVA1](https://github.com/phantomptr/ava1).
 - **helper**: the Kite helper, `kite-helper.elf`, which runs on the PS5 (AVA1's C node plus a little of ours).
 - **kite-cli**: the `kite-pack` command-line tool.
 - **app**: the desktop app (Tauri 2 and React), in `app/`.
 
 Installing DLC comes next.
+
+## The screen
+
+The app has three tabs: **Pack** (the game and its options), **PS5** (connecting to the console,
+where games go, and what is already installed) and **History** (finished jobs, newest first, with
+their sizes, how much was saved, and where the packed copy is). Settings, behind the gear, keeps
+where packed copies go and which versions are running.
+
+## What is on the PS5
+
+The **PS5** tab has **Show what's installed**, and the start screen's **See what's on the PS5**
+opens the tab with it showing: every title the console has, with its tile, name, title id,
+version, whether its update is installed, how many add-ons it has, and which drive it is on.
+**Measure** on a title shows how much room it takes, app, update and add-ons counted separately,
+and the screen says how much room is left where games go.
+
+Opening a game also says whether the console already has it, and marks the DLC that is already
+installed, so nothing is packed or sent blind.
+
+All of it is read-only and comes from the console's own folders: `/user/appmeta`, `/user/app`,
+`/user/patch` and `/user/addcont`. Nothing else is touched, and no Sony installer API is called.
+A title that only another tool's `app.db` entry knows about (no folder of its own) is not
+listed; the screen says so rather than pretending the list is complete.
+
+## DLC and backports inside the pack
+
+On the Pack tab, **Add DLC** (one button: **Packages…** for `.pkg` files, **Folder…** for a DLC
+dump folder or a folder of packages) and **Add backport** put files inside the packed copy before
+it is written, so one thing goes to the PS5 and the DLC is there without being installed
+separately. Each entry says where it goes: **In the pack**, **On the PS5** (already installed, so
+it is left out), or **After install** for an image or `.pkg` game, which needs a package installer
+the helper cannot drive yet.
+
+- DLC is added the way the console's DLC emulator reads it: the files under `addcontN/`, an entry
+  in `dlc_emu.ini`, and the emulator's modules in `fakelib/` when the dump has none of its own.
+  **Kite Pack carries the emulator** ([dlc_emu](https://github.com/drakmor/dlc_emu) 0.3, GPL-3.0,
+  source and modules under `third_party/dlc_emu/`), so there is nothing to install or pick; a dump
+  that already carries an emulator keeps its own.
+- A backport is a folder whose files replace the game's (`eboot.bin`, `sce_sys/`, `fakelib/`).
+- The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
+  btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed
+  once packing ends.
+- This works on a game folder. An image or a `.pkg` packs exactly as it is; its DLC is marked
+  **After install** and left out until there is a package installer.
+
+This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
+screen asks you to start the new one.
 
 ## Download
 

@@ -16,6 +16,6 @@ pub use ports::{
 pub use runner::{RunEvent, RunOutcome, Runner};
 pub use system_trash::SystemTrash;
 pub use job::{Job, JobStore};
-pub use options::{Level, Options, OptionsError, OutputFormat, SendTarget};
+pub use options::{Bundle, Level, Options, OptionsError, OutputFormat, SendTarget};
 pub use snapshot::{Snapshot, SnapshotEntry};
 pub use steps::{Step, StepKind, StepState, plan_steps};

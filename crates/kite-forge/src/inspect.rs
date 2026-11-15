@@ -32,6 +32,10 @@ pub struct DlcInfo {
     pub label: String,
     pub name: Option<String>,
     pub bytes: u64,
+    /// The package's own `sce_sys/icon0.png` as a `data:` URL. Small DLC that only unlocks
+    /// something in the game often has none; DLC found inside a dump never carries one here.
+    #[serde(default)]
+    pub icon_data_url: Option<String>,
 }
 
 /// Why a dropped file can't be packed.
@@ -74,7 +78,13 @@ impl SourceProblem {
 
 impl From<&Dlc> for DlcInfo {
     fn from(d: &Dlc) -> DlcInfo {
-        DlcInfo { content_id: d.content_id.clone(), label: d.label.clone(), name: d.name.clone(), bytes: d.bytes }
+        DlcInfo {
+            content_id: d.content_id.clone(),
+            label: d.label.clone(),
+            name: d.name.clone(),
+            bytes: d.bytes,
+            icon_data_url: None,
+        }
     }
 }
 
@@ -134,7 +144,7 @@ pub fn check_dlc(path: &Path, title_id: &str) -> Result<DlcInfo, String> {
     }
     let content_id = found.content_id.ok_or_else(not_ours)?;
     let label = content_id.chars().rev().take(16).collect::<Vec<_>>().into_iter().rev().collect();
-    Ok(DlcInfo { content_id, label, name: found.title_name, bytes: found.total_bytes })
+    Ok(DlcInfo { content_id, label, name: found.title_name, bytes: found.total_bytes, icon_data_url: found.cover })
 }
 
 #[cfg(test)]

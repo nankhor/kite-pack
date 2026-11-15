@@ -1,11 +1,31 @@
 // Everything the screen asks of the app, behind one interface so tests can stand in for it.
 
+import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import type { Found, GameInfo, JobView, PackOptions, Settings, StartOutcome, Status, UiEvent } from "./types";
+import { DETAILS_URL, detailsClient, detailsOn, setDetailsOn, type Candidate, type GameDetails } from "./details";
+import type {
+  BundlePlan,
+  DlcFolder,
+  DlcInfo,
+  Found,
+  FreeSpace,
+  GameIcon,
+  GameInfo,
+  HistoryEntry,
+  InstalledGame,
+  JobView,
+  Library,
+  Measured,
+  PackOptions,
+  Settings,
+  StartOutcome,
+  Status,
+  UiEvent,
+} from "./types";
 
 export type DropEvent = { type: "over" } | { type: "leave" } | { type: "drop"; paths: string[] };
 
@@ -30,6 +50,44 @@ export interface Backend {
   discover(): Promise<Found[]>;
   /** Sends the Kite helper to the PS5's ELF loader; rejects with the reason. */
   startHelper(): Promise<StartOutcome>;
+  /** Reads a DLC package for the game `titleId`; rejects when it isn't DLC for it. */
+  checkDlc(path: string, titleId: string): Promise<DlcInfo>;
+  /** The DLC for `titleId` among the packages in a folder. */
+  dlcInFolder(path: string, titleId: string): Promise<DlcFolder>;
+  /** DLC packages, several at once; empty when nothing was picked. */
+  pickDlcFiles(): Promise<string[]>;
+  /** A DLC dump folder, for folding into the packed copy. */
+  pickDlcFolder(): Promise<string | null>;
+  /** A backport folder, for folding into the packed copy. */
+  pickBackport(): Promise<string | null>;
+  /** What the picked DLC and backport would add, and where each one goes. */
+  bundlePlan(source: string, dlc: string[], backport: string | null): Promise<BundlePlan>;
+  /** The DLC emulator release the app carries. */
+  dlcEmuVersion(): Promise<string>;
+  /** What the PS5 has installed (reads the console; takes a couple of seconds). */
+  library(): Promise<Library>;
+  /** One title on the console by id, or null when it is not installed. */
+  installedTitle(titleId: string): Promise<InstalledGame | null>;
+  /** The tiles of the given titles, as data: URLs. */
+  libraryIcons(ids: string[]): Promise<GameIcon[]>;
+  /** App, update and DLC bytes of one installed title. */
+  measureApp(titleId: string): Promise<Measured>;
+  /** The room left where games go. */
+  freeSpace(path: string): Promise<FreeSpace>;
+  /** Finished jobs, newest first. */
+  history(): Promise<HistoryEntry[]>;
+  addHistory(entry: HistoryEntry): Promise<void>;
+  clearHistory(): Promise<void>;
+  appVersion(): Promise<string>;
+  /** The game's story, studio and pictures from IGDB; null when IGDB doesn't know it; rejects when offline. */
+  gameDetails(title: string, titleId: string | null): Promise<GameDetails | null>;
+  /** Games of a name on IGDB, for "Wrong game?". */
+  searchGames(q: string): Promise<Candidate[]>;
+  /** Shows IGDB game `igdbId` for this game from now on; null goes back to the best match. */
+  pickGame(title: string, titleId: string | null, igdbId: number | null): Promise<void>;
+  /** Whether game details are looked up (Settings). */
+  detailsOn(): Promise<boolean>;
+  setDetailsOn(on: boolean): Promise<void>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -48,6 +106,9 @@ function unlistener(pending: Promise<() => void>): () => void {
     stop?.();
   };
 }
+
+let client: ReturnType<typeof detailsClient> | null = null;
+const details = () => (client ??= detailsClient(DETAILS_URL, (...args) => fetch(...args), localStorage));
 
 const single = (picked: string | string[] | null): string | null => (Array.isArray(picked) ? (picked[0] ?? null) : picked);
 
@@ -72,7 +133,32 @@ export const tauriBackend: Backend = {
   saveSettings: (settings) => invoke("save_settings", { settings }),
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
+  dlcEmuVersion: () => invoke("dlc_emu_version"),
+  bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
+  pickDlcFolder: async () => single(await open({ directory: true, multiple: false })),
+  pickBackport: async () => single(await open({ directory: true, multiple: false })),
+  library: () => invoke("library"),
+  installedTitle: (titleId) => invoke("installed_title", { titleId }),
+  libraryIcons: (ids) => invoke("library_icons", { ids }),
+  measureApp: (titleId) => invoke("measure_app", { titleId }),
+  freeSpace: (path) => invoke("free_space", { path }),
   startHelper: () => invoke("start_helper"),
+  checkDlc: (path, titleId) => invoke("check_dlc", { path, titleId }),
+  dlcInFolder: (path, titleId) => invoke("dlc_in_folder", { path, titleId }),
+  pickDlcFiles: async () => {
+    const picked = await open({ multiple: true, filters: [{ name: "DLC packages", extensions: ["pkg"] }] });
+    if (picked === null) return [];
+    return Array.isArray(picked) ? picked : [picked];
+  },
+  history: () => invoke("load_history"),
+  addHistory: (entry) => invoke("add_history", { entry }),
+  clearHistory: () => invoke("clear_history"),
+  appVersion: () => getVersion(),
+  gameDetails: (title, titleId) => details().details(title, titleId),
+  searchGames: (q) => details().search(q),
+  pickGame: async (title, titleId, igdbId) => details().pick(title, titleId, igdbId),
+  detailsOn: async () => detailsOn(localStorage),
+  setDetailsOn: async (on) => setDetailsOn(localStorage, on),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>
     unlistener(

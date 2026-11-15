@@ -14,6 +14,10 @@ kite-pipeline.workspace = true
 kite-ps5.workspace = true
 kite-session.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+
+[dev-dependencies]
+tempfile.workspace = true

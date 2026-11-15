@@ -2,7 +2,7 @@
 
 .screen {
   min-height: 100vh;
-  padding: 28px clamp(20px, 5vw, 64px) 36px;
+  padding: 18px clamp(20px, 5vw, 64px) 36px;
   display: flex;
   flex-direction: column;
   gap: 28px;
@@ -23,21 +23,84 @@
 .header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  align-items: stretch;
+  gap: 0 36px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .app-name {
+  align-self: center;
   font-weight: 800;
   font-size: 18px;
   letter-spacing: -0.01em;
 }
 
+/* Tabs: underlined, the chosen one white. */
+
+.tabs {
+  display: flex;
+  gap: 28px;
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 58px;
+  padding: 2px 2px 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--label);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab[aria-selected="true"] {
+  color: var(--text);
+  font-weight: 700;
+  border-bottom-color: var(--text);
+}
+
+.tab-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.tab-badge.mint {
+  color: var(--mint-text);
+  background: rgba(110, 231, 168, 0.12);
+  border: 1px solid rgba(110, 231, 168, 0.3);
+}
+
+.tab-badge.amber {
+  color: var(--warn);
+  background: rgba(255, 197, 107, 0.12);
+  border: 1px solid rgba(255, 197, 107, 0.3);
+}
+
 .header-actions {
+  margin-left: auto;
+  align-self: center;
+  padding: 7px 0;
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .ps5-chip {
@@ -51,6 +114,11 @@
   border: 1px solid var(--line);
   font-size: 14px;
   cursor: pointer;
+}
+
+.icon-button.on {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--text);
 }
 
 .icon-button {
@@ -137,13 +205,6 @@
 
 /* The game */
 
-.game {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 24px 40px;
-}
-
 .icon-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -175,14 +236,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.game-text {
-  flex: 1;
-  min-width: 280px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
 }
 
 .done-headline {
@@ -270,6 +323,542 @@
   background: transparent;
   border: 1px dashed var(--line-strong);
   cursor: pointer;
+}
+
+/* The Pack page, option B: the game on the left, packing on the right. */
+
+/* The Pack page fills the window: each side scrolls on its own, and Pack stays in view. */
+.screen.pack-screen {
+  height: 100vh;
+  min-height: 0;
+  padding-bottom: 24px;
+}
+
+.pack-page {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 28px;
+}
+
+/* Room for focus rings inside the scrolling sides. */
+.pack-main,
+.panel-body {
+  min-height: 0;
+  overflow-y: auto;
+  margin: -4px;
+  padding: 4px;
+}
+
+@media (max-width: 920px) {
+  .screen.pack-screen {
+    height: auto;
+  }
+
+  .pack-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .pack-main,
+  .panel-body {
+    overflow: visible;
+  }
+}
+
+.pack-main,
+.showcase {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.art {
+  position: relative;
+  height: clamp(240px, 38vh, 340px);
+  border-radius: 22px;
+  overflow: hidden;
+  background: #1b1e23;
+  display: flex;
+  align-items: flex-end;
+}
+
+.art-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* No art (offline, or IGDB doesn't know the game): the icon, blown up and softened. */
+.art-image.blurred {
+  filter: blur(42px) saturate(1.3);
+  opacity: 0.75;
+  transform: scale(1.4);
+}
+
+.art-image.plain {
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+}
+
+.art-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(18, 20, 23, 0.94) 0%, rgba(18, 20, 23, 0.55) 40%, rgba(18, 20, 23, 0) 75%);
+}
+
+.art-content {
+  position: relative;
+  width: 100%;
+  padding: 0 24px 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.art .icon {
+  width: 76px;
+  border-radius: 16px;
+}
+
+.art .done-badge {
+  right: -8px;
+  bottom: -8px;
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+.art .done-badge svg {
+  width: 15px;
+  height: 15px;
+}
+
+.art-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.art .title {
+  font-size: clamp(30px, 3.4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+}
+
+.art .done-headline {
+  font-size: 14px;
+}
+
+.art-meta {
+  margin: 0;
+  color: var(--note);
+  font-size: 14px;
+}
+
+.tags-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.link-button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--note);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
+}
+
+.story {
+  margin: 0;
+  max-width: 720px;
+  color: var(--note);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.credit {
+  margin: 0;
+  color: var(--label);
+  font-size: 13px;
+}
+
+.details-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+  color: var(--note);
+  font-size: 14px;
+}
+
+.details-note > span {
+  flex: 1;
+}
+
+.details-note strong {
+  color: var(--text);
+}
+
+.details-note svg {
+  flex: none;
+}
+
+/* Screenshots, and the big view */
+
+.shots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shots-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.shots-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.shots-count {
+  color: var(--label);
+  font-size: 14px;
+}
+
+.shots-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shot {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: #1b1e23;
+  cursor: pointer;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shot:hover img {
+  filter: brightness(1.08);
+}
+
+.shot-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 14, 0.66);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  padding: 28px 40px;
+  background: rgba(8, 9, 11, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.lightbox-image {
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 160px);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 16px;
+  background: #000;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+}
+
+.lightbox-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.lightbox-count {
+  min-width: 72px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.round-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.round-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Wrong game? */
+
+.tags-row .picker {
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.picker-search {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+}
+
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+}
+
+.picker-note {
+  margin: 0;
+  padding: 10px;
+  color: var(--label);
+  font-size: 14px;
+}
+
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-item:hover,
+.picker-item[aria-current="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.picker-cover {
+  flex: none;
+  width: 30px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.picker-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.picker-year {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The panel: the copy's facts, then the options before packing, or the bar after. */
+
+.pack-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 22px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+}
+
+.panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pack-panel .facts {
+  margin: 0;
+  gap: 10px 24px;
+}
+
+.pack-panel .options {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.pack-panel .column {
+  gap: 12px;
+}
+
+.pack-panel .option-row {
+  gap: 8px 10px;
+}
+
+.pack-panel .option-label {
+  width: 100%;
+  font-size: 14px;
+}
+
+.pack-panel .footer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.pack-panel .note {
+  font-size: 14px;
+}
+
+.pack-panel .buttons {
+  flex-wrap: nowrap;
+}
+
+.pack-panel .button {
+  flex: none;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.pack-panel .button.primary,
+.pack-panel .buttons .button:only-child {
+  flex: 1;
+}
+
+/* The DLC list opens under the bar here: above it, the panel would cut it off. */
+.pack-panel .job .step-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+/* The bar, sized to the panel: its parts share the width and the steps list under it. */
+.pack-panel .job-part,
+.pack-panel .job-step {
+  min-width: 0;
+}
+
+.pack-panel .job-bar {
+  gap: 3px;
+}
+
+.pack-panel .job-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.pack-panel .job-title {
+  font-size: 20px;
+}
+
+.pack-panel .job-detail {
+  font-size: 14px;
+}
+
+.pack-panel .job-steps {
+  flex-direction: column;
+  gap: 0;
+}
+
+.pack-panel .job-step {
+  flex-grow: 0 !important;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pack-panel .job-step-name,
+.pack-panel .job-step-note {
+  white-space: normal;
 }
 
 /* Options */
@@ -425,85 +1014,165 @@
   font-size: 14px;
 }
 
-/* Steps */
+/* While a job runs: one bar for the whole job, in parts. */
 
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.job {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 900px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.step-line {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
-.step-icon {
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
+.job-head {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 24px;
 }
 
-.step-label {
-  flex: 1;
-  font-size: 16px;
-  font-weight: 700;
+.job-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
-.step-status {
-  color: var(--note);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.step.pending .step-label,
-.step.pending .step-status {
-  color: var(--dim);
-}
-
-.step.done .step-status {
-  color: var(--mint-text);
-}
-
-.step.paused .step-status {
+.job-title.amber {
   color: var(--amber);
 }
 
-.step.failed .step-status {
+.job-title.mint {
+  color: var(--mint-text);
+}
+
+.job-title.fail {
   color: var(--fail);
 }
 
-.bar {
-  margin-left: 34px;
-  height: 6px;
+.job-detail {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--note);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-bar,
+.job-steps {
+  display: flex;
+  gap: 4px;
+}
+
+.job-bar {
+  height: 10px;
+}
+
+/* Parts and their names share the same sizes, so each name sits under its part. A short step
+   still gets room for its name. */
+.job-part,
+.job-step {
+  min-width: 175px;
+}
+
+.job-part {
+  flex: 1 1 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.11);
   overflow: hidden;
 }
 
-.bar-fill {
+.job-fill {
   height: 100%;
   border-radius: 999px;
   background: var(--text);
   transition: width 200ms linear;
 }
 
-.step.paused .bar-fill {
+.job-part.done .job-fill {
+  background: var(--mint);
+}
+
+.job-part.paused .job-fill {
   background: var(--amber);
+}
+
+.job-part.failed .job-fill {
+  background: var(--fail);
+}
+
+/* A step with nothing to count (a move to the Trash): a light running through it. */
+.job-fill.moving {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), #ffffff, rgba(255, 255, 255, 0.15));
+  background-size: 200% 100%;
+  animation: job-moving 1.2s linear infinite;
+}
+
+@keyframes job-moving {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.job-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job-step {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-step-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.job-step-label svg {
+  flex: none;
+}
+
+.job-step-name,
+.job-step-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-step-note {
+  padding-left: 21px;
+  font-size: 13px;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-step.pending .job-step-label {
+  color: var(--dim);
+}
+
+.job-step.done .job-step-note {
+  color: var(--mint-text);
+}
+
+.job-step.paused .job-step-note {
+  color: var(--amber);
+}
+
+.job-step.failed .job-step-note {
+  color: var(--fail);
+}
+
+.job-more {
+  display: flex;
 }
 
 /* Footer and buttons */
@@ -579,7 +1248,7 @@
 
 .settings-head h1 {
   margin: 0;
-  font-size: clamp(36px, 4.5vw, 52px);
+  font-size: 40px;
   line-height: 1;
   font-weight: 800;
   letter-spacing: -0.03em;
@@ -677,4 +1346,513 @@
 .small-button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* DLC to install after the game: one line, and the list it opens. */
+
+.dlc {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dlc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+}
+
+.dlc-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.dlc-hint {
+  color: var(--label);
+  font-size: 14px;
+}
+
+.dlc.blocked .dlc-head,
+.dlc.blocked .dlc-summary {
+  opacity: 0.55;
+}
+
+.dlc-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dlc-summary,
+.add-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 14px 0 16px;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.dlc-summary {
+  border: 1px solid var(--line-strong);
+  background: var(--fill);
+}
+
+.dlc-count {
+  font-weight: 700;
+}
+
+.dlc-total {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.add-button {
+  gap: 8px;
+  border: 1px dashed var(--line-strong);
+  background: transparent;
+  font-weight: 600;
+}
+
+.add-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.popover {
+  position: absolute;
+  z-index: 5;
+  width: min(460px, 100%);
+  box-sizing: border-box;
+  padding: 8px 8px 10px;
+  border-radius: 18px;
+  background: #1b1e23;
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Placed by .dlc, so it opens above the whole DLC row and covers none of it. */
+.dlc .popover {
+  left: 0;
+  bottom: calc(100% + 10px);
+}
+
+.popover-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 10px;
+}
+
+.popover-title {
+  flex: 1;
+  font-weight: 800;
+}
+
+.popover-total {
+  color: var(--label);
+  font-weight: 500;
+}
+
+.popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.popover-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 6px 0 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+
+.popover-n {
+  width: 22px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.popover-name {
+  flex: 1;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.popover-size {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.popover-note {
+  margin: 0;
+  padding: 4px 10px 0;
+  color: var(--label);
+  font-size: 13px;
+}
+
+.dlc-icon {
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.dlc-icon.stand-in {
+  opacity: 0.4;
+}
+
+.dlc-icon.blank {
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+  border: 1px solid var(--line);
+}
+
+.round-button {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* The DLC part's list of packages: above the whole bar, on the side of its button. */
+
+.job .step-popover {
+  left: 0;
+  bottom: calc(100% + 10px);
+}
+
+.popover-state {
+  font-weight: 600;
+  color: var(--dim);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.item-installed .popover-state {
+  color: var(--mint-text);
+}
+
+.item-installing .popover-state {
+  color: var(--text);
+}
+
+.item-failed .popover-state {
+  color: var(--warn);
+}
+
+/* History */
+
+.history-sum {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--note);
+}
+
+.saved-total,
+.saved-cell {
+  color: var(--mint-text);
+  font-weight: 700;
+}
+
+.table-box {
+  overflow-x: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.history-table th {
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--label);
+  padding: 0 16px 10px 0;
+  white-space: nowrap;
+}
+
+.history-table td {
+  padding: 12px 16px 12px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.history-table .num {
+  font-variant-numeric: tabular-nums;
+}
+
+.history-table .when {
+  color: var(--note);
+}
+
+.history-game {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.history-icon {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.history-icon.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+  border: 1px solid var(--line);
+  font-weight: 800;
+  font-size: 18px;
+}
+
+.history-name {
+  display: flex;
+  flex-direction: column;
+  white-space: normal;
+}
+
+.history-title {
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.history-dlc {
+  color: var(--label);
+  font-size: 13px;
+}
+
+.history-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.on-ps5 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* A game the console already has (the Pack tab's facts). */
+
+.facts .on-ps5 dt,
+.facts .on-ps5 dd {
+  color: var(--mint, #7ee0b8);
+}
+
+.chip.installed {
+  border-color: var(--mint, #7ee0b8);
+}
+
+.chip-note-inline {
+  margin-left: 6px;
+  color: var(--mint, #7ee0b8);
+  font-size: 12px;
+}
+
+/* The start screen's way to the console. */
+
+.link-button {
+  align-self: center;
+  background: none;
+  border: 0;
+  padding: 4px;
+  color: var(--dim);
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
+}
+
+/* The PS5 tab: what the console has, as a list like History. */
+
+.library {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.library-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.library-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.library-title {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.library-sub,
+.library-note {
+  margin: 0;
+  color: var(--note);
+  font-size: 15px;
+}
+
+.library-search {
+  max-width: 360px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--fill);
+  color: var(--text);
+  font: inherit;
+}
+
+.library-table .chip.update {
+  min-height: 26px;
+}
+
+.library-table .dim {
+  color: var(--dim);
+}
+
+.game-card-note {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--warn);
+}
+
+/* One Add DLC button, with its two ways in. */
+
+.add-dlc {
+  position: relative;
+}
+
+.add-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 260px;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--ink, #14181c);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-menu button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.add-menu button:hover,
+.add-menu button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.add-menu button span {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* Where each add-on goes, in the list. */
+
+.dlc-badge {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.dlc-badge.kind {
+  border-color: rgba(126, 224, 184, 0.5);
+  color: var(--mint, #7ee0b8);
+}
+
+.dlc-badge.have {
+  border-color: rgba(126, 224, 184, 0.5);
+  color: var(--mint, #7ee0b8);
+  opacity: 0.8;
+}
+
+.dlc-badge.wait,
+.dlc-badge.bad {
+  border-color: rgba(255, 184, 92, 0.6);
+  color: var(--warn);
+}
+
+/* A measured size, and what it counts. */
+
+.size-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.size-note {
+  color: var(--label);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
 }

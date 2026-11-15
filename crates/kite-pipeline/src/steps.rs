@@ -65,6 +65,7 @@ mod tests {
             }),
             delete_packed,
             dlc: (0..dlc).map(|i| PathBuf::from(format!("/dlc/{i}.pkg"))).collect(),
+            bundle: Default::default(),
         }
     }
 

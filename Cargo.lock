@@ -2500,10 +2500,12 @@ dependencies = [
  "kite-ps5",
  "kite-session",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-dialog",
  "tauri-plugin-opener",
+ "tempfile",
 ]
 
 [[package]]
