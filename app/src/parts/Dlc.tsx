@@ -152,11 +152,13 @@ export function Dlc({
         <button className="add-button" onClick={onAddBackport} disabled={busy}>
           {PLUS}Add backport
         </button>
+        {shown && <div className="sheet-backdrop" aria-hidden="true" onMouseDown={() => setOpen(false)} />}
         {shown && (
           <div
             id="dlc-list"
-            className="popover"
-            role="region"
+            className="popover sheet"
+            role="dialog"
+            aria-modal="true"
             aria-label="What goes inside the packed copy"
             onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
           >
@@ -174,7 +176,7 @@ export function Dlc({
               >
                 Remove all
               </button>
-              <button className="round-button" aria-label="Close the list" onClick={() => setOpen(false)}>
+              <button className="round-button" aria-label="Close the list" autoFocus onClick={() => setOpen(false)}>
                 {X}
               </button>
             </div>
