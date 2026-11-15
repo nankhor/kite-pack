@@ -13,6 +13,7 @@ kite-forge.workspace = true
 kite-pipeline.workspace = true
 kite-ps5.workspace = true
 kite-session.workspace = true
+kite-update.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = [] }

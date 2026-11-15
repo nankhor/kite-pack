@@ -1,4 +1,6 @@
 import type { Found, Settings, StartOutcome, Status } from "../types";
+import { useState } from "react";
+import type { UpdatePrefs } from "../updates";
 import { Switch } from "./Options";
 import { Field, Ps5Connection } from "./Ps5";
 
@@ -12,6 +14,10 @@ interface Props {
   /** Whether the Pack page looks games up on IGDB. */
   detailsOn: boolean;
   onDetailsOn: (on: boolean) => void;
+  updatePrefs: UpdatePrefs;
+  onUpdatePrefs: (prefs: UpdatePrefs) => void;
+  /** Looks for a newer version; says what it found. */
+  onCheckUpdate: () => Promise<string>;
   onSave: (patch: Partial<Settings>) => Promise<void>;
   onPickFolder: () => Promise<string | null>;
   onDiscover: () => Promise<Found[]>;
@@ -19,7 +25,14 @@ interface Props {
 }
 
 /** Behind the gear: the PS5 connection, where things go, and which versions are running. */
-export function SettingsPage({ settings, status, version, dlcEmuVersion, detailsOn, onDetailsOn, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
+export function SettingsPage({ settings, status, version, dlcEmuVersion, detailsOn, onDetailsOn, updatePrefs, onUpdatePrefs, onCheckUpdate, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
+  const [checkNote, setCheckNote] = useState<string | null>(null);
+
+  async function checkNow() {
+    setCheckNote("Checking…");
+    setCheckNote(await onCheckUpdate());
+  }
+
   async function pickFolder() {
     const dir = await onPickFolder();
     if (dir) await onSave({ packedFolder: dir });
@@ -82,6 +95,31 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, details
             on={detailsOn}
             onToggle={() => onDetailsOn(!detailsOn)}
           />
+          <h2>Updates</h2>
+          <Switch
+            id="update-check"
+            label="Look for updates when Kite Pack opens"
+            hint="It asks GitHub for the newest release."
+            on={updatePrefs.check}
+            onToggle={() => onUpdatePrefs({ ...updatePrefs, check: !updatePrefs.check })}
+          />
+          <Switch
+            id="update-auto"
+            label="Install updates by themselves"
+            hint="They download and install in the background. Kite Pack still asks before it restarts."
+            on={updatePrefs.auto}
+            onToggle={() => onUpdatePrefs({ ...updatePrefs, auto: !updatePrefs.auto })}
+          />
+          <div className="option-row">
+            <button className="small-button" onClick={() => void checkNow()}>
+              Check now
+            </button>
+            {checkNote && (
+              <span className="field-hint" role="status">
+                {checkNote}
+              </span>
+            )}
+          </div>
           <h2>About</h2>
           <dl className="facts">
             <div>

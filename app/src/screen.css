@@ -1856,3 +1856,79 @@
   font-weight: 500;
   white-space: nowrap;
 }
+
+/* A newer Kite Pack, under the tabs */
+
+.update-bar {
+  margin-top: -12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 10px 18px;
+  border-radius: 16px;
+  background: rgba(110, 231, 168, 0.08);
+  border: 1px solid rgba(110, 231, 168, 0.28);
+}
+
+.update-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+
+.update-text {
+  flex: 1;
+  min-width: 220px;
+  margin: 0;
+  color: var(--note);
+  font-size: 14px;
+}
+
+.update-text strong {
+  color: var(--text);
+}
+
+.update-size {
+  color: var(--label);
+}
+
+.small-button.primary {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.small-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.update-progress {
+  flex: 1 1 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.11);
+  overflow: hidden;
+}
+
+.update-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--mint);
+  transition: width 200ms linear;
+}
+
+.update-notes {
+  margin: 0;
+  padding: 0 0 0 18px;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--note);
+  font-size: 14px;
+  user-select: text;
+}

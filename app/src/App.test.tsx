@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
 import type { Candidate, GameDetails } from "./details";
+import type { UpdateInfo, UpdatePrefs } from "./updates";
 import type {
   BundlePlan,
   DlcFolder,
@@ -185,6 +186,24 @@ class FakeBackend implements Backend {
   searchGames = vi.fn(async (_q: string) => this.candidates);
   pickGame = vi.fn(async (_title: string, _titleId: string | null, _id: number | null) => {});
   detailsOn = vi.fn(async () => this.detailsSwitch);
+  /** The newest Kite Pack on GitHub, when newer than this one. */
+  latest: UpdateInfo | null = null;
+  prefs: UpdatePrefs = { check: true, auto: false };
+  private progressListeners: ((p: { done: number; total: number }) => void)[] = [];
+  checkUpdate = vi.fn(async () => this.latest);
+  installUpdate = vi.fn(async (_u: UpdateInfo) => {});
+  restartApp = vi.fn(async () => {});
+  onUpdateProgress(cb: (p: { done: number; total: number }) => void) {
+    this.progressListeners.push(cb);
+    return () => {};
+  }
+  updatePrefs = vi.fn(async () => this.prefs);
+  setUpdatePrefs = vi.fn(async (p: UpdatePrefs) => {
+    this.prefs = p;
+  });
+  updateProgress(done: number, total: number) {
+    act(() => this.progressListeners.forEach((l) => l({ done, total })));
+  }
   setDetailsOn = vi.fn(async (on: boolean) => {
     this.detailsSwitch = on;
   });
@@ -997,5 +1016,106 @@ describe("game details", () => {
     expect(within(panel).getByText("PPSA01234")).toBeInTheDocument();
     await userEvent.click(within(panel).getByRole("button", { name: "Pack" }));
     expect(await within(panel).findByRole("region", { name: "Progress" })).toBeInTheDocument();
+  });
+});
+
+describe("updates", () => {
+  const NEXT: UpdateInfo = {
+    version: "0.1.4",
+    tag: "v0.1.4",
+    notes: "- The Pack page shows the game's story.\n- A folder of DLC packages adds them all.",
+    page: "https://github.com/nankhor/kite-pack/releases/tag/v0.1.4",
+    file: "Kite-Pack-v0.1.4-macos.dmg",
+    url: "https://example.com/mac.dmg",
+    size: 84_100_000,
+    sumsUrl: "https://example.com/sums",
+  };
+
+  async function open() {
+    render(<App backend={backend} updateCheckAfterMs={0} />);
+    await screen.findByText("Drop a game here");
+  }
+
+  it("offers a newer version when the app opens, with what's new", async () => {
+    backend.latest = NEXT;
+    await open();
+    const bar = await screen.findByRole("region", { name: "Update" });
+    expect(within(bar).getByText("Kite Pack 0.1.4 is out.")).toBeInTheDocument();
+    expect(within(bar).getByText("84.1 MB")).toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole("button", { name: "What's new" }));
+    expect(within(bar).getByText("A folder of DLC packages adds them all.")).toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole("button", { name: "Later" }));
+    expect(screen.queryByRole("region", { name: "Update" })).not.toBeInTheDocument();
+    expect(backend.installUpdate).not.toHaveBeenCalled();
+  });
+
+  it("downloads, shows how far, then restarts when asked", async () => {
+    backend.latest = NEXT;
+    let finish = () => {};
+    backend.installUpdate.mockImplementationOnce(() => new Promise<void>((ok) => (finish = ok)));
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "Update" }));
+    expect(backend.installUpdate).toHaveBeenCalledWith(NEXT);
+    backend.updateProgress(33_640_000, 84_100_000);
+    expect(screen.getByRole("progressbar", { name: "Downloading Kite Pack 0.1.4" })).toHaveAttribute("aria-valuenow", "40");
+    expect(screen.getByText(/40%/)).toBeInTheDocument();
+    await act(async () => finish());
+    expect(await screen.findByText("Kite Pack 0.1.4 is installed.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Restart now" }));
+    expect(backend.restartApp).toHaveBeenCalled();
+  });
+
+  it("installs by itself when Settings say so", async () => {
+    backend.latest = NEXT;
+    backend.prefs = { check: true, auto: true };
+    await open();
+    expect(await screen.findByText("Kite Pack 0.1.4 is installed.")).toBeInTheDocument();
+    expect(backend.installUpdate).toHaveBeenCalledWith(NEXT);
+  });
+
+  it("doesn't look when switched off", async () => {
+    backend.latest = NEXT;
+    backend.prefs = { check: false, auto: false };
+    await open();
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
+    expect(backend.checkUpdate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("region", { name: "Update" })).not.toBeInTheDocument();
+  });
+
+  it("says why an install failed, and tries again", async () => {
+    backend.latest = NEXT;
+    backend.installUpdate.mockRejectedValueOnce("The download doesn't match its checksum, so it wasn't installed");
+    await open();
+    await userEvent.click(await screen.findByRole("button", { name: "Update" }));
+    expect(await screen.findByText("Kite Pack 0.1.4 didn't install.")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("doesn't match its checksum");
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Kite Pack 0.1.4 is installed.")).toBeInTheDocument();
+  });
+
+  it("waits for a game to finish before restarting", async () => {
+    backend.latest = NEXT;
+    backend.prefs = { check: true, auto: true };
+    render(<App backend={backend} updateCheckAfterMs={0} />);
+    await screen.findByText("Drop a game here");
+    await backend.drop("/Games/Ashen Tide");
+    await screen.findByRole("heading", { name: "Ashen Tide" });
+    await userEvent.click(within(screen.getByRole("complementary", { name: "Pack and send" })).getByRole("button", { name: "Pack" }));
+    backend.emit({ type: "job", job: job({ rev: 2, steps: [{ kind: "pack", state: "running", note: null }] }) });
+    expect(await screen.findByText(/Restart once this game is done/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restart now" })).toBeDisabled();
+  });
+
+  it("checks from Settings, and keeps the switches", async () => {
+    backend.prefs = { check: false, auto: false };
+    await open();
+    await userEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Check now" }));
+    expect(await screen.findByText("You have the newest version.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("switch", { name: "Install updates by themselves" }));
+    expect(backend.setUpdatePrefs).toHaveBeenCalledWith({ check: false, auto: true });
+    backend.latest = NEXT;
+    await userEvent.click(screen.getByRole("button", { name: "Check now" }));
+    expect(await screen.findByText("Kite Pack 0.1.4 is out.", { selector: ".field-hint" })).toBeInTheDocument();
   });
 });

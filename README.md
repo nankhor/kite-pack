@@ -80,6 +80,8 @@ The builds aren't signed with an Apple or Microsoft certificate yet, so the firs
 - **macOS:** after dragging Kite Pack to Applications, run `xattr -cr "/Applications/Kite Pack.app"` in Terminal, then open it. Or open it once, let macOS refuse, then go to System Settings → Privacy & Security, click **Open Anyway** next to Kite Pack and confirm with Touch ID or your password. (Right-click → Open no longer works on macOS 15 and later.) If the icon keeps bouncing and no window comes, restart the Mac and open it again: macOS sometimes gets stuck checking a new app, and a restart clears it.
 - **Windows:** if SmartScreen stops it, choose More info, then Run anyway.
 
+After that, Kite Pack updates itself. When a newer release is out it says so under the tabs; **Update** downloads the file for your computer, checks it against the release's `SHA256SUMS.txt`, and puts it in place of the one you run, and **Restart now** opens the new version (never in the middle of a pack or a send). Updates installed this way skip the first-launch step above. Settings can stop it looking, or let it install updates by itself and only ask before the restart. On Linux it updates the AppImage it runs from.
+
 ## Your PS5
 
 You need a jailbroken PS5 with an ELF loader (port 9021) and ShadowMount+ watching the folder games go to (`/data/homebrew` by default).

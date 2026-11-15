@@ -12,9 +12,11 @@ import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
 import { SettingsPage } from "./parts/Settings";
 import { Showcase, type DetailsView } from "./parts/Showcase";
+import { UpdateBar } from "./parts/UpdateBar";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
 import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
+import { DEFAULT_PREFS, type UpdateInfo, type UpdatePrefs, type UpdateView } from "./updates";
 
 /** How often the PS5 chip checks the helper while the app is open. */
 const STATUS_EVERY_MS = 10_000;
@@ -44,7 +46,18 @@ export function onConsole(label: string | null, installed: string[]): boolean {
   return label !== null && installed.some((l) => l.toLowerCase() === label.toLowerCase());
 }
 
-export default function App({ backend, now = Date.now }: { backend: Backend; now?: () => number }) {
+/** How long after opening the app looks for a newer version, so it doesn't slow the start. */
+const UPDATE_CHECK_AFTER_MS = 3000;
+
+export default function App({
+  backend,
+  now = Date.now,
+  updateCheckAfterMs = UPDATE_CHECK_AFTER_MS,
+}: {
+  backend: Backend;
+  now?: () => number;
+  updateCheckAfterMs?: number;
+}) {
   const [s, dispatch] = useReducer(reduce, initial);
   const current = useRef(s);
   current.current = s;
@@ -58,6 +71,65 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   const [detailsOn, setDetailsOnState] = useState(true);
   /** Bumped to look the game up again: Try again, or a game picked with Wrong game?. */
   const [lookup, setLookup] = useState(0);
+  /** A newer Kite Pack, and how far its install has come. */
+  const [update, setUpdate] = useState<UpdateView>({ state: "none" });
+  const [updatePrefs, setUpdatePrefsState] = useState<UpdatePrefs>(DEFAULT_PREFS);
+
+  useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = backend.onUpdateProgress(({ done, total }) =>
+      setUpdate((u) => (u.state === "downloading" ? { ...u, done, total } : u)),
+    );
+    void backend.updatePrefs().then((prefs) => {
+      if (!live) return;
+      setUpdatePrefsState(prefs);
+      if (prefs.check) timer = setTimeout(() => void lookForUpdate(prefs.auto), updateCheckAfterMs);
+    });
+    return () => {
+      live = false;
+      stop();
+      clearTimeout(timer);
+    };
+    // Once, when the app opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend]);
+
+  /** Asks GitHub; says what it found, for Settings' Check now. A failed check on opening stays quiet. */
+  async function lookForUpdate(auto: boolean): Promise<string> {
+    try {
+      const info = await backend.checkUpdate();
+      if (!info) return "You have the newest version.";
+      if (auto) void installUpdate(info);
+      else setUpdate({ state: "available", info });
+      return `Kite Pack ${info.version} is out.`;
+    } catch (e) {
+      return `Couldn't check: ${String(e)}`;
+    }
+  }
+
+  async function installUpdate(info: UpdateInfo) {
+    setUpdate({ state: "downloading", info, done: 0, total: info.size });
+    try {
+      await backend.installUpdate(info);
+      setUpdate({ state: "ready", info });
+    } catch (e) {
+      setUpdate({ state: "failed", info, reason: String(e) });
+    }
+  }
+
+  async function restartForUpdate() {
+    try {
+      await backend.restartApp();
+    } catch (e) {
+      if (update.state !== "none") setUpdate({ state: "failed", info: update.info, reason: String(e) });
+    }
+  }
+
+  function changeUpdatePrefs(prefs: UpdatePrefs) {
+    setUpdatePrefsState(prefs);
+    void backend.setUpdatePrefs(prefs);
+  }
   const gameTitle = s.game?.title ?? null;
   const gameTitleId = s.game?.titleId ?? null;
   const detailsKey = gameTitleId ?? gameTitle ?? "";
@@ -370,7 +442,18 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   );
   const loadHistory = useCallback(() => backend.history(), [backend]);
 
-  const header = <Header view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} onView={showView} />;
+  const header = (
+    <>
+      <Header view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} onView={showView} />
+      <UpdateBar
+        view={update}
+        busy={s.phase === "running"}
+        onUpdate={() => update.state !== "none" && void installUpdate(update.info)}
+        onLater={() => setUpdate({ state: "none" })}
+        onRestart={() => void restartForUpdate()}
+      />
+    </>
+  );
   const panel = (view: View) => ({ role: "tabpanel", "aria-labelledby": tabId(view) }) as const;
 
   if (s.view === "ps5" && s.settings) {
@@ -434,6 +517,9 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
             dlcEmuVersion={dlcEmu}
             detailsOn={detailsOn}
             onDetailsOn={switchDetails}
+            updatePrefs={updatePrefs}
+            onUpdatePrefs={changeUpdatePrefs}
+            onCheckUpdate={() => lookForUpdate(updatePrefs.auto)}
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
             onDiscover={() => backend.discover()}

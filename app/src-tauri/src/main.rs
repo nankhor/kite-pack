@@ -167,6 +167,50 @@ async fn dlc_in_folder(path: PathBuf, title_id: String) -> Result<DlcFolder, Str
     .await?
 }
 
+/// How far an update's download has come, for the banner.
+#[derive(Clone, Serialize)]
+struct UpdateProgress {
+    done: u64,
+    total: u64,
+}
+
+/// A newer Kite Pack on GitHub, or None.
+#[tauri::command]
+async fn check_update() -> Result<Option<kite_update::Update>, String> {
+    blocking(|| kite_update::check(env!("CARGO_PKG_VERSION"), kite_update::LATEST)).await?
+}
+
+/// Downloads the update, checks it and puts it in place; it runs from the next launch.
+#[tauri::command]
+async fn install_update(app: AppHandle, update: kite_update::Update) -> Result<(), String> {
+    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("update");
+    blocking(move || {
+        let cancel = std::sync::atomic::AtomicBool::new(false);
+        let mut shown = u64::MAX;
+        let file = kite_update::download(&update, &dir, &cancel, |done, total| {
+            // One event per percent is plenty.
+            let percent = if total > 0 { done * 100 / total } else { 0 };
+            if percent != shown {
+                shown = percent;
+                let _ = app.emit("kite://update", UpdateProgress { done, total });
+            }
+        })?;
+        let installed = kite_update::install(&file);
+        let _ = std::fs::remove_file(&file);
+        installed
+    })
+    .await?
+}
+
+/// Starts the new version. Refused while a game packs or sends.
+#[tauri::command]
+fn restart_app(app: AppHandle) -> Result<(), String> {
+    if app.state::<Session>().is_running() {
+        return Err("Restart once this game is done".into());
+    }
+    app.restart();
+}
+
 /// Finished jobs, newest first.
 #[tauri::command]
 async fn load_history(app: AppHandle) -> Result<Vec<Entry>, String> {
@@ -345,6 +389,8 @@ fn main() {
             app.manage(Session::new(data.join("jobs"), ports)?);
             app.manage(Ps5 { keys, settings_path, settings: Mutex::new(settings) });
             app.manage(History::new(data));
+            // The copy an update replaced, if one did.
+            std::thread::spawn(kite_update::clean_up);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -371,7 +417,10 @@ fn main() {
             library,
             library_icons,
             measure_app,
-            free_space
+            free_space,
+            check_update,
+            install_update,
+            restart_app
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

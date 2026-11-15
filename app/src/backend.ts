@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { readPrefs, writePrefs, type UpdateInfo, type UpdatePrefs } from "./updates";
 import { DETAILS_URL, detailsClient, detailsOn, setDetailsOn, type Candidate, type GameDetails } from "./details";
 import type {
   BundlePlan,
@@ -88,6 +89,15 @@ export interface Backend {
   /** Whether game details are looked up (Settings). */
   detailsOn(): Promise<boolean>;
   setDetailsOn(on: boolean): Promise<void>;
+  /** A newer Kite Pack on GitHub, or null. */
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** Downloads it, checks it and puts it in place for the next launch; progress comes to onUpdateProgress. */
+  installUpdate(update: UpdateInfo): Promise<void>;
+  /** Starts the new version; rejects while a game packs or sends. */
+  restartApp(): Promise<void>;
+  onUpdateProgress(cb: (p: { done: number; total: number }) => void): () => void;
+  updatePrefs(): Promise<UpdatePrefs>;
+  setUpdatePrefs(prefs: UpdatePrefs): Promise<void>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -159,6 +169,12 @@ export const tauriBackend: Backend = {
   pickGame: async (title, titleId, igdbId) => details().pick(title, titleId, igdbId),
   detailsOn: async () => detailsOn(localStorage),
   setDetailsOn: async (on) => setDetailsOn(localStorage, on),
+  checkUpdate: () => invoke("check_update"),
+  installUpdate: (update) => invoke("install_update", { update }),
+  restartApp: () => invoke("restart_app"),
+  onUpdateProgress: (cb) => unlistener(listen<{ done: number; total: number }>("kite://update", (e) => cb(e.payload))),
+  updatePrefs: async () => readPrefs(localStorage),
+  setUpdatePrefs: async (prefs) => writePrefs(localStorage, prefs),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>
     unlistener(

@@ -1,0 +1,16 @@
+[package]
+name = "kite-update"
+description = "Kite Pack's updates: the newest GitHub release, downloaded, checked and swapped in"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+semver = "1"
+sha2 = "0.10"
+ureq = "3"
+
+[dev-dependencies]
+tempfile.workspace = true

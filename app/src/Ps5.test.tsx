@@ -55,6 +55,12 @@ class FakeBackend implements Backend {
   pickGame = vi.fn(async () => {});
   detailsOn = vi.fn(async () => true);
   setDetailsOn = vi.fn(async () => {});
+  checkUpdate = vi.fn(async () => null);
+  installUpdate = vi.fn(async () => {});
+  restartApp = vi.fn(async () => {});
+  onUpdateProgress = () => () => {};
+  updatePrefs = vi.fn(async () => ({ check: false, auto: false }));
+  setUpdatePrefs = vi.fn(async () => {});
   onEvent() {
     return () => {};
   }
