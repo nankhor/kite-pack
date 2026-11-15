@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import type { Backend, DropEvent } from "./backend";
+import type { Candidate, GameDetails } from "./details";
 import type {
   BundlePlan,
   DlcFolder,
@@ -171,6 +172,20 @@ class FakeBackend implements Backend {
     this.past = [];
   });
   appVersion = vi.fn(async () => "0.1.3");
+  /** What IGDB knows of the game; null when nothing, "offline" when the Worker can't be reached. */
+  igdb: GameDetails | null | "offline" = null;
+  candidates: Candidate[] = [];
+  detailsSwitch = true;
+  gameDetails = vi.fn(async (_title: string, _titleId: string | null) => {
+    if (this.igdb === "offline") throw new Error("offline");
+    return this.igdb;
+  });
+  searchGames = vi.fn(async (_q: string) => this.candidates);
+  pickGame = vi.fn(async (_title: string, _titleId: string | null, _id: number | null) => {});
+  detailsOn = vi.fn(async () => this.detailsSwitch);
+  setDetailsOn = vi.fn(async (on: boolean) => {
+    this.detailsSwitch = on;
+  });
   onEvent(cb: (e: UiEvent) => void) {
     this.listeners.push(cb);
     return () => {};
@@ -854,5 +869,108 @@ describe("History", () => {
     await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
     expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
     expect(backend.clearHistory).toHaveBeenCalled();
+  });
+});
+
+describe("game details", () => {
+  const TIDE: GameDetails = {
+    id: 77,
+    name: "Ashen Tide",
+    summary: "A lighthouse keeper sails into the storm.",
+    released: 1697760000,
+    genres: ["Adventure"],
+    modes: ["Single player"],
+    developer: "Harbor Lights",
+    publisher: "Grey Gull",
+    cover: "co77",
+    artworks: ["ar77"],
+    screenshots: ["sc1", "sc2", "sc3", "sc4", "sc5", "sc6"],
+  };
+
+  it("shows the story, who made it, tags and screenshots", async () => {
+    backend.igdb = TIDE;
+    await showGame();
+    expect(await screen.findByText("A lighthouse keeper sails into the storm.")).toBeInTheDocument();
+    expect(screen.getByText("Harbor Lights · Grey Gull · 20 October 2023")).toBeInTheDocument();
+    expect(screen.getByText("Adventure")).toBeInTheDocument();
+    expect(screen.getByText("Story, details and pictures from IGDB.")).toBeInTheDocument();
+    expect(backend.gameDetails).toHaveBeenCalledWith("Ashen Tide", "PPSA01234");
+    const shots = within(screen.getByRole("region", { name: "Screenshots" }));
+    expect(shots.getAllByRole("button")).toHaveLength(4);
+    expect(shots.getByRole("button", { name: "See all 6 screenshots" })).toBeInTheDocument();
+  });
+
+  it("opens a screenshot big, with arrows and Escape", async () => {
+    backend.igdb = TIDE;
+    await showGame();
+    await userEvent.click(await screen.findByRole("button", { name: "Screenshot 2 of 6" }));
+    const big = screen.getByRole("dialog", { name: "Ashen Tide: screenshots" });
+    expect(within(big).getByRole("img", { name: "Screenshot 2 of 6" })).toHaveAttribute("src", expect.stringContaining("/t_1080p/sc2.jpg"));
+    await userEvent.click(within(big).getByRole("button", { name: "Next screenshot" }));
+    expect(within(big).getByText("3 of 6")).toBeInTheDocument();
+    await userEvent.click(within(big).getByRole("button", { name: "Previous screenshot" }));
+    await userEvent.click(within(big).getByRole("button", { name: "Previous screenshot" }));
+    expect(within(big).getByText("1 of 6")).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Ashen Tide: screenshots" })).not.toBeInTheDocument();
+  });
+
+  it("finds the right game with Wrong game?", async () => {
+    backend.igdb = TIDE;
+    backend.candidates = [
+      { id: 77, name: "Ashen Tide", year: 2023, cover: null },
+      { id: 78, name: "Ashen Tide: Remastered", year: 2026, cover: "co78" },
+    ];
+    await showGame();
+    await userEvent.click(await screen.findByRole("button", { name: "Wrong game?" }));
+    const picker = screen.getByRole("dialog", { name: "Find the right game" });
+    expect(await within(picker).findByRole("button", { name: /Ashen Tide: Remastered/ })).toBeInTheDocument();
+    expect(backend.searchGames).toHaveBeenCalledWith("Ashen Tide");
+    expect(within(picker).getByRole("button", { name: /^Ashen Tide\s?2023$/ })).toHaveAttribute("aria-current", "true");
+    await userEvent.click(within(picker).getByRole("button", { name: /Ashen Tide: Remastered/ }));
+    expect(backend.pickGame).toHaveBeenCalledWith("Ashen Tide", "PPSA01234", 78);
+    await waitFor(() => expect(backend.gameDetails).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("dialog", { name: "Find the right game" })).not.toBeInTheDocument();
+  });
+
+  it("says when IGDB doesn't know the game, and can find it", async () => {
+    await showGame();
+    expect(await screen.findByText("No game details found under this name.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Find it" }));
+    expect(screen.getByRole("dialog", { name: "Find the right game" })).toBeInTheDocument();
+  });
+
+  it("offline, packs as usual and tries again when asked", async () => {
+    backend.igdb = "offline";
+    await showGame();
+    expect(await screen.findByText("No story or screenshots right now.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pack" })).toBeEnabled();
+    backend.igdb = TIDE;
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("A lighthouse keeper sails into the storm.")).toBeInTheDocument();
+  });
+
+  it("can be switched off in Settings", async () => {
+    backend.cfg.address = "192.168.1.42";
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const sw = await screen.findByRole("switch", { name: "Show game details" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(sw);
+    expect(backend.setDetailsOn).toHaveBeenCalledWith(false);
+    await userEvent.click(screen.getByRole("tab", { name: "Pack" }));
+    await backend.drop("/Games/Ashen Tide");
+    await screen.findByRole("heading", { name: "Ashen Tide" });
+    expect(backend.gameDetails).not.toHaveBeenCalled();
+    expect(screen.queryByText("No game details found under this name.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the options, and then the bar, in the panel beside the game", async () => {
+    await showGame();
+    const panel = screen.getByRole("complementary", { name: "Pack and send" });
+    expect(within(panel).getByRole("group", { name: "Save as" })).toBeInTheDocument();
+    expect(within(panel).getByText("PPSA01234")).toBeInTheDocument();
+    await userEvent.click(within(panel).getByRole("button", { name: "Pack" }));
+    expect(await within(panel).findByRole("region", { name: "Progress" })).toBeInTheDocument();
   });
 });

@@ -50,6 +50,11 @@ class FakeBackend implements Backend {
   addHistory = vi.fn(async () => {});
   clearHistory = vi.fn(async () => {});
   appVersion = vi.fn(async () => "0.1.3");
+  gameDetails = vi.fn(async () => null);
+  searchGames = vi.fn(async () => []);
+  pickGame = vi.fn(async () => {});
+  detailsOn = vi.fn(async () => true);
+  setDetailsOn = vi.fn(async () => {});
   onEvent() {
     return () => {};
   }

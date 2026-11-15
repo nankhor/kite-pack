@@ -4,13 +4,14 @@ import { footerNote, historyEntry, jobBar, packBadge } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
-import { Game } from "./parts/Game";
+import { Facts } from "./parts/Facts";
 import { Header, tabId } from "./parts/Header";
 import { HistoryPage } from "./parts/History";
 import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
 import { SettingsPage } from "./parts/Settings";
+import { Showcase, type DetailsView } from "./parts/Showcase";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
 import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
@@ -52,6 +53,49 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   const [dlcEmu, setDlcEmu] = useState<string | null>(null);
   /** Reading the picks against the game. */
   const [readingPicks, setReadingPicks] = useState(false);
+  /** The game's story and pictures from IGDB, for the game whose key it carries. */
+  const [details, setDetails] = useState<{ key: string; view: DetailsView }>({ key: "", view: { state: "off" } });
+  const [detailsOn, setDetailsOnState] = useState(true);
+  /** Bumped to look the game up again: Try again, or a game picked with Wrong game?. */
+  const [lookup, setLookup] = useState(0);
+  const gameTitle = s.game?.title ?? null;
+  const gameTitleId = s.game?.titleId ?? null;
+  const detailsKey = gameTitleId ?? gameTitle ?? "";
+
+  useEffect(() => {
+    let live = true;
+    void backend.detailsOn().then((on) => live && setDetailsOnState(on));
+    return () => {
+      live = false;
+    };
+  }, [backend]);
+
+  useEffect(() => {
+    if (!gameTitle || !detailsOn) {
+      setDetails({ key: detailsKey, view: { state: "off" } });
+      return;
+    }
+    let live = true;
+    setDetails({ key: detailsKey, view: { state: "loading" } });
+    backend.gameDetails(gameTitle, gameTitleId).then(
+      (d) => live && setDetails({ key: detailsKey, view: d ? { state: "found", details: d } : { state: "none" } }),
+      () => live && setDetails({ key: detailsKey, view: { state: "offline" } }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [backend, gameTitle, gameTitleId, detailsKey, detailsOn, lookup]);
+
+  async function pickGame(id: number | null) {
+    if (!gameTitle) return;
+    await backend.pickGame(gameTitle, gameTitleId, id);
+    setLookup((n) => n + 1);
+  }
+
+  function switchDetails(on: boolean) {
+    setDetailsOnState(on);
+    void backend.setDetailsOn(on);
+  }
   /** The PS5 tab's installed games, read only when asked. */
   // Jobs already written to History, so each goes in once.
   const recorded = useRef(new Set<string>());
@@ -368,6 +412,8 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
             status={s.status}
             version={version}
             dlcEmuVersion={dlcEmu}
+            detailsOn={detailsOn}
+            onDetailsOn={switchDetails}
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
             onDiscover={() => backend.discover()}
@@ -409,52 +455,70 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
       ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, bundled: goingIn })
       : footerNote({ kind: s.phase, job: s.job });
 
+  const view = details.key === detailsKey ? details.view : { state: "loading" as const };
+
   return (
     <div className={s.dragging ? "screen dragging" : "screen"}>
       {header}
-      <div className="spacer" />
-      <Game game={s.game} source={s.source ?? ""} job={s.job} done={done} onPs5={s.onPs5} headline={sent ? "On the PS5" : "Packed"} />
-      {s.message && (
-        <p role="alert" className="message">
-          {s.message}
-        </p>
-      )}
-      <div className="spacer" />
-      {s.phase === "ready" ? (
-        <Options
-          options={s.options}
-          status={s.status}
-          destination={s.settings?.destination ?? "/data/homebrew"}
-          onChange={(patch) => dispatch({ type: "options", patch })}
-          onChangeFolder={() => void changeOutput()}
-        />
-      ) : (
-        s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
-      )}
-      {s.phase === "ready" && (
-        <Dlc
-          plan={s.bundlePlan}
-          busy={readingPicks}
-          installed={installedLabels}
-          gameIcon={s.game.iconDataUrl}
-          onAddPackages={() => void addDlcPackages()}
-          onAddFolder={() => void addDlcFolder()}
-          onAddBackport={() => void addBackport()}
-          onRemove={removePick}
-          onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
-        />
-      )}
-      <Footer
-        phase={s.phase}
-        note={note}
-        canShow={packedKept}
-        onPack={() => void pack()}
-        onChangeGame={() => dispatch({ type: "reset" })}
-        onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}
-        onRetry={() => void retry()}
-        onShow={() => s.job?.packed && void backend.reveal(s.job.packed)}
-        onAnother={() => dispatch({ type: "reset" })}
-      />
+      <div className="pack-page">
+        <div className="pack-main">
+          <Showcase
+            game={s.game}
+            source={s.source ?? ""}
+            done={done}
+            onPs5={s.onPs5}
+            headline={sent ? "On the PS5" : "Packed"}
+            view={view}
+            onSearch={(q) => backend.searchGames(q)}
+            onPick={(id) => void pickGame(id)}
+            onRetry={() => setLookup((n) => n + 1)}
+          />
+          {s.message && (
+            <p role="alert" className="message">
+              {s.message}
+            </p>
+          )}
+        </div>
+        <aside className="pack-panel" aria-label="Pack and send">
+          <Facts game={s.game} job={s.job} done={done} onPs5={s.onPs5} />
+          {s.phase === "ready" ? (
+            <Options
+              options={s.options}
+              status={s.status}
+              destination={s.settings?.destination ?? "/data/homebrew"}
+              onChange={(patch) => dispatch({ type: "options", patch })}
+              onChangeFolder={() => void changeOutput()}
+            />
+          ) : (
+            s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
+          )}
+          {s.phase === "ready" && (
+            <Dlc
+              plan={s.bundlePlan}
+              busy={readingPicks}
+              installed={installedLabels}
+              gameIcon={s.game.iconDataUrl}
+              onAddPackages={() => void addDlcPackages()}
+              onAddFolder={() => void addDlcFolder()}
+              onAddBackport={() => void addBackport()}
+              onRemove={removePick}
+              onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
+            />
+          )}
+          <div className="spacer" />
+          <Footer
+            phase={s.phase}
+            note={note}
+            canShow={packedKept}
+            onPack={() => void pack()}
+            onChangeGame={() => dispatch({ type: "reset" })}
+            onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}
+            onRetry={() => void retry()}
+            onShow={() => s.job?.packed && void backend.reveal(s.job.packed)}
+            onAnother={() => dispatch({ type: "reset" })}
+          />
+        </aside>
+      </div>
     </div>
   );
 }

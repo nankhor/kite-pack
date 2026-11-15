@@ -1,0 +1,16 @@
+{
+  "name": "kite-details",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "check": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5",
+    "typescript": "~6.0",
+    "vitest": "^5.1.0"
+  }
+}

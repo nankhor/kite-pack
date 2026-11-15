@@ -6,6 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
+import { DETAILS_URL, detailsClient, detailsOn, setDetailsOn, type Candidate, type GameDetails } from "./details";
 import type {
   BundlePlan,
   DlcFolder,
@@ -78,6 +79,15 @@ export interface Backend {
   addHistory(entry: HistoryEntry): Promise<void>;
   clearHistory(): Promise<void>;
   appVersion(): Promise<string>;
+  /** The game's story, studio and pictures from IGDB; null when IGDB doesn't know it; rejects when offline. */
+  gameDetails(title: string, titleId: string | null): Promise<GameDetails | null>;
+  /** Games of a name on IGDB, for "Wrong game?". */
+  searchGames(q: string): Promise<Candidate[]>;
+  /** Shows IGDB game `igdbId` for this game from now on; null goes back to the best match. */
+  pickGame(title: string, titleId: string | null, igdbId: number | null): Promise<void>;
+  /** Whether game details are looked up (Settings). */
+  detailsOn(): Promise<boolean>;
+  setDetailsOn(on: boolean): Promise<void>;
   /** Returns a function that stops listening. */
   onEvent(cb: (e: UiEvent) => void): () => void;
   onDrop(cb: (d: DropEvent) => void): () => void;
@@ -96,6 +106,9 @@ function unlistener(pending: Promise<() => void>): () => void {
     stop?.();
   };
 }
+
+let client: ReturnType<typeof detailsClient> | null = null;
+const details = () => (client ??= detailsClient(DETAILS_URL, (...args) => fetch(...args), localStorage));
 
 const single = (picked: string | string[] | null): string | null => (Array.isArray(picked) ? (picked[0] ?? null) : picked);
 
@@ -141,6 +154,11 @@ export const tauriBackend: Backend = {
   addHistory: (entry) => invoke("add_history", { entry }),
   clearHistory: () => invoke("clear_history"),
   appVersion: () => getVersion(),
+  gameDetails: (title, titleId) => details().details(title, titleId),
+  searchGames: (q) => details().search(q),
+  pickGame: async (title, titleId, igdbId) => details().pick(title, titleId, igdbId),
+  detailsOn: async () => detailsOn(localStorage),
+  setDetailsOn: async (on) => setDetailsOn(localStorage, on),
   onEvent: (cb) => unlistener(listen<UiEvent>("kite://event", (e) => cb(e.payload))),
   onDrop: (cb) =>
     unlistener(

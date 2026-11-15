@@ -35,7 +35,7 @@ function Pills<T extends string>({ label, items, value, onPick }: { label: strin
   );
 }
 
-function Switch({ id, label, hint, on, disabled, onToggle }: { id: string; label: string; hint: string; on: boolean; disabled?: boolean; onToggle?: () => void }) {
+export function Switch({ id, label, hint, on, disabled, onToggle }: { id: string; label: string; hint: string; on: boolean; disabled?: boolean; onToggle?: () => void }) {
   const className = ["toggle", disabled && "disabled"].filter(Boolean).join(" ");
   return (
     <div className={className}>
