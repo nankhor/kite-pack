@@ -15,6 +15,8 @@ accepted = [
     "Unicode-3.0",
     "CC0-1.0",
     "Unlicense",
+    # webpki-roots: the Mozilla root certificates the updater checks GitHub's HTTPS against.
+    "CDLA-Permissive-2.0",
 ]
 targets = [
     "x86_64-unknown-linux-gnu",
