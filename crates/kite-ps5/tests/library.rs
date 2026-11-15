@@ -158,7 +158,7 @@ fn measures_app_update_and_dlc_separately() {
     full_game(&root, "PPSA00001", "Ashen Tide", "01.000.000");
     let (helper, _) = helper(tmp.path(), &[]);
 
-    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001").unwrap();
+    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001", &[]).unwrap();
 
     assert_eq!(m.update_bytes, 500);
     assert_eq!(m.dlc_bytes, 500);
@@ -168,13 +168,73 @@ fn measures_app_update_and_dlc_separately() {
     assert!(!m.partial);
 }
 
+/// A helper that may also read the console's /data, where dumps live.
+fn helper_with_data(tmp: &Path) -> (Helper, PathBuf) {
+    let root = console_root(tmp);
+    let data = root.join("data");
+    std::fs::create_dir_all(data.join("homebrew")).unwrap();
+    let (root_text, data_text) = (root.to_str().unwrap().to_string(), data.to_str().unwrap().to_string());
+    let helper = Helper::start(&tmp.join("ps5"), &["--root", &root_text, "--allow", &data_text]);
+    (helper, root)
+}
+
+#[test]
+fn counts_the_dump_the_console_mounts_the_game_from() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (helper, root) = helper_with_data(tmp.path());
+    // The console holds only a small launcher for a mounted dump.
+    write(root.join("user/app/PPSA00001/sce_sys/param.json"), param("Ashen Tide", "01.000.000").as_bytes());
+    // A packed image named with the title id, and a dump folder named otherwise but whose
+    // param.json says it is this title.
+    write(root.join("data/homebrew/[Ashen Tide]-[PPSA00001].ffpkg"), &[0u8; 7000]);
+    write(root.join("data/homebrew/Ashen dump/sce_sys/param.json"), br#"{"titleId":"PPSA00001"}"#);
+    write(root.join("data/homebrew/Ashen dump/eboot.bin"), &[0u8; 3000]);
+    // Another game's dump, by name and by param.json: not counted.
+    write(root.join("data/homebrew/[Second Wind]-[PPSA00002].ffpkg"), &[0u8; 9000]);
+    write(root.join("data/homebrew/Other/sce_sys/param.json"), br#"{"titleId":"PPSA00002"}"#);
+
+    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001", &["/data/homebrew".to_string()]).unwrap();
+
+    assert_eq!(m.dumps, ["/data/homebrew/Ashen dump", "/data/homebrew/[Ashen Tide]-[PPSA00001].ffpkg"]);
+    assert!(m.dump_bytes >= 10_000 && m.dump_bytes < 10_100, "{}", m.dump_bytes);
+    assert_eq!(m.bytes, m.app_bytes + m.dump_bytes);
+    assert!(!m.partial);
+}
+
+#[test]
+fn a_dump_folder_named_by_title_id_is_matched_whatever_its_case() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (helper, root) = helper_with_data(tmp.path());
+    write(root.join("data/homebrew/ppsa00001-app/eboot.bin"), &[0u8; 2000]);
+    write(root.join("data/homebrew/PPSA00001-patch/eboot.bin"), &[0u8; 500]);
+
+    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001", &["/data/homebrew".to_string()]).unwrap();
+
+    assert_eq!(m.dumps.len(), 2);
+    assert_eq!(m.dump_bytes, 2500);
+}
+
+#[test]
+fn a_games_folder_that_is_missing_or_off_limits_adds_nothing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let (helper, root) = helper_with_data(tmp.path());
+    full_game(&root, "PPSA00001", "Ashen Tide", "01.000.000");
+    let dirs = ["/data/nothing-here".to_string(), "/etc".to_string()];
+
+    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001", &dirs).unwrap();
+
+    assert!(m.dumps.is_empty());
+    assert_eq!(m.dump_bytes, 0);
+    assert_eq!(m.bytes, m.app_bytes + m.update_bytes + m.dlc_bytes);
+}
+
 #[test]
 fn a_title_that_is_not_there_takes_no_space() {
     let tmp = tempfile::tempdir().unwrap();
     console_root(tmp.path());
     let (helper, _) = helper(tmp.path(), &[]);
 
-    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001").unwrap();
+    let m = measure(&helper.console(), &keys(tmp.path()), "PPSA00001", &[]).unwrap();
 
     assert_eq!(m.bytes, 0);
 }

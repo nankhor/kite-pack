@@ -12,6 +12,7 @@ import type {
   HistoryEntry,
   InstalledGame,
   JobView,
+  Measured,
   PackOptions,
   Settings,
   StartOutcome,
@@ -134,13 +135,16 @@ class FakeBackend implements Backend {
   libraryIcons = vi.fn(async (ids: string[]) =>
     ids.includes("PPSA00001") ? [{ titleId: "PPSA00001", dataUrl: "data:image/png;base64,AA==" }] : [],
   );
-  measureApp = vi.fn(async () => ({
+  measured: Measured = {
     bytes: 2_000_000_000,
     appBytes: 1_000_000_000,
     updateBytes: 500_000_000,
     dlcBytes: 500_000_000,
+    dumpBytes: 0,
+    dumps: [],
     partial: false,
-  }));
+  };
+  measureApp = vi.fn(async () => this.measured);
   freeSpace = vi.fn(async () => ({ total: 1_000_000_000_000, free: 500_000_000_000, usable: 480_000_000_000, reserve: 10_000_000_000 }));
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   /** DLC packages for Ashen Tide, by path; anything else isn't its DLC. */
@@ -753,7 +757,29 @@ describe("what's installed on the PS5", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Measure" }));
 
     expect(await screen.findByText("2.0 GB")).toBeInTheDocument();
+    expect(screen.getByText("No dump found where games go")).toBeInTheDocument();
     expect(backend.measureApp).toHaveBeenCalledWith("PPSA00001");
+  });
+
+  it("counts the dump the PS5 mounts the game from", async () => {
+    backend.installed = [ASHEN];
+    backend.cfg.address = "192.168.1.42";
+    backend.measured = {
+      bytes: 98_400_000_000,
+      appBytes: 20_000_000,
+      updateBytes: 0,
+      dlcBytes: 0,
+      dumpBytes: 98_380_000_000,
+      dumps: ["/data/homebrew/[Ashen Tide]-[PPSA00001].ffpkg"],
+      partial: false,
+    };
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Measure" }));
+
+    expect(await screen.findByText("98.4 GB")).toBeInTheDocument();
+    expect(screen.getByText("With its dump in /data/homebrew")).toBeInTheDocument();
   });
 
   it("opens the PS5 tab from the start screen's link", async () => {

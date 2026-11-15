@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Backend } from "../backend";
 import { formatSize } from "../model";
+import { parentOf } from "../paths";
 import type { GameIcon, InstalledGame, Library as LibraryData, Measured } from "../types";
 
 interface Props {
@@ -33,6 +34,13 @@ function version(v: string | null): string {
   const m = v?.match(/^(\d+)\.(\d+)/);
   if (!m) return v ?? "–";
   return `${Number(m[1])}.${m[2].slice(0, 2).padEnd(2, "0")}`;
+}
+
+/** Where a measured title's size comes from: the dump it is mounted from, or only its launcher. */
+function dumpNote(m: Measured): string {
+  if (m.dumps.length === 0) return "No dump found where games go";
+  const folders = [...new Set(m.dumps.map(parentOf))];
+  return folders.length === 1 ? `With its dump in ${folders[0]}` : `With its dumps in ${folders.length} folders`;
 }
 
 /** What is on the PS5, read over the helper's read-only calls: nothing is changed there. */
@@ -188,10 +196,15 @@ export function Library({ backend, onBack, destination, statusNote }: Props) {
                     <td>{game.external ? "Extended" : "Internal"}</td>
                     <td className="num">
                       {measured ? (
-                        <>
-                          {formatSize(measured.bytes)}
-                          {measured.partial ? " (at least)" : ""}
-                        </>
+                        <span className="size-cell">
+                          <span>
+                            {formatSize(measured.bytes)}
+                            {measured.partial ? " (at least)" : ""}
+                          </span>
+                          <span className="size-note" title={measured.dumps.join("\n") || undefined}>
+                            {dumpNote(measured)}
+                          </span>
+                        </span>
                       ) : (
                         <button
                           className="small-button"

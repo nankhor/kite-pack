@@ -1250,3 +1250,18 @@
   border-color: rgba(255, 184, 92, 0.6);
   color: var(--warn);
 }
+
+/* A measured size, and what it counts. */
+
+.size-cell {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.size-note {
+  color: var(--label);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}

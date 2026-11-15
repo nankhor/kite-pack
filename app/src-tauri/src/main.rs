@@ -294,13 +294,18 @@ async fn library_icons(app: AppHandle, ids: Vec<String>) -> Result<Vec<GameIcon>
     .await?
 }
 
-/// What one installed title takes: its app folder, its update and its add-ons.
+/// Where a mounter finds dumps: always /data/homebrew, and wherever games are set to go.
+const HOMEBREW: &str = "/data/homebrew";
+
+/// What one installed title takes: its app folder, its update, its add-ons, and the dump the PS5
+/// mounts it from (found in the folders games go to).
 #[tauri::command]
 async fn measure_app(app: AppHandle, title_id: String) -> Result<Measured, String> {
     blocking(move || {
         let ps5 = app.state::<Ps5>();
         let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
-        kite_ps5::measure(&console, &ps5.keys, &title_id).map_err(|e| e.message())
+        let game_dirs = [ps5.settings().destination, HOMEBREW.to_string()];
+        kite_ps5::measure(&console, &ps5.keys, &title_id, &game_dirs).map_err(|e| e.message())
     })
     .await?
 }
