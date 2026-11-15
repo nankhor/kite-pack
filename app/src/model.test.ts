@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  folderNote,
   footerNote,
   formatSize,
   formatSpeed,
@@ -518,5 +519,25 @@ describe("jobBar", () => {
     const done = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000 });
     expect(jobBar(done, null, 0, { inside: 21 }).parts[0].note).toBe("71.2 GB in Packed, 21 add-ons inside");
     expect(jobBar(done, null, 0, { inside: 1 }).parts[0].note).toBe("71.2 GB in Packed, 1 add-on inside");
+  });
+});
+
+describe("folderNote", () => {
+  it("says nothing when every package went in", () => {
+    expect(folderNote(3, [], "Ashen Tide")).toBeNull();
+  });
+
+  it("names what was left out, up to three", () => {
+    expect(folderNote(2, ["Patch.pkg"], "Ashen Tide")).toBe(
+      "Added 2 DLC from the folder. Left out 1 file that isn't DLC for this game: Patch.pkg.",
+    );
+    expect(folderNote(1, ["a.pkg", "b.pkg", "c.pkg", "d.pkg", "e.pkg"], "Ashen Tide")).toBe(
+      "Added 1 DLC from the folder. Left out 5 files that aren't DLC for this game: a.pkg, b.pkg, c.pkg and 2 more.",
+    );
+  });
+
+  it("says when none of them is DLC for the game", () => {
+    expect(folderNote(0, ["Other.pkg"], "Ashen Tide")).toBe("The package in that folder isn't DLC for Ashen Tide.");
+    expect(folderNote(0, ["a.pkg", "b.pkg"], "Ashen Tide")).toBe("None of the 2 packages in that folder is DLC for Ashen Tide.");
   });
 });

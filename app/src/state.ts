@@ -204,7 +204,7 @@ export function reduce(s: State, a: Action): State {
     case "onPs5":
       return { ...s, onPs5: a.game };
     case "bundle":
-      return { ...s, bundle: a.bundle, bundlePlan: null };
+      return { ...s, bundle: a.bundle, bundlePlan: null, message: null };
     case "plan":
       return { ...s, bundlePlan: a.plan };
   }

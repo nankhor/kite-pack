@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { footerNote, historyEntry, jobBar, packBadge } from "./model";
+import { folderNote, footerNote, historyEntry, jobBar, packBadge } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
@@ -320,9 +320,29 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
     addPicks(await backend.pickDlcFiles());
   }
 
+  /** A DLC dump folder goes in as it is; a folder of packages gives its DLC packages for this game. */
   async function addDlcFolder() {
     const dir = await backend.pickDlcFolder();
-    if (dir) addPicks([dir]);
+    const game = current.current.game;
+    if (!dir) return;
+    if (!game?.titleId) {
+      addPicks([dir]);
+      return;
+    }
+    let folder;
+    try {
+      folder = await backend.dlcInFolder(dir, game.titleId);
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+      return;
+    }
+    // No packages at all: a DLC dump folder, read by the bundle plan.
+    if (folder.found.length === 0 && folder.skipped.length === 0) {
+      addPicks([dir]);
+      return;
+    }
+    addPicks(folder.found.map((f) => f.path));
+    dispatch({ type: "message", text: folderNote(folder.found.length, folder.skipped, game.title ?? game.titleId) });
   }
 
   async function addBackport() {
