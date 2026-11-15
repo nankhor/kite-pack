@@ -493,85 +493,165 @@
   font-size: 14px;
 }
 
-/* Steps */
+/* While a job runs: one bar for the whole job, in parts. */
 
-.steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.job {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  max-width: 900px;
-}
-
-.step {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.step-line {
-  display: flex;
-  align-items: center;
   gap: 12px;
 }
 
-.step-icon {
-  flex: 0 0 22px;
-  width: 22px;
-  height: 22px;
+.job-head {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 24px;
 }
 
-.step-label {
-  flex: 1;
-  font-size: 16px;
-  font-weight: 700;
+.job-title {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
 }
 
-.step-status {
-  color: var(--note);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-.step.pending .step-label,
-.step.pending .step-status {
-  color: var(--dim);
-}
-
-.step.done .step-status {
-  color: var(--mint-text);
-}
-
-.step.paused .step-status {
+.job-title.amber {
   color: var(--amber);
 }
 
-.step.failed .step-status {
+.job-title.mint {
+  color: var(--mint-text);
+}
+
+.job-title.fail {
   color: var(--fail);
 }
 
-.bar {
-  margin-left: 34px;
-  height: 6px;
+.job-detail {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--note);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-bar,
+.job-steps {
+  display: flex;
+  gap: 4px;
+}
+
+.job-bar {
+  height: 10px;
+}
+
+/* Parts and their names share the same sizes, so each name sits under its part. A short step
+   still gets room for its name. */
+.job-part,
+.job-step {
+  min-width: 175px;
+}
+
+.job-part {
+  flex: 1 1 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.11);
   overflow: hidden;
 }
 
-.bar-fill {
+.job-fill {
   height: 100%;
   border-radius: 999px;
   background: var(--text);
   transition: width 200ms linear;
 }
 
-.step.paused .bar-fill {
+.job-part.done .job-fill {
+  background: var(--mint);
+}
+
+.job-part.paused .job-fill {
   background: var(--amber);
+}
+
+.job-part.failed .job-fill {
+  background: var(--fail);
+}
+
+/* A step with nothing to count (a move to the Trash): a light running through it. */
+.job-fill.moving {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.15), #ffffff, rgba(255, 255, 255, 0.15));
+  background-size: 200% 100%;
+  animation: job-moving 1.2s linear infinite;
+}
+
+@keyframes job-moving {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+.job-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.job-step {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.job-step-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.job-step-label svg {
+  flex: none;
+}
+
+.job-step-name,
+.job-step-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-step-note {
+  padding-left: 21px;
+  font-size: 13px;
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.job-step.pending .job-step-label {
+  color: var(--dim);
+}
+
+.job-step.done .job-step-note {
+  color: var(--mint-text);
+}
+
+.job-step.paused .job-step-note {
+  color: var(--amber);
+}
+
+.job-step.failed .job-step-note {
+  color: var(--fail);
+}
+
+.job-more {
+  display: flex;
 }
 
 /* Footer and buttons */
@@ -940,20 +1020,10 @@
   cursor: pointer;
 }
 
-/* The DLC step's list of packages. */
+/* The DLC part's list of packages: above the whole bar, on the side of its button. */
 
-.step.has-list {
-  position: relative;
-}
-
-.step-label {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.step-popover {
-  right: 0;
+.job .step-popover {
+  left: 0;
   bottom: calc(100% + 10px);
 }
 

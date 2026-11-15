@@ -338,7 +338,7 @@ describe("packing", () => {
     backend.emit({ type: "progress", id: "job-1", index: 0, done: 62, total: 100 });
     expect(within(screen.getByRole("list", { name: "Steps" })).getByText(/^62%/)).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /^Pack\s*62%$/ })).toBeInTheDocument();
-    expect(screen.getByRole("progressbar", { name: "Pack" })).toHaveAttribute("aria-valuenow", "62");
+    expect(screen.getByRole("progressbar", { name: "Packing" })).toHaveAttribute("aria-valuenow", "62");
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(backend.cancel).toHaveBeenCalled();
   });
@@ -548,8 +548,12 @@ describe("PS5", () => {
     backend.emit({ type: "job", job: steps("running") });
     backend.emit({ type: "progress", id: "job-1", index: 1, done: 38, total: 100 });
     expect(screen.getByText("Send to PS5")).toBeInTheDocument();
-    expect(within(screen.getByRole("list", { name: "Steps" })).getByText(/^38%/)).toBeInTheDocument();
+    const progress = screen.getByRole("region", { name: "Progress" });
+    expect(within(progress).getByText("Sending to PS5")).toBeInTheDocument();
+    expect(within(progress).getByText(/^38%/)).toBeInTheDocument();
+    expect(within(screen.getByRole("list", { name: "Steps" })).getByText("38 bytes of 100 bytes")).toBeInTheDocument();
     backend.emit({ type: "job", job: steps("waiting") });
+    expect(screen.getByText("Waiting for the PS5")).toBeInTheDocument();
     expect(screen.getByText("Paused at 38%")).toBeInTheDocument();
     expect(
       screen.getByText("The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped."),
