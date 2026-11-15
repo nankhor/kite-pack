@@ -356,10 +356,10 @@ export interface JobBar {
 
 const PART_LABELS: Record<StepKind, string> = {
   pack: "Pack",
-  deleteOriginal: "Original to the Trash",
+  deleteOriginal: "Trash original",
   send: "Send to PS5",
   installDlc: "Install DLC",
-  deletePacked: "Packed copy to the Trash",
+  deletePacked: "Trash packed copy",
 };
 
 const PART_WEIGHTS: Record<StepKind, number> = { pack: 38, deleteOriginal: 10, send: 34, installDlc: 16, deletePacked: 10 };
@@ -402,6 +402,10 @@ export function jobBar(
       }
     } else if (row.state === "paused") {
       note = "Paused";
+    } else if (row.state === "pending" && kind === "deleteOriginal") {
+      note = "After packing";
+    } else if (row.state === "pending" && kind === "deletePacked") {
+      note = "At the end";
     }
     return { kind, label: PART_LABELS[kind], weight: PART_WEIGHTS[kind], fill, state: row.state, note, items: row.items };
   });
@@ -426,5 +430,7 @@ export function jobBar(
   const row = rows[at];
   if (part.state === "failed") return { head: `${part.label} failed`, detail: row.status, tone: "fail", overall, parts };
   if (part.state === "paused") return { head: "Waiting for the PS5", detail: row.status, tone: "amber", overall, parts };
-  return { head: DOING[part.kind], detail: row.status, tone: "plain", overall, parts };
+  // A move to the Trash has nothing to count: the head says it all.
+  const detail = part.fill === null ? "" : row.status;
+  return { head: DOING[part.kind], detail, tone: "plain", overall, parts };
 }

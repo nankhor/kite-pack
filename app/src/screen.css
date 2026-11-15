@@ -545,9 +545,15 @@
   height: 10px;
 }
 
+/* Parts and their names share the same sizes, so each name sits under its part. A short step
+   still gets room for its name. */
+.job-part,
+.job-step {
+  min-width: 175px;
+}
+
 .job-part {
   flex: 1 1 0;
-  min-width: 0;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.11);
   overflow: hidden;
@@ -596,7 +602,6 @@
 
 .job-step {
   flex: 1 1 0;
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 2px;

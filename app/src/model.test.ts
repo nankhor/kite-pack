@@ -446,14 +446,15 @@ describe("jobBar", () => {
     );
     expect(bar.parts.map((p) => p.label)).toEqual([
       "Pack",
-      "Original to the Trash",
+      "Trash original",
       "Send to PS5",
       "Install DLC",
-      "Packed copy to the Trash",
+      "Trash packed copy",
     ]);
     expect(bar.parts.map((p) => p.state)).toEqual(["done", "done", "done", "active", "pending"]);
     expect(bar.parts[3]).toMatchObject({ note: "2 of 3: Arena Map", fill: 33 });
     expect(bar.parts[3].items).toHaveLength(3);
+    expect(bar.parts[4].note).toBe("At the end");
     expect(bar).toMatchObject({ head: "Installing DLC", detail: "2 of 3: Arena Map", tone: "plain" });
   });
 
@@ -489,6 +490,13 @@ describe("jobBar", () => {
     const bar = jobBar(job([st("pack", "done"), st("send", "waiting")]), progress({ index: 1, done: 38, total: 100 }), 0);
     expect(bar).toMatchObject({ head: "Waiting for the PS5", detail: "Paused at 38%", tone: "amber" });
     expect(bar.parts[1]).toMatchObject({ state: "paused", fill: 38, note: "Paused" });
+  });
+
+  it("runs a light through a move to the Trash, with nothing to count", () => {
+    const bar = jobBar(job([st("pack", "done"), st("deleteOriginal", "running"), st("send", "pending")]), null, 0);
+    expect(bar.head).toBe("Moving the original to the Trash");
+    expect(bar.detail).toBe("");
+    expect(bar.parts[1]).toMatchObject({ label: "Trash original", fill: null, note: "" });
   });
 
   it("says which step failed and why", () => {
