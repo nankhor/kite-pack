@@ -35,7 +35,7 @@ const TABS: [View, string][] = [
 /** The tab id, for the panel to name itself by. */
 export const tabId = (view: View) => `tab-${view}`;
 
-/** App name and the tabs on the left; the PS5 chip (opens the PS5 tab) and Settings on the right. */
+/** App name and the tabs on the left; the PS5 chip and the gear (both open Settings) on the right. */
 export function Header({ view, status, badge, onView }: Props) {
   const [dot, words] = chip(status);
 
@@ -71,7 +71,7 @@ export function Header({ view, status, badge, onView }: Props) {
         })}
       </div>
       <div className="header-actions">
-        <button className="ps5-chip" onClick={() => onView("ps5")}>
+        <button className="ps5-chip" onClick={() => onView("settings")}>
           <span className={`dot ${dot}`} aria-hidden="true" />
           <span className="chip-name">PS5</span>
           <span className="chip-note">{words}</span>

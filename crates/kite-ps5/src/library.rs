@@ -81,14 +81,21 @@ pub struct GameIcon {
     pub data_url: String,
 }
 
-/// What a title takes on the console, app + update + add-ons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+/// What a title takes on the console: its app folder, update and add-ons, plus the dump the
+/// console mounts it from.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Measured {
     pub bytes: u64,
     pub app_bytes: u64,
     pub update_bytes: u64,
     pub dlc_bytes: u64,
+    /// The dump a mounter (ShadowMount+) serves the game from: a folder or an image in a folder
+    /// games go to. The app folder of a mounted game is only a launcher, so without this a
+    /// 90 GB game measures a few MB.
+    pub dump_bytes: u64,
+    /// Where those dumps are on the console, sorted.
+    pub dumps: Vec<String>,
     /// A walk hit its cap, so these are lower bounds.
     pub partial: bool,
 }
@@ -394,34 +401,93 @@ pub(crate) fn base64(bytes: &[u8]) -> String {
 
 /* ---- sizes ------------------------------------------------------------------------------------ */
 
-/// What one title takes: its app folder, its update, and its add-ons, each walked on the console.
-pub fn measure(console: &Console, keys: &Keys, title_id: &str) -> Result<Measured, Ps5Error> {
+/// What one title takes: its app folder, its update and its add-ons, each walked on the console,
+/// plus its dumps in `game_dirs` (the folders games go to, such as `/data/homebrew`).
+pub fn measure(console: &Console, keys: &Keys, title_id: &str, game_dirs: &[String]) -> Result<Measured, Ps5Error> {
     if !looks_like_title_id(title_id) {
         return Err(Ps5Error::Failed("That isn't a title id".into()));
     }
     let id = title_id.to_string();
     runtime().block_on(async {
         let session = open(console, &keys.checker, keys).await?;
-        let out = measure_on(&session, &id).await;
+        let out = measure_on(&session, &id, game_dirs).await;
         session.close().await;
         out.map_err(meta::into_ps5)
     })
 }
 
-async fn measure_on(s: &Session, title_id: &str) -> Result<Measured, MetaError> {
+async fn measure_on(s: &Session, title_id: &str, game_dirs: &[String]) -> Result<Measured, MetaError> {
     let app_dir = format!("{APP}/{title_id}");
     let patch_dir = format!("{PATCH}/{title_id}");
     let dlc_dir = format!("{ADDCONT}/{title_id}");
     let (app, update, dlc) =
         tokio::join!(meta::du(s, &app_dir), meta::du(s, &patch_dir), meta::du(s, &dlc_dir));
     let (app, update, dlc) = (or_zero(app)?, or_zero(update)?, or_zero(dlc)?);
+
+    let dumps = find_dumps(s, title_id, game_dirs).await?;
+    let (mut dump_bytes, mut dump_partial) = (0, false);
+    for path in &dumps {
+        let u = or_zero(meta::du(s, path).await)?;
+        dump_bytes += u.bytes;
+        dump_partial |= u.partial;
+    }
     Ok(Measured {
-        bytes: app.bytes + update.bytes + dlc.bytes,
+        bytes: app.bytes + update.bytes + dlc.bytes + dump_bytes,
         app_bytes: app.bytes,
         update_bytes: update.bytes,
         dlc_bytes: dlc.bytes,
-        partial: app.partial || update.partial || dlc.partial,
+        dump_bytes,
+        dumps,
+        partial: app.partial || update.partial || dlc.partial || dump_partial,
     })
+}
+
+/// The most entries of one games folder looked at, and the most folders in all whose
+/// `sce_sys/param.json` is read to learn whose dump they are.
+const DUMP_SCAN_MAX: usize = 4000;
+const DUMP_PROBE_MAX: usize = 300;
+
+/// The dumps of `title_id` in the folders games go to: any entry whose name holds the title id
+/// (`PPSA08338-app`, `[Name]-[PPSA08338].ffpkg`, whatever its case), and any other folder whose
+/// `sce_sys/param.json` says it is that title. A folder that is missing, or that the helper
+/// won't read, has none.
+async fn find_dumps(s: &Session, title_id: &str, game_dirs: &[String]) -> Result<Vec<String>, MetaError> {
+    let want = title_id.to_ascii_uppercase();
+    let mut found = Vec::new();
+    let mut probes = 0;
+    let mut seen = Vec::new();
+    for dir in game_dirs {
+        let dir = dir.trim_end_matches('/');
+        if dir.is_empty() || seen.contains(&dir) {
+            continue;
+        }
+        seen.push(dir);
+        let entries = match meta::list_lenient(s, dir).await {
+            Ok(e) => e,
+            Err(MetaError::Path) | Err(MetaError::Refused { .. }) => continue,
+            Err(e) => return Err(e),
+        };
+        for e in entries.iter().take(DUMP_SCAN_MAX) {
+            let path = format!("{dir}/{}", e.name);
+            if e.name.to_ascii_uppercase().contains(&want) {
+                found.push(path);
+            } else if e.is_folder() && probes < DUMP_PROBE_MAX {
+                probes += 1;
+                let param = meta::read_all(s, &format!("{path}/sce_sys/param.json"), PARAM_MAX).await;
+                if param.ok().and_then(|b| param_title_id(&b)).is_some_and(|id| id.eq_ignore_ascii_case(title_id)) {
+                    found.push(path);
+                }
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+/// `titleId` from a param.json.
+fn param_title_id(bytes: &[u8]) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    v.get("titleId")?.as_str().map(String::from)
 }
 
 /// A folder that is not there takes no space: an update or add-on folder a title does not have.

@@ -143,6 +143,10 @@ export interface Measured {
   appBytes: number;
   updateBytes: number;
   dlcBytes: number;
+  /** The dump the PS5 mounts the game from (ShadowMount+), in the folders games go to. */
+  dumpBytes: number;
+  /** Where those dumps are on the console. */
+  dumps: string[];
   partial: boolean;
 }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Backend } from "../backend";
 import { formatSize } from "../model";
+import { parentOf } from "../paths";
 import type { GameIcon, InstalledGame, Library as LibraryData, Measured } from "../types";
 
 interface Props {
@@ -18,30 +19,28 @@ type Loaded =
   | { phase: "ready"; library: LibraryData }
   | { phase: "failed"; message: string };
 
-/** The tiles of an installed title, or a stand-in with its first letter. */
+/** The tile of an installed title, or a stand-in with its first letter. */
 function Tile({ game, icon }: { game: InstalledGame; icon?: string }) {
-  if (icon) return <img className="game-icon" src={icon} alt="" />;
+  if (icon) return <img className="history-icon" src={icon} alt="" />;
   return (
-    <span className="game-icon placeholder" aria-hidden="true">
+    <span className="history-icon placeholder" aria-hidden="true">
       {game.title.slice(0, 1).toUpperCase()}
     </span>
   );
 }
 
-/** The chips under a title: its update, its add-ons, its drive. */
-function Chips({ game }: { game: InstalledGame }) {
-  return (
-    <div className="game-chips">
-      {game.updateInstalled && <span className="chip update">Update installed</span>}
-      {game.dlc.length > 0 && (
-        <span className="chip">
-          {game.dlc.length} DLC
-        </span>
-      )}
-      {game.external && <span className="chip kind">Extended storage</span>}
-      {game.version && <span className="chip kind">v{game.version}</span>}
-    </div>
-  );
+/** `contentVersion` "01.050.000" as "1.05"; the raw value when it doesn't read like one. */
+function version(v: string | null): string {
+  const m = v?.match(/^(\d+)\.(\d+)/);
+  if (!m) return v ?? "–";
+  return `${Number(m[1])}.${m[2].slice(0, 2).padEnd(2, "0")}`;
+}
+
+/** Where a measured title's size comes from: the dump it is mounted from, or only its launcher. */
+function dumpNote(m: Measured): string {
+  if (m.dumps.length === 0) return "No dump found where games go";
+  const folders = [...new Set(m.dumps.map(parentOf))];
+  return folders.length === 1 ? `With its dump in ${folders[0]}` : `With its dumps in ${folders.length} folders`;
 }
 
 /** What is on the PS5, read over the helper's read-only calls: nothing is changed there. */
@@ -159,42 +158,70 @@ export function Library({ backend, onBack, destination, statusNote }: Props) {
         />
       )}
 
-      <ul className="library-grid">
-        {shown.map((game) => {
-          const measured = sizes[game.titleId];
-          return (
-            <li className="game-card" key={game.titleId}>
-              <Tile game={game} icon={icons[game.titleId]} />
-              <div className="game-card-text">
-                <p className="game-card-title">{game.title}</p>
-                <p className="game-card-id">{game.titleId}</p>
-                <Chips game={game} />
-                <div className="game-card-size">
-                  {measured ? (
-                    <>
-                      {formatSize(measured.bytes)}
-                      {measured.partial ? " (at least)" : ""}
-                    </>
-                  ) : (
-                    <button
-                      className="small-button"
-                      onClick={() => void measure(game)}
-                      disabled={measuring === game.titleId}
-                    >
-                      {measuring === game.titleId ? "Measuring…" : "Measure"}
-                    </button>
-                  )}
-                </div>
-                {notes[game.titleId] && (
-                  <p role="alert" className="game-card-note">
-                    {notes[game.titleId]}
-                  </p>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      {shown.length > 0 && (
+        <div className="table-box">
+          <table className="history-table library-table">
+            <thead>
+              <tr>
+                <th scope="col">Game</th>
+                <th scope="col">Version</th>
+                <th scope="col">Update</th>
+                <th scope="col">DLC</th>
+                <th scope="col">Storage</th>
+                <th scope="col">Size</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((game) => {
+                const measured = sizes[game.titleId];
+                return (
+                  <tr key={game.titleId}>
+                    <td>
+                      <span className="history-game">
+                        <Tile game={game} icon={icons[game.titleId]} />
+                        <span className="history-name">
+                          <span className="history-title">{game.title}</span>
+                          <span className="history-dlc">{game.titleId}</span>
+                          {notes[game.titleId] && (
+                            <span role="alert" className="game-card-note">
+                              {notes[game.titleId]}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="num">{version(game.version)}</td>
+                    <td>{game.updateInstalled ? <span className="chip update">Installed</span> : <span className="dim">–</span>}</td>
+                    <td className="num">{game.dlc.length > 0 ? `${game.dlc.length} DLC` : <span className="dim">–</span>}</td>
+                    <td>{game.external ? "Extended" : "Internal"}</td>
+                    <td className="num">
+                      {measured ? (
+                        <span className="size-cell">
+                          <span>
+                            {formatSize(measured.bytes)}
+                            {measured.partial ? " (at least)" : ""}
+                          </span>
+                          <span className="size-note" title={measured.dumps.join("\n") || undefined}>
+                            {dumpNote(measured)}
+                          </span>
+                        </span>
+                      ) : (
+                        <button
+                          className="small-button"
+                          onClick={() => void measure(game)}
+                          disabled={measuring === game.titleId}
+                        >
+                          {measuring === game.titleId ? "Measuring…" : "Measure"}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {loaded.phase === "ready" && games.length > 0 && shown.length === 0 && (
         <p className="library-note">No title matches “{query}”.</p>
       )}

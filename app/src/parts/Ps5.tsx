@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Found, Settings, StartOutcome, Status } from "../types";
 
 interface Props {
@@ -7,8 +7,6 @@ interface Props {
   onSave: (patch: Partial<Settings>) => Promise<void>;
   onDiscover: () => Promise<Found[]>;
   onStartHelper: () => Promise<StartOutcome>;
-  /** More about the console, under the connection: what's installed, for one. */
-  children?: ReactNode;
 }
 
 /** A text field that saves when you leave it (or press Enter). */
@@ -52,8 +50,8 @@ const STARTED: Record<StartOutcome, string> = {
   alreadyRunning: "It's already running.",
 };
 
-/** The PS5 tab: connecting to the console, and where games go on it. */
-export function Ps5Page({ settings, status, onSave, onDiscover, onStartHelper, children }: Props) {
+/** Connecting to the console, in Settings: its address, finding it, starting the Kite helper. */
+export function Ps5Connection({ settings, status, onSave, onDiscover, onStartHelper }: Props) {
   const [finding, setFinding] = useState(false);
   const [found, setFound] = useState<Found[] | null>(null);
   const [started, setStarted] = useState<string | null>(null);
@@ -81,77 +79,58 @@ export function Ps5Page({ settings, status, onSave, onDiscover, onStartHelper, c
   }
 
   return (
-    <section className="settings" aria-label="PS5">
-      <div className="settings-head">
-        <h1>Your PS5</h1>
+    <div className="column">
+      <h2>PS5</h2>
+      <p className="status-line">
+        <span className={`dot ${dot}`} aria-hidden="true" />
+        {line}
+      </p>
+      <Field
+        id="address"
+        label="Address"
+        value={settings.address ?? ""}
+        placeholder="192.168.1.42"
+        onSave={(v) => void onSave({ address: v || null })}
+      />
+      <div className="buttons">
+        <button className="button secondary" onClick={() => void find()} disabled={finding}>
+          Find my PS5
+        </button>
+        <button className="button secondary" onClick={() => void start()} disabled={!settings.address}>
+          Start the Kite helper
+        </button>
       </div>
-      <div className="settings-grid">
-        <div className="column">
-          <h2>Connection</h2>
-          <p className="status-line">
-            <span className={`dot ${dot}`} aria-hidden="true" />
-            {line}
-          </p>
-          <Field
-            id="address"
-            label="Address"
-            value={settings.address ?? ""}
-            placeholder="192.168.1.42"
-            onSave={(v) => void onSave({ address: v || null })}
-          />
-          <div className="buttons">
-            <button className="button secondary" onClick={() => void find()} disabled={finding}>
-              Find my PS5
-            </button>
-            <button className="button secondary" onClick={() => void start()} disabled={!settings.address}>
-              Start the Kite helper
-            </button>
-          </div>
-          <p className="field-hint">
-            Start the Kite helper sends it to your PS5's ELF loader on port {settings.loaderPort}. Once it runs, Kite
-            Pack finds and connects to it by itself.
-          </p>
-          {started && (
-            <p role="status" className="settings-note">
-              {started}
-            </p>
-          )}
-          {finding && <p className="settings-note">Looking for your PS5…</p>}
-          {found && found.length === 0 && (
-            <p className="settings-note">No Kite helper found on your network. Start it on the PS5, or type its address.</p>
-          )}
-          {found && found.length > 0 && (
-            <ul className="found">
-              {found.map((f) => (
-                <li key={`${f.address}:${f.port}`}>
-                  <span>
-                    {f.address}, Kite helper {f.version}
-                  </span>
-                  {f.address === settings.address ? (
-                    <span className="in-use">In use</span>
-                  ) : (
-                    <button className="small-button" onClick={() => void onSave({ address: f.address, helperPort: f.port })}>
-                      Use this PS5
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        <div className="column">
-          <h2>Where games go</h2>
-          <Field
-            id="destination"
-            label="Games go to"
-            value={settings.destination}
-            hint="A folder on the PS5 that ShadowMount+ watches."
-            onSave={(v) => void onSave({ destination: v || "/data/homebrew" })}
-          />
-        </div>
-      </div>
-      {children}
-    </section>
+      <p className="field-hint">
+        Start the Kite helper sends it to your PS5's ELF loader on port {settings.loaderPort}. Once it runs, Kite
+        Pack finds and connects to it by itself.
+      </p>
+      {started && (
+        <p role="status" className="settings-note">
+          {started}
+        </p>
+      )}
+      {finding && <p className="settings-note">Looking for your PS5…</p>}
+      {found && found.length === 0 && (
+        <p className="settings-note">No Kite helper found on your network. Start it on the PS5, or type its address.</p>
+      )}
+      {found && found.length > 0 && (
+        <ul className="found">
+          {found.map((f) => (
+            <li key={`${f.address}:${f.port}`}>
+              <span>
+                {f.address}, Kite helper {f.version}
+              </span>
+              {f.address === settings.address ? (
+                <span className="in-use">In use</span>
+              ) : (
+                <button className="small-button" onClick={() => void onSave({ address: f.address, helperPort: f.port })}>
+                  Use this PS5
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

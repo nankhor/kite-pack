@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { footerNote, historyEntry, packBadge, stepRows } from "./model";
+import { footerNote, historyEntry, jobBar, packBadge } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Game } from "./parts/Game";
 import { Header, tabId } from "./parts/Header";
 import { HistoryPage } from "./parts/History";
+import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
-import { Ps5Page } from "./parts/Ps5";
 import { SettingsPage } from "./parts/Settings";
-import { Steps } from "./parts/Steps";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
 import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
@@ -54,7 +53,6 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
   /** Reading the picks against the game. */
   const [readingPicks, setReadingPicks] = useState(false);
   /** The PS5 tab's installed games, read only when asked. */
-  const [showLibrary, setShowLibrary] = useState(false);
   // Jobs already written to History, so each goes in once.
   const recorded = useRef(new Set<string>());
   // Settings load once; anything that needs them waits on this.
@@ -316,38 +314,29 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
       <div className="screen">
         {header}
         <div className="page" {...panel("ps5")}>
-          <Ps5Page
-            settings={s.settings}
-            status={s.status}
-            onSave={saveSettings}
-            onDiscover={() => backend.discover()}
-            onStartHelper={async () => {
-              const outcome = await backend.startHelper();
-              // The helper takes a few seconds to start on the PS5.
-              setTimeout(() => void refreshStatus(), 4000);
-              return outcome;
-            }}
-          >
-            <div className="console-games">
-              <div className="console-games-head">
-                <h2>What's installed</h2>
-                <button className="small-button" aria-expanded={showLibrary} onClick={() => setShowLibrary(!showLibrary)}>
-                  {showLibrary ? "Hide" : "Show what's installed"}
-                </button>
+          {s.settings.address ? (
+            <Library
+              backend={backend}
+              destination={s.settings.destination}
+              statusNote={
+                s.status?.state === "notReachable" ? "The PS5 isn't reachable; check the Kite helper is running." : null
+              }
+            />
+          ) : (
+            <section className="library" aria-label="Games on the PS5">
+              <div className="library-top">
+                <div className="library-heading">
+                  <h1 className="library-title">On the PS5</h1>
+                  <p className="library-sub">No PS5 set up yet. Choose yours in Settings, and its games show up here.</p>
+                </div>
+                <div className="buttons">
+                  <button className="button secondary" onClick={() => showView("settings")}>
+                    Open Settings
+                  </button>
+                </div>
               </div>
-              {showLibrary && (
-                <Library
-                  backend={backend}
-                  destination={s.settings.destination}
-                  statusNote={
-                    s.status?.state === "notReachable"
-                      ? "The PS5 isn't reachable; check the Kite helper is running."
-                      : null
-                  }
-                />
-              )}
-            </div>
-          </Ps5Page>
+            </section>
+          )}
         </div>
       </div>
     );
@@ -381,6 +370,13 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
             dlcEmuVersion={dlcEmu}
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
+            onDiscover={() => backend.discover()}
+            onStartHelper={async () => {
+              const outcome = await backend.startHelper();
+              // The helper takes a few seconds to start on the PS5.
+              setTimeout(() => void refreshStatus(), 4000);
+              return outcome;
+            }}
           />
         </div>
       </div>
@@ -395,10 +391,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           message={s.message}
           onChooseFolder={() => void choose(backend.pickFolder)}
           onChooseFile={() => void choose(backend.pickFile)}
-          onSeeLibrary={() => {
-            setShowLibrary(true);
-            showView("ps5");
-          }}
+          onSeeLibrary={() => showView("ps5")}
         />
       </div>
     );
@@ -436,7 +429,7 @@ export default function App({ backend, now = Date.now }: { backend: Backend; now
           onChangeFolder={() => void changeOutput()}
         />
       ) : (
-        s.job && <Steps rows={stepRows(s.job, s.progress, now())} />
+        s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
       )}
       {s.phase === "ready" && (
         <Dlc

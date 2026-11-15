@@ -64,15 +64,15 @@ beforeEach(() => {
   backend = new FakeBackend();
 });
 
-async function openPs5() {
+async function openSettings() {
   render(<App backend={backend} />);
-  await userEvent.click(await screen.findByRole("tab", { name: "PS5" }));
-  await screen.findByRole("heading", { name: "Your PS5" });
+  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  await screen.findByRole("heading", { name: "Settings" });
 }
 
-describe("PS5 tab", () => {
+describe("the PS5 connection, in Settings", () => {
   it("finds the PS5 on the network and uses it", async () => {
-    await openPs5();
+    await openSettings();
     backend.found = [{ address: "192.168.1.42", port: 9130, version: "0.1.0-alpha.3" }, { address: "192.168.1.43", port: 9130, version: "0.1.0-alpha.3" }];
     await userEvent.click(screen.getByRole("button", { name: "Find my PS5" }));
     expect(await screen.findByText("192.168.1.42, Kite helper 0.1.0-alpha.3")).toBeInTheDocument();
@@ -81,7 +81,7 @@ describe("PS5 tab", () => {
   });
 
   it("says when nothing answers", async () => {
-    await openPs5();
+    await openSettings();
     await userEvent.click(screen.getByRole("button", { name: "Find my PS5" }));
     expect(
       await screen.findByText("No Kite helper found on your network. Start it on the PS5, or type its address."),
@@ -89,7 +89,7 @@ describe("PS5 tab", () => {
   });
 
   it("saves a typed address", async () => {
-    await openPs5();
+    await openSettings();
     await userEvent.type(screen.getByLabelText("Address"), "192.168.1.50");
     await userEvent.tab();
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ address: "192.168.1.50" }));
@@ -98,7 +98,7 @@ describe("PS5 tab", () => {
   it("starts the Kite helper", async () => {
     backend.cfg.address = "192.168.1.42";
     backend.status = { state: "notReachable" };
-    await openPs5();
+    await openSettings();
     await userEvent.click(screen.getByRole("button", { name: "Start the Kite helper" }));
     expect(backend.startHelper).toHaveBeenCalled();
     expect(await screen.findByText("Sent to the PS5. It starts in a few seconds.")).toBeInTheDocument();
@@ -107,7 +107,7 @@ describe("PS5 tab", () => {
   it("says when the helper is already running", async () => {
     backend.cfg.address = "192.168.1.42";
     backend.startHelper = vi.fn(async (): Promise<StartOutcome> => "alreadyRunning");
-    await openPs5();
+    await openSettings();
     await userEvent.click(screen.getByRole("button", { name: "Start the Kite helper" }));
     expect(await screen.findByText("It's already running.")).toBeInTheDocument();
   });
@@ -117,7 +117,7 @@ describe("PS5 tab", () => {
     backend.startHelper = vi.fn(async () => {
       throw "The PS5's ELF loader isn't answering on port 9021.";
     });
-    await openPs5();
+    await openSettings();
     await userEvent.click(screen.getByRole("button", { name: "Start the Kite helper" }));
     expect(await screen.findByText("The PS5's ELF loader isn't answering on port 9021.")).toBeInTheDocument();
   });
@@ -125,14 +125,14 @@ describe("PS5 tab", () => {
   it("shows why the helper refused this computer", async () => {
     backend.cfg.address = "192.168.1.42";
     backend.status = { state: "refused", reason: "The Kite helper only accepts computers on your home network." };
-    await openPs5();
+    await openSettings();
     expect(
       await screen.findByText("The Kite helper only accepts computers on your home network."),
     ).toBeInTheDocument();
   });
 
   it("saves where games go on the PS5", async () => {
-    await openPs5();
+    await openSettings();
     const field = screen.getByLabelText("Games go to");
     await userEvent.clear(field);
     await userEvent.type(field, "/mnt/ext0/homebrew");
@@ -140,10 +140,13 @@ describe("PS5 tab", () => {
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ destination: "/mnt/ext0/homebrew" }));
   });
 
-  it("has room for more about the console under the connection", async () => {
-    await openPs5();
-    expect(screen.getByRole("heading", { name: "Connection" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Where games go" })).toBeInTheDocument();
+  it("is only in Settings: the PS5 tab is the console's games", async () => {
+    backend.cfg.address = "192.168.1.42";
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("tab", { name: "PS5" }));
+    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Find my PS5" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
   });
 });
 
