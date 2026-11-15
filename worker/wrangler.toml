@@ -1,0 +1,17 @@
+# Kite Pack's game details: answers "details for this game" from IGDB, keeping the Twitch
+# secret on Cloudflare. Deploy steps are in README.md.
+name = "kite-details"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+workers_dev = true
+
+# Each game's answer, kept for 30 days, and the Twitch token.
+[[kv_namespaces]]
+binding = "CACHE"
+id = "64f491c21b5945478366000044c9429e"
+
+# Lookups IGDB hasn't answered yet: 30 a minute for each address.
+[[ratelimits]]
+name = "LIMIT"
+namespace_id = "1101"
+simple = { limit = 30, period = 60 }

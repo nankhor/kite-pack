@@ -205,13 +205,6 @@
 
 /* The game */
 
-.game {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 24px 40px;
-}
-
 .icon-wrap {
   position: relative;
   flex: 0 0 auto;
@@ -243,14 +236,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.game-text {
-  flex: 1;
-  min-width: 280px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
 }
 
 .done-headline {
@@ -338,6 +323,542 @@
   background: transparent;
   border: 1px dashed var(--line-strong);
   cursor: pointer;
+}
+
+/* The Pack page, option B: the game on the left, packing on the right. */
+
+/* The Pack page fills the window: each side scrolls on its own, and Pack stays in view. */
+.screen.pack-screen {
+  height: 100vh;
+  min-height: 0;
+  padding-bottom: 24px;
+}
+
+.pack-page {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: minmax(0, 1fr);
+  gap: 28px;
+}
+
+/* Room for focus rings inside the scrolling sides. */
+.pack-main,
+.panel-body {
+  min-height: 0;
+  overflow-y: auto;
+  margin: -4px;
+  padding: 4px;
+}
+
+@media (max-width: 920px) {
+  .screen.pack-screen {
+    height: auto;
+  }
+
+  .pack-page {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: none;
+  }
+
+  .pack-main,
+  .panel-body {
+    overflow: visible;
+  }
+}
+
+.pack-main,
+.showcase {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.art {
+  position: relative;
+  height: clamp(240px, 38vh, 340px);
+  border-radius: 22px;
+  overflow: hidden;
+  background: #1b1e23;
+  display: flex;
+  align-items: flex-end;
+}
+
+.art-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* No art (offline, or IGDB doesn't know the game): the icon, blown up and softened. */
+.art-image.blurred {
+  filter: blur(42px) saturate(1.3);
+  opacity: 0.75;
+  transform: scale(1.4);
+}
+
+.art-image.plain {
+  background: linear-gradient(160deg, #2a2f36 0%, #1a1d22 100%);
+}
+
+.art-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(18, 20, 23, 0.94) 0%, rgba(18, 20, 23, 0.55) 40%, rgba(18, 20, 23, 0) 75%);
+}
+
+.art-content {
+  position: relative;
+  width: 100%;
+  padding: 0 24px 20px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+
+.art .icon {
+  width: 76px;
+  border-radius: 16px;
+}
+
+.art .done-badge {
+  right: -8px;
+  bottom: -8px;
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+.art .done-badge svg {
+  width: 15px;
+  height: 15px;
+}
+
+.art-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.art .title {
+  font-size: clamp(30px, 3.4vw, 42px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+}
+
+.art .done-headline {
+  font-size: 14px;
+}
+
+.art-meta {
+  margin: 0;
+  color: var(--note);
+  font-size: 14px;
+}
+
+.tags-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.link-button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--note);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  color: var(--text);
+}
+
+.story {
+  margin: 0;
+  max-width: 720px;
+  color: var(--note);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.credit {
+  margin: 0;
+  color: var(--label);
+  font-size: 13px;
+}
+
+.details-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+  color: var(--note);
+  font-size: 14px;
+}
+
+.details-note > span {
+  flex: 1;
+}
+
+.details-note strong {
+  color: var(--text);
+}
+
+.details-note svg {
+  flex: none;
+}
+
+/* Screenshots, and the big view */
+
+.shots {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.shots-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.shots-head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.shots-count {
+  color: var(--label);
+  font-size: 14px;
+}
+
+.shots-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.shot {
+  position: relative;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  background: #1b1e23;
+  cursor: pointer;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shot:hover img {
+  filter: brightness(1.08);
+}
+
+.shot-more {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 14, 0.66);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  padding: 28px 40px;
+  background: rgba(8, 9, 11, 0.94);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+}
+
+.lightbox-image {
+  width: min(1100px, 100%);
+  max-height: calc(100vh - 160px);
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  border-radius: 16px;
+  background: #000;
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 20px;
+  right: 24px;
+}
+
+.lightbox-nav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.lightbox-count {
+  min-width: 72px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.round-button {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.round-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+/* Wrong game? */
+
+.tags-row .picker {
+  right: 0;
+  top: calc(100% + 6px);
+}
+
+.picker-search {
+  display: flex;
+  gap: 8px;
+  padding: 4px;
+}
+
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  font: inherit;
+  user-select: text;
+}
+
+.picker-note {
+  margin: 0;
+  padding: 10px;
+  color: var(--label);
+  font-size: 14px;
+}
+
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.picker-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-item:hover,
+.picker-item[aria-current="true"] {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.picker-cover {
+  flex: none;
+  width: 30px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.picker-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.picker-year {
+  color: var(--label);
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* The panel: the copy's facts, then the options before packing, or the bar after. */
+
+.pack-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-radius: 22px;
+  background: var(--fill);
+  border: 1px solid var(--line);
+}
+
+.panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pack-panel .facts {
+  margin: 0;
+  gap: 10px 24px;
+}
+
+.pack-panel .options {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+}
+
+.pack-panel .column {
+  gap: 12px;
+}
+
+.pack-panel .option-row {
+  gap: 8px 10px;
+}
+
+.pack-panel .option-label {
+  width: 100%;
+  font-size: 14px;
+}
+
+.pack-panel .footer {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.pack-panel .note {
+  font-size: 14px;
+}
+
+.pack-panel .buttons {
+  flex-wrap: nowrap;
+}
+
+.pack-panel .button {
+  flex: none;
+  padding: 0 18px;
+  white-space: nowrap;
+}
+
+.pack-panel .button.primary,
+.pack-panel .buttons .button:only-child {
+  flex: 1;
+}
+
+/* The DLC list opens under the bar here: above it, the panel would cut it off. */
+.pack-panel .job .step-popover {
+  top: calc(100% + 8px);
+  bottom: auto;
+}
+
+/* The bar, sized to the panel: its parts share the width and the steps list under it. */
+.pack-panel .job-part,
+.pack-panel .job-step {
+  min-width: 0;
+}
+
+.pack-panel .job-bar {
+  gap: 3px;
+}
+
+.pack-panel .job-head {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.pack-panel .job-title {
+  font-size: 20px;
+}
+
+.pack-panel .job-detail {
+  font-size: 14px;
+}
+
+.pack-panel .job-steps {
+  flex-direction: column;
+  gap: 0;
+}
+
+.pack-panel .job-step {
+  flex-grow: 0 !important;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pack-panel .job-step-name,
+.pack-panel .job-step-note {
+  white-space: normal;
 }
 
 /* Options */

@@ -1,4 +1,5 @@
 import type { Found, Settings, StartOutcome, Status } from "../types";
+import { Switch } from "./Options";
 import { Field, Ps5Connection } from "./Ps5";
 
 interface Props {
@@ -8,6 +9,9 @@ interface Props {
   version: string | null;
   /** The dlc_emu release the app carries; null until read. */
   dlcEmuVersion: string | null;
+  /** Whether the Pack page looks games up on IGDB. */
+  detailsOn: boolean;
+  onDetailsOn: (on: boolean) => void;
   onSave: (patch: Partial<Settings>) => Promise<void>;
   onPickFolder: () => Promise<string | null>;
   onDiscover: () => Promise<Found[]>;
@@ -15,7 +19,7 @@ interface Props {
 }
 
 /** Behind the gear: the PS5 connection, where things go, and which versions are running. */
-export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
+export function SettingsPage({ settings, status, version, dlcEmuVersion, detailsOn, onDetailsOn, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
   async function pickFolder() {
     const dir = await onPickFolder();
     if (dir) await onSave({ packedFolder: dir });
@@ -70,6 +74,14 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, onSave,
         </div>
 
         <div className="column">
+          <h2>Game details</h2>
+          <Switch
+            id="details"
+            label="Show game details"
+            hint="The story, screenshots and art from IGDB, through Kite Pack's own server. Only the game's name is sent."
+            on={detailsOn}
+            onToggle={() => onDetailsOn(!detailsOn)}
+          />
           <h2>About</h2>
           <dl className="facts">
             <div>
