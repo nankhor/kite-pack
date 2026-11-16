@@ -58,8 +58,12 @@ impl Packer for ForgePacker {
         let format = to_forge_format(req.format);
         std::fs::create_dir_all(&req.output_dir)
             .map_err(|e| failed(format!("Couldn't create {}: {e}", req.output_dir.display())))?;
-        // A package can't carry files. Unpack it to a plain folder first, fold the picks in,
-        // then let Forge write the chosen format: its index then describes the final files.
+        // A package can't carry files itself. For a folder output the fast way is to pack it
+        // first and then unpack the DLC into the finished folder as loose files; for an image
+        // there is no folder to add them to, so it is unpacked, folded and packed again.
+        let post_bundle = !req.bundle.is_empty()
+            && !req.source.is_dir()
+            && req.format == OutputFormat::Folder;
         let (pack_source, _staging, staged) = if req.bundle.is_empty() {
             (req.source.clone(), None, None)
         } else if req.source.is_dir() {
@@ -68,6 +72,12 @@ impl Packer for ForgePacker {
             }
             let (staging, out) = crate::bundle::stage(&req.source, &req.bundle).map_err(PackError::Failed)?;
             (staging.path().to_path_buf(), Some(staging), Some(out))
+        } else if post_bundle {
+            let checked = crate::bundle::plan(&req.source, &req.bundle);
+            if let Some(problem) = checked.problem {
+                return Err(PackError::Failed(problem));
+            }
+            (req.source.clone(), None, None)
         } else {
             let checked = crate::bundle::plan(&req.source, &req.bundle);
             if let Some(problem) = checked.problem {
@@ -119,7 +129,23 @@ impl Packer for ForgePacker {
                     return match result {
                         Ok(report) => {
                             let mut checks = report.checks;
-                            if let Some(s) = &staged {
+                            if post_bundle {
+                                if cancel.load(Ordering::SeqCst) {
+                                    let _ = std::fs::remove_dir_all(&report.output);
+                                    return Err(PackError::Cancelled);
+                                }
+                                match crate::bundle::apply(&report.output, &req.bundle) {
+                                    Ok(s) => checks.push(bundle_note(&s)),
+                                    Err(why) => {
+                                        let _ = std::fs::remove_dir_all(&report.output);
+                                        return Err(PackError::Failed(why));
+                                    }
+                                }
+                                if cancel.load(Ordering::SeqCst) {
+                                    let _ = std::fs::remove_dir_all(&report.output);
+                                    return Err(PackError::Cancelled);
+                                }
+                            } else if let Some(s) = &staged {
                                 checks.push(bundle_note(s));
                             }
                             Ok(PackOutcome {

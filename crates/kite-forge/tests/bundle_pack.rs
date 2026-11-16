@@ -117,24 +117,23 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
 }
 
 #[test]
-fn a_package_is_unpacked_so_its_dlc_can_go_inside() {
+fn a_package_written_as_a_folder_gets_its_dlc_as_loose_files() {
     let tmp = tempfile::tempdir().unwrap();
     let pkg = make_fake_pkg(tmp.path());
     let dlc = make_dlc_folder(tmp.path().join("dlc").as_path(), "Tidebreaker");
     let out = tmp.path().join("out");
     std::fs::create_dir_all(&out).unwrap();
 
-    // The source is one file, and the output is a folder: Kite Pack unpacks, folds the DLC in,
-    // then writes the folder, so the index has to name the DLC.
+    // The package is packed once, then the DLC is unpacked into the finished folder: it stays
+    // loose, so the zstd index is untouched.
     let bundle = Bundle { dlc: vec![dlc], backport: None, emulator: None };
     assert_eq!(kite_forge::bundle::plan(&pkg, &bundle).route, "inPack");
     let packed = pack(&pkg, &out, bundle);
 
-    let index = std::fs::read(packed.join("ampr_zstd.index")).unwrap();
-    let index = String::from_utf8_lossy(&index);
+    assert!(packed.join("ampr_zstd.index").is_file());
     assert!(
-        index.contains("addcont0/sce_sys/param.json"),
-        "the DLC is not in the pack's index"
+        packed.join("addcont0/sce_sys/param.json").is_file(),
+        "the DLC is not loose in the packed folder"
     );
     let ini = std::fs::read_to_string(packed.join("dlc_emu.ini")).unwrap();
     assert!(ini.contains("content_id=UP0000-PPSA01234_00-TIDEBREAKER00000"), "{ini}");

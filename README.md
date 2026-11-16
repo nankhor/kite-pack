@@ -59,10 +59,12 @@ it is left out), **Via ShadowMount+** (installed natively, when the base is an i
 - The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
   btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed
   once packing ends.
-- This works on a game folder and on a `.pkg`: the package is unpacked to a temporary folder, the
-  DLC are folded in, and the chosen format is written from that, so the pack's index names the
-  DLC. An image still packs as it is; its DLC are marked **After install** until the image is
-  unpacked or the base is installed as a PKG.
+- This works on a game folder and on a `.pkg`. With **Save as Folder**, the package is packed
+  once and the DLC are then unpacked straight into the finished folder, as loose files the game
+  reads from disk — fast, and the zstd pack is untouched. For an image output the package is
+  unpacked, the DLC folded in, and the image written again (the DLC are compressed too, but the
+  whole game is packed a second time). An image *source* still packs as it is; its DLC are
+  marked **After install** until it is unpacked or the base is installed as a PKG.
 
 This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
 screen asks you to start the new one.

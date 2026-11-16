@@ -675,7 +675,7 @@ describe("inside the packed copy", () => {
     await addPackages("/DLC/suits.pkg", "/DLC/map.pkg");
 
     expect(await screen.findByRole("button", { name: /2 add-ons/ })).toBeInTheDocument();
-    expect(screen.getByText("Folded into the packed copy before it is written.")).toBeInTheDocument();
+    expect(screen.getByText("Added to the packed copy.")).toBeInTheDocument();
     expect(
       screen.getByText("Closing the app while packing starts the pack over; sending picks up where it stopped."),
     ).toBeInTheDocument();

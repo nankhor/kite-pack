@@ -111,7 +111,7 @@ export function Dlc({
   let hint = "Add DLC packages, a DLC folder, or a backport. They go inside the packed copy, so the PS5 gets them with the game.";
   if (busy) hint = "Reading what you picked…";
   else if (picked > 0 && !plan) hint = "Couldn't read the DLC you picked: remove them and add them again.";
-  else if (items.length > 0) hint = "Folded into the packed copy before it is written.";
+  else if (items.length > 0) hint = "Added to the packed copy.";
   if (smp?.installed && nativeDlc.length > 0) {
     hint = `ShadowMount+ ${smp.version} found: ${nativeDlc.length} of these install natively on the PS5 when it is sent.`;
   } else if (smp && !smp.installed && dlc.length > 0) {
