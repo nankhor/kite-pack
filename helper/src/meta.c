@@ -1,5 +1,6 @@
 /* Read-only console metadata: see meta.h for the methods, the wire layout and the policy. */
 #include "meta.h"
+#include "install.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -41,6 +42,7 @@ int kite_meta_serves(uint16_t method) {
     case KITE_METHOD_FS_READ:
     case KITE_METHOD_FS_DU:
     case KITE_METHOD_FS_FREESPACE:
+    case KITE_METHOD_INSTALL_URL:
         return 1;
     default:
         return 0;
@@ -470,6 +472,30 @@ static int fs_freespace(const struct request *rq, uint8_t *out, size_t cap, size
 int kite_meta_rpc(uint16_t method, const uint8_t *body, uint32_t len, uint8_t *out, size_t cap,
                   size_t *out_len) {
     if (!kite_meta_serves(method)) return -1;
+
+    /* The installer method has its own body (a URL and a name), not a path request. */
+    if (method == KITE_METHOD_INSTALL_URL) {
+        struct rd rd = { body, len, 0, 0 };
+        size_t url_len = rd_u16(&rd);
+        if (rd.bad || url_len == 0 || url_len > rd.n - rd.off) return AVA1_ERR_PROTOCOL;
+        const char *url = (const char *)(body + rd.off);
+        rd.off += url_len;
+        size_t name_len = rd_u16(&rd);
+        if (rd.bad || name_len > rd.n - rd.off) return AVA1_ERR_PROTOCOL;
+        const char *name = (const char *)(body + rd.off);
+        rd.off += name_len;
+        char msg[256] = {0};
+        int rc = kite_install_url(url, url_len, name, name_len, msg, sizeof msg);
+        size_t msg_len = strlen(msg);
+        if (msg_len > 0xFFFF) msg_len = 0;
+        struct wr w = { out, cap, 0, 0 };
+        wr_u32(&w, (uint32_t)rc);
+        wr_u16(&w, (uint16_t)msg_len);
+        wr_bytes(&w, msg, msg_len);
+        if (w.full) return AVA1_ERR_INTERNAL;
+        *out_len = w.n;
+        return AVA1_STATUS_OK;
+    }
 
     struct request rq;
     memset(&rq, 0, sizeof rq);

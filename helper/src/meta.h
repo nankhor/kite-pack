@@ -41,6 +41,7 @@
 #define KITE_METHOD_FS_READ 26
 #define KITE_METHOD_FS_DU 27
 #define KITE_METHOD_FS_FREESPACE 28
+#define KITE_METHOD_INSTALL_URL 40
 
 /* A path that is not there, told apart from a path that is there and cannot be read: the app
  * treats "/mnt/ext0/user/app does not exist" as "no games on that drive", not as an error. */

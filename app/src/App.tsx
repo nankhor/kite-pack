@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { folderNote, footerNote, historyEntry, jobBar, packBadge } from "./model";
+import { folderNote, footerNote, historyEntry, jobBar, packBadge, versionAtLeast } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
@@ -90,6 +90,8 @@ export default function App({
   /** Why ShadowMount+ couldn't be reached, when it couldn't. */
   const [smpError, setSmpError] = useState<string | null>(null);
   const [installingBackport, setInstallingBackport] = useState(false);
+  /** Streaming the picked DLC to Sony's installer on the PS5. */
+  const [installingNative, setInstallingNative] = useState(false);
   /** Reading the picks once more, right before a job starts, so a stale plan can't leave DLC out. */
   const [preparing, setPreparing] = useState(false);
   const preparingRef = useRef(false);
@@ -451,6 +453,9 @@ export default function App({
 
   const sendable = canSend(s.status);
   const installedLabels = s.onPs5?.dlc ?? [];
+  /** The helper 0.3.0 answers Sony's installer for streamed DLC. */
+  const canInstallNative =
+    s.status?.state === "running" && versionAtLeast(s.status.version, 0, 3);
 
   async function pack() {
     if (!s.source || preparingRef.current) return;
@@ -518,6 +523,26 @@ export default function App({
           !onConsole(i.label, installedLabels),
       )
       .map((i) => i.path);
+  }
+
+  /** Streams the picked .pkg DLC to the PS5's installer, one after another. */
+  async function installNativeNow() {
+    const titleId = current.current.game?.titleId;
+    const pkgs = current.current.bundle.dlc.filter((p) => p.toLowerCase().endsWith(".pkg"));
+    if (!titleId || pkgs.length === 0) return;
+    setInstallingNative(true);
+    try {
+      for (const pkg of pkgs) {
+        dispatch({ type: "message", text: `Installing ${baseName(pkg)} on the PS5…` });
+        await backend.installDlcNative(pkg, titleId);
+      }
+      dispatch({ type: "message", text: `${pkgs.length} DLC installed on the PS5.` });
+      void loadOnPs5(titleId);
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+    } finally {
+      setInstallingNative(false);
+    }
   }
 
   async function installBackportNow() {
@@ -836,6 +861,9 @@ export default function App({
                 smpAddress={s.settings?.address ?? null}
                 nativeDlc={nativeDlc}
                 installingBackport={installingBackport}
+                installingNative={installingNative}
+                canInstallNative={canInstallNative}
+                onInstallNative={() => void installNativeNow()}
                 gameIcon={s.game.iconDataUrl}
                 onAddPackages={() => void addDlcPackages()}
                 onAddFolder={() => void addDlcFolder()}

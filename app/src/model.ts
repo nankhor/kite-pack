@@ -464,3 +464,11 @@ export function folderNote(added: number, skipped: string[], game: string): stri
   const files = n === 1 ? "1 file that isn't" : `${n} files that aren't`;
   return `Added ${added} DLC from the folder. Left out ${files} DLC for this game: ${shown}${rest}.`;
 }
+
+/** Whether a version string is at least `major.minor` (for the helper's streamed install). */
+export function versionAtLeast(version: string | null, major: number, minor: number): boolean {
+  const m = version?.match(/^(\d+)\.(\d+)/);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return a > major || (a === major && b >= minor);
+}

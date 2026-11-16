@@ -91,13 +91,15 @@ class FakeBackend implements Backend {
   });
   ps5Status = vi.fn(async (): Promise<Status> => {
     if (!this.cfg.address) return { state: "notSetUp" };
-    return this.online ? { state: "running", version: "0.1.0-alpha.3" } : { state: "notReachable" };
+    return this.online ? { state: "running", version: this.helperVersion } : { state: "notReachable" };
   });
   discover = vi.fn(async () => this.found);
   dlcEmuVersion = vi.fn(async () => "0.3");
   smpStatus = vi.fn(async (): Promise<SmpStatus> => {
     throw "nothing answers";
   });
+  helperVersion = "0.1.0-alpha.3";
+  installDlcNative = vi.fn(async (_path: string, _titleId: string) => "LABEL");
   installBackport = vi.fn(async (_path: string) => {});
   bundlePlan = vi.fn(async (_source: string, dlc: string[], backport: string | null): Promise<BundlePlan> => ({
     items: [
@@ -724,6 +726,22 @@ describe("inside the packed copy", () => {
       ),
     );
     expect(backend.bundlePlan).toHaveBeenCalledWith("/Games/Ashen Tide", ["/DLC/suits.pkg"], null);
+  });
+
+  it("streams the picked DLC to Sony's installer when the helper supports it", async () => {
+    backend.helperVersion = "0.3.0";
+    backend.cfg.address = "192.168.1.42";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await addPackages("/DLC/suits.pkg", "/DLC/map.pkg");
+
+    const install = await screen.findByRole("button", { name: "Install DLC on the PS5 (stream)" });
+    await userEvent.click(install);
+
+    await waitFor(() => expect(backend.installDlcNative).toHaveBeenCalledTimes(2));
+    expect(backend.installDlcNative).toHaveBeenNthCalledWith(1, "/DLC/suits.pkg", "PPSA01234");
+    expect(backend.installDlcNative).toHaveBeenNthCalledWith(2, "/DLC/map.pkg", "PPSA01234");
+    expect(await screen.findByText("2 DLC installed on the PS5.")).toBeInTheDocument();
   });
 
   it("does not let Pack start while the picked DLC is still being read", async () => {

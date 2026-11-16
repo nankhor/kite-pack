@@ -174,6 +174,9 @@ fn kind(i: u8) -> String {
     .to_string()
 }
 
+const METHOD_INSTALL_URL: u16 = 40;
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
+
 async fn call(s: &Session, method: u16, path: &str, offset: u64, limit: u32) -> Result<Vec<u8>, MetaError> {
     call_within(s, method, path, offset, limit, CALL_TIMEOUT).await
 }
@@ -187,8 +190,17 @@ async fn call_within(
     within: Duration,
 ) -> Result<Vec<u8>, MetaError> {
     let body = request(path, offset, limit)?;
+    rpc_bytes(s, method, &body, within).await
+}
+
+async fn rpc_bytes(
+    s: &Session,
+    method: u16,
+    body: &[u8],
+    within: Duration,
+) -> Result<Vec<u8>, MetaError> {
     let reply = s
-        .rpc_within(method, &body, within)
+        .rpc_within(method, body, within)
         .await
         .map_err(|e| MetaError::Network(crate::connect::map_error(e)))?;
     match reply.status {
@@ -199,6 +211,46 @@ async fn call_within(
             code,
             message: String::from_utf8_lossy(&reply.body).into_owned(),
         }),
+    }
+}
+
+/// Sony's installer codes in the screen's words.
+fn install_hint(code: u32) -> &'static str {
+    match code {
+        0x80A3_0002 => "not enough free space on the PS5",
+        0x80A3_0004 | 0x80A3_000A => "the base game isn't registered on the PS5",
+        0x80A3_000C => "close the game before installing",
+        0x80A3_000D => "the console's firmware is too old for this package",
+        0x80A3_000F => "this package is for a different game",
+        0x80A3_0011 => "the base game is the wrong version for this package",
+        0x80A3_0017 => "this DLC needs its base content installed",
+        0x80A3_0019 => "the package is invalid or corrupt",
+        _ => "Sony's installer refused it",
+    }
+}
+
+/// Has the console fetch `url` and install it through Sony's installer.
+pub async fn install_url(s: &Session, url: &str, name: &str) -> Result<(), MetaError> {
+    let (u, n) = (url.as_bytes(), name.as_bytes());
+    if u.is_empty() || u.len() > 2040 || n.len() > 250 {
+        return Err(MetaError::Protocol("the install URL or name is too long".into()));
+    }
+    let mut body = Vec::with_capacity(4 + u.len() + n.len());
+    body.extend_from_slice(&(u.len() as u16).to_le_bytes());
+    body.extend_from_slice(u);
+    body.extend_from_slice(&(n.len() as u16).to_le_bytes());
+    body.extend_from_slice(n);
+    let out = rpc_bytes(s, METHOD_INSTALL_URL, &body, INSTALL_TIMEOUT).await?;
+    let mut r = Reader::new(&out);
+    let code = r.u32()?;
+    let len = r.u16()? as usize;
+    let said = String::from_utf8_lossy(r.take(len)?).into_owned();
+    if code == 0 {
+        Ok(())
+    } else if said.is_empty() {
+        Err(MetaError::Refused { code: 0, message: format!("{} (0x{code:08X})", install_hint(code)) })
+    } else {
+        Err(MetaError::Refused { code: 0, message: said })
     }
 }
 

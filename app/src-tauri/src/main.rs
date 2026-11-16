@@ -246,6 +246,58 @@ async fn smp_status(smp: State<'_, Smp>, title_id: Option<String>) -> Result<Smp
     blocking(move || installer.status(title_id.as_deref())).await?
 }
 
+/// Streams a DLC package from this computer to the console and installs it through Sony's
+/// installer (the route ps5upload uses): the console fetches it over HTTP while we serve it,
+/// then we wait until the DLC appears in the console's add-on list.
+#[tauri::command]
+async fn install_dlc_native(app: AppHandle, path: PathBuf, title_id: String) -> Result<String, String> {
+    blocking(move || {
+        let ps5 = app.state::<Ps5>();
+        let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
+        let info = kite_forge::check_dlc(&path, &title_id)?;
+        let label = info.label.clone();
+        let name = info.name.clone().unwrap_or_else(|| label.clone());
+        let server = kite_ps5::PkgServer::start(&path, &console.address)?;
+        // The folder may have just been sent and not registered by ShadowMount+ yet: Sony says
+        // "not found" until it is, so try for a minute before giving up.
+        let mut installed = false;
+        for attempt in 0..20 {
+            match kite_ps5::install_url(&console, &ps5.keys, server.url(), &name) {
+                Ok(()) => {
+                    installed = true;
+                    break;
+                }
+                Err(e) if attempt < 19 && e.message().contains("registered") => {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                }
+                Err(e) => return Err(e.message()),
+            }
+        }
+        if !installed {
+            return Err("The PS5 never took the package".into());
+        }
+        // Sony accepted it; wait for the add-on to show up (Sony's installer works in the
+        // background).
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
+        loop {
+            if let Ok(lib) = kite_ps5::installed(&console, &ps5.keys) {
+                let there = lib.games.iter().any(|g| {
+                    g.title_id.eq_ignore_ascii_case(&title_id)
+                        && g.dlc.iter().any(|l| l.eq_ignore_ascii_case(&label))
+                });
+                if there {
+                    return Ok(label);
+                }
+            }
+            if std::time::Instant::now() > deadline {
+                return Err("Sony accepted the package but it didn't appear in the DLC list".into());
+            }
+            std::thread::sleep(std::time::Duration::from_secs(2));
+        }
+    })
+    .await?
+}
+
 /// Installs a backport folder through ShadowMount+: it is sent to the console, then copied to
 /// ShadowMount+'s backports folder, where it is applied at the next launch.
 #[tauri::command]
@@ -518,7 +570,8 @@ fn main() {
             install_update,
             restart_app,
             smp_status,
-            install_backport
+            install_backport,
+            install_dlc_native
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

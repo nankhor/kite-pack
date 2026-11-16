@@ -518,6 +518,17 @@ pub fn read_file(
     })
 }
 
+/// Streams a package to the console and installs it through Sony's installer. `url` must be
+/// reachable by the console (the app serves the package on this computer).
+pub fn install_url(console: &Console, keys: &Keys, url: &str, name: &str) -> Result<(), Ps5Error> {
+    runtime().block_on(async {
+        let session = open(console, &keys.checker, keys).await?;
+        let out = meta::install_url(&session, url, name).await;
+        session.close().await;
+        out.map_err(meta::into_ps5)
+    })
+}
+
 /// The room left where games go, for the Send step's "will this fit?".
 pub fn free_space(console: &Console, keys: &Keys, path: &str) -> Result<meta::FreeSpace, Ps5Error> {
     runtime().block_on(async {

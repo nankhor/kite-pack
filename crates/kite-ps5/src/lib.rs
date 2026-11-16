@@ -6,6 +6,7 @@ mod discover;
 mod launch;
 mod library;
 mod meta;
+mod pkgserve;
 mod send;
 mod settings;
 mod smp;
@@ -16,10 +17,11 @@ pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
 pub use launch::{StartOutcome, start_helper};
 pub use library::{
-    GameIcon, InstalledGame, Library, Measured, free_space, icons, installed, installed_title,
-    measure, read_file,
+    GameIcon, InstalledGame, Library, Measured, free_space, icons, install_url, installed,
+    installed_title, measure, read_file,
 };
 pub use meta::{Entry, FreeSpace, MetaError, Usage};
+pub use pkgserve::PkgServer;
 pub use send::Ps5Sender;
 pub use settings::Settings;
 pub use smp::{INCOMING, SmpInstaller};

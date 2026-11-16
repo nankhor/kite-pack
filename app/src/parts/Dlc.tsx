@@ -21,6 +21,12 @@ interface Props {
   nativeDlc: string[];
   /** Sending a backport to ShadowMount+ right now. */
   installingBackport: boolean;
+  /** Streaming the picked packages to Sony's installer right now. */
+  installingNative: boolean;
+  /** The helper answers Sony's installer (0.3.0+), so DLC can be streamed and installed. */
+  canInstallNative: boolean;
+  /** Streams the picked .pkg DLC to Sony's installer, one by one. */
+  onInstallNative: () => void;
   /** Sends the picked backport to ShadowMount+, which applies it at the next launch. */
   onInstallBackport: () => void;
   /** Stands in for a DLC that has no icon of its own. */
@@ -81,6 +87,9 @@ export function Dlc({
   smpAddress,
   nativeDlc,
   installingBackport,
+  installingNative,
+  canInstallNative,
+  onInstallNative,
   gameIcon,
   onAddPackages,
   onAddFolder,
@@ -188,6 +197,16 @@ export function Dlc({
           <p className="dlc-closing">
             Closing the app while packing starts the pack over; sending picks up where it stopped.
           </p>
+        )}
+        {canInstallNative && items.some((i) => i.path.toLowerCase().endsWith(".pkg")) && (
+          <button
+            className="add-button"
+            onClick={onInstallNative}
+            disabled={installingNative || busy}
+            title="Sends them to the PS5 and installs them through Sony's installer, like ps5upload does."
+          >
+            {installingNative ? "Installing…" : "Install DLC on the PS5 (stream)"}
+          </button>
         )}
         {backport && smp && (
           <button

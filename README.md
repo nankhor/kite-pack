@@ -66,8 +66,17 @@ it is left out), **Via ShadowMount+** (installed natively, when the base is an i
   whole game is packed a second time). An image *source* still packs as it is; its DLC are
   marked **After install** until it is unpacked or the base is installed as a PKG.
 
-This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
+This needs the Kite helper 0.3.0. Packing and sending still work with an older helper; the new
 screen asks you to start the new one.
+
+### Installing DLC through Sony's installer
+
+The helper 0.3.0 can also hand a package to **Sony's installer** with
+`sceAppInstUtilInstallByPackage`, the route ps5upload uses. In the DLC panel, **Install DLC on
+the PS5 (stream)** serves the picked `.pkg` files from this computer over the network, has the
+console fetch and install them, and waits until each shows up in the console's add-on list.
+It works for a mounted folder game too: Sony only needs the title registered, which ShadowMount+
+has already done. Keep the game closed while it installs.
 
 ## Download
 
