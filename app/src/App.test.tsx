@@ -874,17 +874,37 @@ describe("what's installed on the PS5", () => {
     expect(await screen.findByText(/free where games go/)).toBeInTheDocument();
   });
 
-  it("measures a title's size when asked", async () => {
+  it("measures a title's size as soon as the library lists it", async () => {
     backend.installed = [ASHEN];
     backend.cfg.address = "192.168.1.42";
     render(<App backend={backend} />);
     await screen.findByText("Drop a game here");
     await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Measure" }));
 
     expect(await screen.findByText("2.0 GB")).toBeInTheDocument();
     expect(screen.getByText("No dump found where games go")).toBeInTheDocument();
     expect(backend.measureApp).toHaveBeenCalledWith("PPSA00001");
+    expect(screen.queryByRole("button", { name: "Measure" })).not.toBeInTheDocument();
+  });
+
+  it("opens a game's page with its size, details and add-ons, and goes back", async () => {
+    backend.installed = [ASHEN];
+    backend.cfg.address = "192.168.1.42";
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
+    await userEvent.click(await screen.findByText("Ashen Tide"));
+
+    expect(await screen.findByRole("button", { name: /Back to the library/ })).toBeInTheDocument();
+    expect(screen.getByText("PPSA00001")).toBeInTheDocument();
+    expect(await screen.findByText("2.0 GB")).toBeInTheDocument();
+    expect(screen.getByText("Add-ons on the PS5")).toBeInTheDocument();
+    expect(screen.getByText("TIDEBREAKER00000")).toBeInTheDocument();
+    expect(screen.getByText("SPDLC02")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Back to the library/ }));
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Back to the library/ })).not.toBeInTheDocument();
   });
 
   it("counts the dump the PS5 mounts the game from", async () => {
@@ -902,7 +922,6 @@ describe("what's installed on the PS5", () => {
     render(<App backend={backend} />);
     await screen.findByText("Drop a game here");
     await userEvent.click(screen.getByRole("tab", { name: "PS5" }));
-    await userEvent.click(await screen.findByRole("button", { name: "Measure" }));
 
     expect(await screen.findByText("98.4 GB")).toBeInTheDocument();
     expect(screen.getByText("With its dump in /data/homebrew")).toBeInTheDocument();

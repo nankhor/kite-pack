@@ -28,8 +28,10 @@ where packed copies go and which versions are running.
 The **PS5** tab has **Show what's installed**, and the start screen's **See what's on the PS5**
 opens the tab with it showing: every title the console has, with its tile, name, title id,
 version, whether its update is installed, how many add-ons it has, and which drive it is on.
-**Measure** on a title shows how much room it takes, app, update and add-ons counted separately,
-and the screen says how much room is left where games go.
+Its size is read as soon as the list opens (no button): app, update, add-ons and the dump it is
+mounted from, counted separately, and the screen says how much room is left where games go.
+Click any title for its page: version, update, storage, the size breakdown, its add-ons, and its
+story and screenshots from IGDB.
 
 Opening a game also says whether the console already has it, and marks the DLC that is already
 installed, so nothing is packed or sent blind.

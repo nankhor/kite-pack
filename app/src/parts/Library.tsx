@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Backend } from "../backend";
-import { formatSize } from "../model";
-import { parentOf } from "../paths";
+import { dumpNote, formatSize } from "../model";
 import type { GameIcon, InstalledGame, Library as LibraryData, Measured } from "../types";
 
 interface Props {
@@ -12,6 +11,14 @@ interface Props {
   destination: string;
   /** Why the console could not be read, when the chip already knows. */
   statusNote?: string | null;
+  /** Sizes already read for the titles in front, by title id. */
+  sizes: Record<string, Measured>;
+  /** Why a size couldn't be read, by title id. */
+  notes: Record<string, string>;
+  /** Asks for a title's size; the app reads them a few at a time and keeps them. */
+  onMeasure: (titleId: string) => void;
+  /** Opens the detailed page for a title. */
+  onOpen: (game: InstalledGame, icon?: string) => void;
 }
 
 type Loaded =
@@ -36,27 +43,15 @@ function version(v: string | null): string {
   return `${Number(m[1])}.${m[2].slice(0, 2).padEnd(2, "0")}`;
 }
 
-/** Where a measured title's size comes from: the dump it is mounted from, or only its launcher. */
-function dumpNote(m: Measured): string {
-  if (m.dumps.length === 0) return "No dump found where games go";
-  const folders = [...new Set(m.dumps.map(parentOf))];
-  return folders.length === 1 ? `With its dump in ${folders[0]}` : `With its dumps in ${folders.length} folders`;
-}
-
 /** What is on the PS5, read over the helper's read-only calls: nothing is changed there. */
-export function Library({ backend, onBack, destination, statusNote }: Props) {
+export function Library({ backend, onBack, destination, statusNote, sizes, notes, onMeasure, onOpen }: Props) {
   const [loaded, setLoaded] = useState<Loaded>({ phase: "loading" });
   const [icons, setIcons] = useState<Record<string, string>>({});
-  const [sizes, setSizes] = useState<Record<string, Measured>>({});
-  const [measuring, setMeasuring] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
   const [free, setFree] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoaded({ phase: "loading" });
-    setSizes({});
-    setNotes({});
     try {
       const library = await backend.library();
       setLoaded({ phase: "ready", library });
@@ -78,25 +73,19 @@ export function Library({ backend, onBack, destination, statusNote }: Props) {
     void load();
   }, [load]);
 
-  async function measure(game: InstalledGame) {
-    setMeasuring(game.titleId);
-    setNotes((n) => ({ ...n, [game.titleId]: "" }));
-    try {
-      const m = await backend.measureApp(game.titleId);
-      setSizes((s) => ({ ...s, [game.titleId]: m }));
-    } catch (e) {
-      setNotes((n) => ({ ...n, [game.titleId]: String(e) }));
-    } finally {
-      setMeasuring(null);
-    }
-  }
-
   const games = loaded.phase === "ready" ? loaded.library.games : [];
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return games;
     return games.filter((g) => g.title.toLowerCase().includes(q) || g.titleId.toLowerCase().includes(q));
   }, [games, query]);
+
+  // Sizes are read as soon as the list is: no button to press. The app reads a few at a time.
+  useEffect(() => {
+    for (const game of games) {
+      if (!sizes[game.titleId] && !notes[game.titleId]) onMeasure(game.titleId);
+    }
+  }, [games, sizes, notes, onMeasure]);
 
   const heading =
     loaded.phase === "loading"
@@ -175,18 +164,21 @@ export function Library({ backend, onBack, destination, statusNote }: Props) {
               {shown.map((game) => {
                 const measured = sizes[game.titleId];
                 return (
-                  <tr key={game.titleId}>
+                  <tr key={game.titleId} className="library-row" onClick={() => onOpen(game, icons[game.titleId])}>
                     <td>
                       <span className="history-game">
                         <Tile game={game} icon={icons[game.titleId]} />
                         <span className="history-name">
-                          <span className="history-title">{game.title}</span>
+                          <button
+                            className="link-button history-title"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onOpen(game, icons[game.titleId]);
+                            }}
+                          >
+                            {game.title}
+                          </button>
                           <span className="history-dlc">{game.titleId}</span>
-                          {notes[game.titleId] && (
-                            <span role="alert" className="game-card-note">
-                              {notes[game.titleId]}
-                            </span>
-                          )}
                         </span>
                       </span>
                     </td>
@@ -205,14 +197,12 @@ export function Library({ backend, onBack, destination, statusNote }: Props) {
                             {dumpNote(measured)}
                           </span>
                         </span>
+                      ) : notes[game.titleId] ? (
+                        <span role="alert" className="size-note">
+                          {notes[game.titleId]}
+                        </span>
                       ) : (
-                        <button
-                          className="small-button"
-                          onClick={() => void measure(game)}
-                          disabled={measuring === game.titleId}
-                        >
-                          {measuring === game.titleId ? "Measuring…" : "Measure"}
-                        </button>
+                        <span className="dim">Measuring…</span>
                       )}
                     </td>
                   </tr>

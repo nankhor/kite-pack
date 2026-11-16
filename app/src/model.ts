@@ -1,7 +1,7 @@
 // The screen's words and numbers, worked out from plain data so they can be tested.
 
-import { baseName } from "./paths";
-import type { GameInfo, HistoryEntry, JobView, ProgressState, StepKind, StepView } from "./types";
+import { baseName, parentOf } from "./paths";
+import type { GameInfo, HistoryEntry, JobView, Measured, ProgressState, StepKind, StepView } from "./types";
 
 export interface StepRow {
   label: string;
@@ -279,6 +279,13 @@ export function formatWhen(at: number, now: number): string {
   if (days === 1) return `Yesterday, ${time}`;
   const date = `${d.getDate()} ${MONTHS[d.getMonth()]}`;
   return d.getFullYear() === n.getFullYear() ? date : `${date} ${d.getFullYear()}`;
+}
+
+/** Where a measured title's size comes from: the dump it is mounted from, or only its launcher. */
+export function dumpNote(m: Measured): string {
+  if (m.dumps.length === 0) return "No dump found where games go";
+  const folders = [...new Set(m.dumps.map(parentOf))];
+  return folders.length === 1 ? `With its dump in ${folders[0]}` : `With its dumps in ${folders.length} folders`;
 }
 
 /** What History keeps of a finished job. */

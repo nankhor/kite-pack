@@ -10,12 +10,23 @@ import { HistoryPage } from "./parts/History";
 import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
 import { Options } from "./parts/Options";
+import { Ps5GamePage } from "./parts/Ps5GamePage";
 import { SettingsPage } from "./parts/Settings";
 import { Showcase, type DetailsView } from "./parts/Showcase";
 import { UpdateBar } from "./parts/UpdateBar";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
-import type { BundleItem, BundleSelection, GameInfo, Settings, SmpStatus, Status, View } from "./types";
+import type {
+  BundleItem,
+  BundleSelection,
+  GameInfo,
+  InstalledGame,
+  Measured,
+  Settings,
+  SmpStatus,
+  Status,
+  View,
+} from "./types";
 import { DEFAULT_PREFS, type UpdateInfo, type UpdatePrefs, type UpdateView } from "./updates";
 
 /** How often the PS5 chip checks the helper while the app is open. */
@@ -81,6 +92,17 @@ export default function App({
   const [installingBackport, setInstallingBackport] = useState(false);
   /** A DLC package/folder/backport picker is open, or the folder it gave is being read. */
   const [choosing, setChoosing] = useState(false);
+  /** The installed game whose page is open, and its tile. */
+  const [ps5Open, setPs5Open] = useState<{ game: InstalledGame; icon: string | null } | null>(null);
+  /** Sizes read for the console's games, by title id: read as soon as the library lists them. */
+  const [ps5Sizes, setPs5Sizes] = useState<Record<string, Measured>>({});
+  const [ps5Notes, setPs5Notes] = useState<Record<string, string>>({});
+  const ps5SizesRef = useRef<Record<string, Measured>>({});
+  const ps5Busy = useRef(new Set<string>());
+  const ps5Queue = useRef<string[]>([]);
+  const ps5Active = useRef(0);
+  /** Story and pictures for the installed game whose page is open. */
+  const [ps5Details, setPs5Details] = useState<{ key: string; view: DetailsView }>({ key: "", view: { state: "off" } });
 
   useEffect(() => {
     let live = true;
@@ -137,6 +159,60 @@ export default function App({
     setUpdatePrefsState(prefs);
     void backend.setUpdatePrefs(prefs);
   }
+  /** Reads a game's size on the console, a few at a time, and keeps it for the life of the app. */
+  function measurePs5(titleId: string) {
+    if (ps5SizesRef.current[titleId] || ps5Busy.current.has(titleId)) return;
+    ps5Busy.current.add(titleId);
+    ps5Queue.current.push(titleId);
+    pumpPs5();
+  }
+
+  function pumpPs5() {
+    while (ps5Active.current < 3 && ps5Queue.current.length > 0) {
+      const id = ps5Queue.current.shift()!;
+      ps5Active.current += 1;
+      void (async () => {
+        try {
+          const m = await backend.measureApp(id);
+          ps5SizesRef.current = { ...ps5SizesRef.current, [id]: m };
+          setPs5Sizes(ps5SizesRef.current);
+          setPs5Notes((n) => {
+            if (!(id in n)) return n;
+            const rest = { ...n };
+            delete rest[id];
+            return rest;
+          });
+        } catch (e) {
+          setPs5Notes((n) => ({ ...n, [id]: String(e) }));
+        } finally {
+          ps5Busy.current.delete(id);
+          ps5Active.current -= 1;
+          pumpPs5();
+        }
+      })();
+    }
+  }
+
+  const ps5Key = ps5Open?.game.titleId ?? "";
+  useEffect(() => {
+    if (!ps5Open) return;
+    if (!detailsOn) {
+      setPs5Details({ key: ps5Key, view: { state: "off" } });
+      return;
+    }
+    let live = true;
+    setPs5Details({ key: ps5Key, view: { state: "loading" } });
+    backend.gameDetails(ps5Open.game.title, ps5Open.game.titleId).then(
+      (d) => live && setPs5Details({ key: ps5Key, view: d ? { state: "found", details: d } : { state: "none" } }),
+      () => live && setPs5Details({ key: ps5Key, view: { state: "offline" } }),
+    );
+    return () => {
+      live = false;
+    };
+    // Only when the page opens or Settings changes the details switch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [backend, ps5Key, detailsOn]);
+
   const gameTitle = s.game?.title ?? null;
   const gameTitleId = s.game?.titleId ?? null;
   const detailsKey = gameTitleId ?? gameTitle ?? "";
@@ -562,13 +638,30 @@ export default function App({
         {header}
         <div className="page" {...panel("ps5")}>
           {s.settings.address ? (
-            <Library
-              backend={backend}
-              destination={s.settings.destination}
-              statusNote={
-                s.status?.state === "notReachable" ? "The PS5 isn't reachable; check the Kite helper is running." : null
-              }
-            />
+            ps5Open ? (
+              <Ps5GamePage
+                backend={backend}
+                game={ps5Open.game}
+                icon={ps5Open.icon}
+                measured={ps5Sizes[ps5Open.game.titleId] ?? null}
+                note={ps5Notes[ps5Open.game.titleId] ?? null}
+                details={ps5Details.key === ps5Key ? ps5Details.view : { state: "loading" }}
+                onMeasure={measurePs5}
+                onBack={() => setPs5Open(null)}
+              />
+            ) : (
+              <Library
+                backend={backend}
+                destination={s.settings.destination}
+                statusNote={
+                  s.status?.state === "notReachable" ? "The PS5 isn't reachable; check the Kite helper is running." : null
+                }
+                sizes={ps5Sizes}
+                notes={ps5Notes}
+                onMeasure={measurePs5}
+                onOpen={(game, icon) => setPs5Open({ game, icon: icon ?? null })}
+              />
+            )
           ) : (
             <section className="library" aria-label="Games on the PS5">
               <div className="library-top">

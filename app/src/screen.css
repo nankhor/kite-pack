@@ -1760,6 +1760,61 @@
   font: inherit;
 }
 
+.library-row {
+  cursor: pointer;
+}
+
+.library-row:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.ps5-game-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 0;
+}
+
+.ps5-game-badge {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mint, #7fe0c3);
+  border: 1px solid rgba(127, 224, 195, 0.35);
+  border-radius: 999px;
+  padding: 3px 8px;
+}
+
+.ps5-dlc {
+  margin-top: 18px;
+}
+
+.ps5-dlc h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  margin: 0 0 8px;
+}
+
+.ps5-dlc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.ps5-dlc-list li {
+  font-size: 11px;
+  color: var(--ink-dim);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
 .library-table .chip.update {
   min-height: 26px;
 }
