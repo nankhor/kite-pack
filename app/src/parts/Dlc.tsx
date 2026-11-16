@@ -108,7 +108,7 @@ export function Dlc({
     hint = `ShadowMount+ ${smp.version} found, but this game's base is mounted rather than installed, so its DLC goes inside the packed copy.`;
   }
   if (plan?.problem) hint = plan.problem;
-  else if (toInstall.length > 0) {
+  else if (toInstall.length > 0 && !smp?.installed) {
     hint =
       "An image or a .pkg can't carry DLC: installing it needs the PS5's package installer, which the Kite helper can't run yet.";
   }

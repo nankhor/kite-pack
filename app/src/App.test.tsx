@@ -1226,6 +1226,41 @@ describe("installing on the PS5 with ShadowMount+", () => {
     );
   });
 
+  it("installs DLC through ShadowMount+ for an image, which can't carry it", async () => {
+    backend.smpStatus.mockResolvedValue(SMP);
+    backend.cfg.address = "192.168.1.42";
+    backend.bundlePlan.mockResolvedValueOnce({
+      items: [
+        {
+          path: "/DLC/suits.pkg",
+          kind: "dlc",
+          name: "suits.pkg",
+          titleId: "PPSA01234",
+          contentId: "UP0000-PPSA01234_00-TIDEBREAKER00000",
+          label: "TIDEBREAKER00000",
+          bytes: 6_100_000_000,
+          problem: null,
+          route: "install",
+          iconDataUrl: null,
+        },
+      ],
+      route: "install",
+      problem: null,
+      emulatorFrom: "none",
+    });
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await addPackages("/DLC/suits.pkg");
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    expect(await screen.findByText(/1 of these install natively/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),
+    );
+  });
+
   it("installs a backport through ShadowMount+", async () => {
     backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, sourceType: "folder" });
     backend.pickBackport.mockResolvedValueOnce("/Backports/v1.00");

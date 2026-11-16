@@ -386,7 +386,7 @@ export default function App({
       .filter(
         (i) =>
           i.kind === "dlc" &&
-          i.route === "inPack" &&
+          (i.route === "inPack" || i.route === "install") &&
           !i.problem &&
           i.path.toLowerCase().endsWith(".pkg") &&
           !onConsole(i.label, installedLabels),
