@@ -171,22 +171,33 @@ export default function App({
   }
 
   function pumpPs5() {
-    while (ps5Active.current < 3 && ps5Queue.current.length > 0) {
+    // Two at a time: they share the console's disk, and a big dump is already slow enough.
+    while (ps5Active.current < 2 && ps5Queue.current.length > 0) {
       const id = ps5Queue.current.shift()!;
       ps5Active.current += 1;
       void (async () => {
         try {
-          const m = await backend.measureApp(id);
-          ps5SizesRef.current = { ...ps5SizesRef.current, [id]: m };
-          setPs5Sizes(ps5SizesRef.current);
-          setPs5Notes((n) => {
-            if (!(id in n)) return n;
-            const rest = { ...n };
-            delete rest[id];
-            return rest;
-          });
-        } catch (e) {
-          setPs5Notes((n) => ({ ...n, [id]: String(e) }));
+          // A lost session is often transient: one fresh try before the row gives up.
+          for (let attempt = 0; ; attempt += 1) {
+            try {
+              const m = await backend.measureApp(id);
+              ps5SizesRef.current = { ...ps5SizesRef.current, [id]: m };
+              setPs5Sizes(ps5SizesRef.current);
+              setPs5Notes((n) => {
+                if (!(id in n)) return n;
+                const rest = { ...n };
+                delete rest[id];
+                return rest;
+              });
+              break;
+            } catch (e) {
+              if (attempt >= 1) {
+                setPs5Notes((n) => ({ ...n, [id]: String(e) }));
+                break;
+              }
+              await new Promise((done) => setTimeout(done, 1200));
+            }
+          }
         } finally {
           ps5Busy.current.delete(id);
           ps5Active.current -= 1;

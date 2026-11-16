@@ -16,8 +16,10 @@ use std::time::Duration;
 
 use crate::Ps5Error;
 
-/// One request may take this long before the call gives up.
+/// One request may take this long before the call gives up. A size walk is allowed much longer:
+/// a big dump takes time on the console, and the session stays alive independently of the call.
 const CALL_TIMEOUT: Duration = Duration::from_secs(6);
+const DU_TIMEOUT: Duration = Duration::from_secs(120);
 /// The helper's page size and read cap (`meta.h`).
 const PAGE: u32 = 256;
 const READ_MAX: usize = 256 * 1024;
@@ -173,9 +175,20 @@ fn kind(i: u8) -> String {
 }
 
 async fn call(s: &Session, method: u16, path: &str, offset: u64, limit: u32) -> Result<Vec<u8>, MetaError> {
+    call_within(s, method, path, offset, limit, CALL_TIMEOUT).await
+}
+
+async fn call_within(
+    s: &Session,
+    method: u16,
+    path: &str,
+    offset: u64,
+    limit: u32,
+    within: Duration,
+) -> Result<Vec<u8>, MetaError> {
     let body = request(path, offset, limit)?;
     let reply = s
-        .rpc_within(method, &body, CALL_TIMEOUT)
+        .rpc_within(method, &body, within)
         .await
         .map_err(|e| MetaError::Network(crate::connect::map_error(e)))?;
     match reply.status {
@@ -268,7 +281,7 @@ pub async fn read_all(s: &Session, path: &str, max: usize) -> Result<Vec<u8>, Me
 
 /// The recursive size of `path`, as the console's drives count it.
 pub async fn du(s: &Session, path: &str) -> Result<Usage, MetaError> {
-    let body = call(s, METHOD_FS_DU, path, 0, 0).await?;
+    let body = call_within(s, METHOD_FS_DU, path, 0, 0, DU_TIMEOUT).await?;
     let mut r = Reader::new(&body);
     Ok(Usage { bytes: r.u64()?, files: r.u64()?, dirs: r.u64()?, partial: r.u8()? != 0 })
 }
