@@ -90,6 +90,9 @@ export default function App({
   /** Why ShadowMount+ couldn't be reached, when it couldn't. */
   const [smpError, setSmpError] = useState<string | null>(null);
   const [installingBackport, setInstallingBackport] = useState(false);
+  /** Reading the picks once more, right before a job starts, so a stale plan can't leave DLC out. */
+  const [preparing, setPreparing] = useState(false);
+  const preparingRef = useRef(false);
   /** A DLC package/folder/backport picker is open, or the folder it gave is being read. */
   const [choosing, setChoosing] = useState(false);
   /** The installed game whose page is open, and its tile. */
@@ -439,8 +442,10 @@ export default function App({
   const installedLabels = s.onPs5?.dlc ?? [];
 
   async function pack() {
-    if (!s.source) return;
-    const picked = current.current.bundle.dlc.length + (current.current.bundle.backport ? 1 : 0);
+    if (!s.source || preparingRef.current) return;
+    preparingRef.current = true;
+    const bundlePicks = current.current.bundle;
+    const picked = bundlePicks.dlc.length + (bundlePicks.backport ? 1 : 0);
     if (choosing) {
       dispatch({ type: "message", text: "Still adding the DLC you picked. Pack again in a moment." });
       return;
@@ -453,11 +458,18 @@ export default function App({
       dispatch({ type: "message", text: "Couldn't read the DLC you picked: remove them and add them again." });
       return;
     }
-    dispatch({ type: "starting" });
     const send = s.options.send && sendable;
+    setPreparing(true);
     try {
+      // Read the picks once more right here: the screen's plan may be from before the last pick.
+      let plan = s.bundlePlan;
+      if (picked > 0) {
+        dispatch({ type: "message", text: "Reading the DLC you picked…" });
+        plan = await backend.bundlePlan(s.source, bundlePicks.dlc, bundlePicks.backport);
+        dispatch({ type: "plan", plan });
+      }
       // Only what goes inside the packed copy is sent; DLC the console already has stays out.
-      const items = (s.bundlePlan?.items ?? []).filter(
+      const items = (plan?.items ?? []).filter(
         (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
       );
       // DLC packages a native install can take go to ShadowMount+, not into the pack.
@@ -473,9 +485,13 @@ export default function App({
         dlc: native,
         bundle,
       };
+      dispatch({ type: "starting" });
       dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
+    } finally {
+      preparingRef.current = false;
+      setPreparing(false);
     }
   }
 
@@ -754,7 +770,9 @@ export default function App({
     (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels) && !nativeDlc.includes(i.path),
   ).length;
   const note =
-    s.phase === "ready" || !s.job
+    preparing
+      ? "Reading the DLC you picked…"
+      : s.phase === "ready" || !s.job
       ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, bundled: goingIn })
       : footerNote({ kind: s.phase, job: s.job });
 
@@ -821,7 +839,7 @@ export default function App({
             phase={s.phase}
             note={note}
             canShow={packedKept}
-            canPack={!choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
+            canPack={!preparing && !choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}

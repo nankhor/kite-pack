@@ -688,6 +688,44 @@ describe("inside the packed copy", () => {
     expect(within(list).getAllByText("In the pack")).toHaveLength(2);
   });
 
+  it("re-reads the picks at Pack time, so a stale plan can't leave DLC out", async () => {
+    await showGame();
+    await addPackages("/DLC/suits.pkg");
+    await screen.findByRole("button", { name: /1 add-on/ });
+
+    // The screen's plan is not trusted at start: the reads are cleared, and the one Pack does
+    // must be the one that names the package.
+    backend.bundlePlan.mockClear();
+    backend.bundlePlan.mockResolvedValueOnce({
+      items: [
+        {
+          path: "/DLC/suits.pkg",
+          kind: "dlc",
+          name: "suits.pkg",
+          titleId: "PPSA01234",
+          contentId: "UP0000-PPSA01234_00-TIDEBREAKER00000",
+          label: "TIDEBREAKER00000",
+          bytes: 6_100_000_000,
+          problem: null,
+          route: "inPack",
+          iconDataUrl: null,
+        },
+      ],
+      route: "inPack",
+      problem: null,
+      emulatorFrom: "builtin",
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+
+    await waitFor(() =>
+      expect(backend.start).toHaveBeenLastCalledWith(
+        "/Games/Ashen Tide",
+        expect.objectContaining({ bundle: { dlc: ["/DLC/suits.pkg"], backport: null } }),
+      ),
+    );
+    expect(backend.bundlePlan).toHaveBeenCalledWith("/Games/Ashen Tide", ["/DLC/suits.pkg"], null);
+  });
+
   it("does not let Pack start while the picked DLC is still being read", async () => {
     await showGame();
     // A plan that never answers: the picks are still being read.
