@@ -1261,6 +1261,33 @@ describe("installing on the PS5 with ShadowMount+", () => {
     );
   });
 
+  it("says why no package installer is available, with the reason", async () => {
+    backend.cfg.address = "192.168.1.42";
+    // Every plan call says the package needs installing, so the plan read on picking is that one.
+    backend.bundlePlan.mockImplementation(async (_source, dlc) => ({
+      items: dlc.map((path) => ({
+        path,
+        kind: "dlc" as const,
+        name: path.split("/").pop() ?? path,
+        titleId: "PPSA01234",
+        contentId: "UP0000-PPSA01234_00-TIDEBREAKER00000",
+        label: "TIDEBREAKER00000",
+        bytes: 6_100_000_000,
+        problem: null,
+        route: "install" as const,
+        iconDataUrl: null,
+      })),
+      route: "install" as const,
+      problem: null,
+      emulatorFrom: "none" as const,
+    }));
+    await showGame();
+    await addPackages("/DLC/suits.pkg");
+    expect(
+      await screen.findByText(/No package installer: ShadowMount\+ didn't answer at 192\.168\.1\.42:10101/),
+    ).toBeInTheDocument();
+  });
+
   it("installs a backport through ShadowMount+", async () => {
     backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, sourceType: "folder" });
     backend.pickBackport.mockResolvedValueOnce("/Backports/v1.00");

@@ -11,6 +11,10 @@ interface Props {
   installed: string[];
   /** ShadowMount+, when it answers. */
   smp: SmpStatus | null;
+  /** Why ShadowMount+ couldn't be asked, when it couldn't. */
+  smpError: string | null;
+  /** The PS5's address, for the hint. */
+  smpAddress: string | null;
   /** The DLC packages ShadowMount+ will install natively. */
   nativeDlc: string[];
   /** Sending a backport to ShadowMount+ right now. */
@@ -70,6 +74,8 @@ export function Dlc({
   busy,
   installed,
   smp,
+  smpError,
+  smpAddress,
   nativeDlc,
   installingBackport,
   gameIcon,
@@ -109,8 +115,11 @@ export function Dlc({
   }
   if (plan?.problem) hint = plan.problem;
   else if (toInstall.length > 0 && !smp?.installed) {
-    hint =
-      "An image or a .pkg can't carry DLC: installing it needs the PS5's package installer, which the Kite helper can't run yet.";
+    hint = smp
+      ? `ShadowMount+ ${smp.version} answered, but this game's base is mounted rather than installed, and it refuses DLC for those.`
+      : `No package installer: ShadowMount+ didn't answer${smpAddress ? ` at ${smpAddress}:10101` : ""}${
+          smpError ? ` (${smpError})` : ""
+        }. Start it, then reopen this game.`;
   }
   const backport = items.find((i) => i.kind === "backport");
 
@@ -234,7 +243,11 @@ export function Dlc({
               <p className="popover-note">The DLC emulator Kite Pack carries goes into the game's fakelib/.</p>
             )}
             {toInstall.length > 0 && (
-              <p className="popover-note">Marked “After install” will not be packed: there is no package installer yet.</p>
+              <p className="popover-note">
+                {smp?.installed
+                  ? "ShadowMount+ installs these on the PS5 after the game is sent."
+                  : "Marked “After install” will not be packed: no package installer is available."}
+              </p>
             )}
           </div>
         )}

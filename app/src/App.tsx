@@ -76,6 +76,8 @@ export default function App({
   const [updatePrefs, setUpdatePrefsState] = useState<UpdatePrefs>(DEFAULT_PREFS);
   /** ShadowMount+, when it answers: it can install DLC packages and backports natively. */
   const [smp, setSmp] = useState<SmpStatus | null>(null);
+  /** Why ShadowMount+ couldn't be reached, when it couldn't. */
+  const [smpError, setSmpError] = useState<string | null>(null);
   const [installingBackport, setInstallingBackport] = useState(false);
 
   useEffect(() => {
@@ -242,11 +244,17 @@ export default function App({
   useEffect(() => {
     let live = true;
     setSmp(null);
-    if (!titleId) return;
+    setSmpError(null);
+    // Even without a title id the version answers, and that is what says whether there is an
+    // installer at all (a backport doesn't need the game to be known).
     backend
       .smpStatus(titleId)
       .then((found) => live && setSmp(found))
-      .catch(() => live && setSmp(null));
+      .catch((e: unknown) => {
+        if (!live) return;
+        setSmp(null);
+        setSmpError(String(e));
+      });
     return () => {
       live = false;
     };
@@ -569,6 +577,8 @@ export default function App({
             status={s.status}
             version={version}
             dlcEmuVersion={dlcEmu}
+            smp={smp}
+            smpError={smpError}
             detailsOn={detailsOn}
             onDetailsOn={switchDetails}
             updatePrefs={updatePrefs}
@@ -660,6 +670,8 @@ export default function App({
                 busy={readingPicks}
                 installed={installedLabels}
                 smp={smp}
+                smpError={smpError}
+                smpAddress={s.settings?.address ?? null}
                 nativeDlc={nativeDlc}
                 installingBackport={installingBackport}
                 gameIcon={s.game.iconDataUrl}

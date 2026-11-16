@@ -1,4 +1,4 @@
-import type { Found, Settings, StartOutcome, Status } from "../types";
+import type { Found, Settings, SmpStatus, StartOutcome, Status } from "../types";
 import { useState } from "react";
 import type { UpdatePrefs } from "../updates";
 import { Switch } from "./Options";
@@ -11,6 +11,10 @@ interface Props {
   version: string | null;
   /** The dlc_emu release the app carries; null until read. */
   dlcEmuVersion: string | null;
+  /** ShadowMount+, when it answers. */
+  smp?: SmpStatus | null;
+  /** Why ShadowMount+ couldn't be asked, when it couldn't. */
+  smpError?: string | null;
   /** Whether the Pack page looks games up on IGDB. */
   detailsOn: boolean;
   onDetailsOn: (on: boolean) => void;
@@ -25,7 +29,7 @@ interface Props {
 }
 
 /** Behind the gear: the PS5 connection, where things go, and which versions are running. */
-export function SettingsPage({ settings, status, version, dlcEmuVersion, detailsOn, onDetailsOn, updatePrefs, onUpdatePrefs, onCheckUpdate, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
+export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, smpError, detailsOn, onDetailsOn, updatePrefs, onUpdatePrefs, onCheckUpdate, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
   const [checkNote, setCheckNote] = useState<string | null>(null);
 
   async function checkNow() {
@@ -133,6 +137,16 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, details
             <div>
               <dt>DLC emulator</dt>
               <dd>{dlcEmuVersion ? `dlc_emu ${dlcEmuVersion}, included` : "Included"}</dd>
+            </div>
+            <div>
+              <dt>ShadowMount+</dt>
+              <dd>
+                {smp
+                  ? `${smp.version} at ${smp.host}:${smp.port}${smp.installed ? "" : smp.baseInstalled ? ", base mounted" : ""}`
+                  : smpError
+                    ? `Not answering (${smpError})`
+                    : "Not checked yet"}
+              </dd>
             </div>
           </dl>
           <p className="field-hint">The source and the release notes are at github.com/nankhor/kite-pack.</p>
