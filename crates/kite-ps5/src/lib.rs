@@ -7,6 +7,7 @@ mod launch;
 mod library;
 mod meta;
 mod pkgserve;
+mod sony_install;
 mod send;
 mod settings;
 mod smp;
@@ -22,6 +23,7 @@ pub use library::{
 };
 pub use meta::{Entry, FreeSpace, MetaError, Usage};
 pub use pkgserve::PkgServer;
+pub use sony_install::SonyInstaller;
 pub use send::Ps5Sender;
 pub use settings::Settings;
 pub use smp::{INCOMING, SmpInstaller};

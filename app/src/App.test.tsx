@@ -99,7 +99,6 @@ class FakeBackend implements Backend {
     throw "nothing answers";
   });
   helperVersion = "0.1.0-alpha.3";
-  installDlcNative = vi.fn(async (_path: string, _titleId: string) => "LABEL");
   installBackport = vi.fn(async (_path: string) => {});
   bundlePlan = vi.fn(async (_source: string, dlc: string[], backport: string | null): Promise<BundlePlan> => ({
     items: [
@@ -728,22 +727,6 @@ describe("inside the packed copy", () => {
     expect(backend.bundlePlan).toHaveBeenCalledWith("/Games/Ashen Tide", ["/DLC/suits.pkg"], null);
   });
 
-  it("streams the picked DLC to Sony's installer when the helper supports it", async () => {
-    backend.helperVersion = "0.3.0";
-    backend.cfg.address = "192.168.1.42";
-    await showGame();
-    await screen.findByRole("button", { name: /Helper running/ });
-    await addPackages("/DLC/suits.pkg", "/DLC/map.pkg");
-
-    const install = await screen.findByRole("button", { name: "Install DLC on the PS5 (stream)" });
-    await userEvent.click(install);
-
-    await waitFor(() => expect(backend.installDlcNative).toHaveBeenCalledTimes(2));
-    expect(backend.installDlcNative).toHaveBeenNthCalledWith(1, "/DLC/suits.pkg", "PPSA01234");
-    expect(backend.installDlcNative).toHaveBeenNthCalledWith(2, "/DLC/map.pkg", "PPSA01234");
-    expect(await screen.findByText("2 DLC installed on the PS5.")).toBeInTheDocument();
-  });
-
   it("does not let Pack start while the picked DLC is still being read", async () => {
     await showGame();
     // A plan that never answers: the picks are still being read.
@@ -1276,17 +1259,17 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await userEvent.click(screen.getByRole("menuitem", { name: /Packages/ }));
   }
 
-  it("installs packages natively when the base is installed as a package", async () => {
-    backend.smpStatus.mockResolvedValue(SMP);
+  it("installs packages natively when the helper can stream them", async () => {
+    backend.helperVersion = "0.3.0";
     backend.cfg.address = "192.168.1.42";
     await showGame();
     await screen.findByRole("button", { name: /Helper running/ });
     await addPackages("/DLC/suits.pkg");
     await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
 
-    expect(await screen.findByText(/1 of these install natively/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 of these install on the PS5 through Sony's installer/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /1 add-on/ }));
-    expect(screen.getByText("Via ShadowMount+")).toBeInTheDocument();
+    expect(screen.getByText("Installs on the PS5")).toBeInTheDocument();
 
 
     await userEvent.click(screen.getByRole("button", { name: "Pack" }));
@@ -1296,8 +1279,8 @@ describe("installing on the PS5 with ShadowMount+", () => {
     );
   });
 
-  it("keeps packages in the pack when the base is only mounted", async () => {
-    backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, baseInstalled: true, sourceType: "folder" });
+  it("keeps packages in the pack when the helper can't stream installs", async () => {
+    backend.helperVersion = "0.2.0";
     backend.cfg.address = "192.168.1.42";
     await showGame();
     await screen.findByRole("button", { name: /Helper running/ });
@@ -1312,8 +1295,24 @@ describe("installing on the PS5 with ShadowMount+", () => {
     );
   });
 
-  it("installs DLC through ShadowMount+ for an image, which can't carry it", async () => {
-    backend.smpStatus.mockResolvedValue(SMP);
+  it("installs natively on a mounted game when the helper can stream", async () => {
+    backend.helperVersion = "0.3.0";
+    backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, baseInstalled: true, sourceType: "folder" });
+    backend.cfg.address = "192.168.1.42";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await addPackages("/DLC/suits.pkg");
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),
+    );
+  });
+
+  it("installs DLC for an image when the helper can stream it", async () => {
+    backend.helperVersion = "0.3.0";
     backend.cfg.address = "192.168.1.42";
     backend.bundlePlan.mockResolvedValueOnce({
       items: [
@@ -1338,7 +1337,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await screen.findByRole("button", { name: /Helper running/ });
     await addPackages("/DLC/suits.pkg");
     await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
-    expect(await screen.findByText(/1 of these install natively/)).toBeInTheDocument();
+    expect(await screen.findByText(/1 of these install on the PS5 through Sony's installer/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Pack" }));
     expect(backend.start).toHaveBeenLastCalledWith(
@@ -1370,7 +1369,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await showGame();
     await addPackages("/DLC/suits.pkg");
     expect(
-      await screen.findByText(/No package installer: ShadowMount\+ didn't answer at 192\.168\.1\.42:10101/),
+      await screen.findByText(/An image can't carry DLC: unpack it to a folder first/),
     ).toBeInTheDocument();
   });
 

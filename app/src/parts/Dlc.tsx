@@ -13,20 +13,10 @@ interface Props {
   installed: string[];
   /** ShadowMount+, when it answers. */
   smp: SmpStatus | null;
-  /** Why ShadowMount+ couldn't be asked, when it couldn't. */
-  smpError: string | null;
-  /** The PS5's address, for the hint. */
-  smpAddress: string | null;
   /** The DLC packages ShadowMount+ will install natively. */
   nativeDlc: string[];
   /** Sending a backport to ShadowMount+ right now. */
   installingBackport: boolean;
-  /** Streaming the picked packages to Sony's installer right now. */
-  installingNative: boolean;
-  /** The helper answers Sony's installer (0.3.0+), so DLC can be streamed and installed. */
-  canInstallNative: boolean;
-  /** Streams the picked .pkg DLC to Sony's installer, one by one. */
-  onInstallNative: () => void;
   /** Sends the picked backport to ShadowMount+, which applies it at the next launch. */
   onInstallBackport: () => void;
   /** Stands in for a DLC that has no icon of its own. */
@@ -64,7 +54,7 @@ const isInstalled = (item: BundleItem, installed: string[]) =>
 function badge(item: BundleItem, installed: string[], nativeDlc: string[]): [string, string] {
   if (item.problem) return ["Can't go in", "bad"];
   if (isInstalled(item, installed)) return ["On the PS5", "have"];
-  if (nativeDlc.includes(item.path)) return ["Via ShadowMount+", "kind"];
+  if (nativeDlc.includes(item.path)) return ["Installs on the PS5", "kind"];
   if (item.kind === "backport") return ["Backport", "kind"];
   if (item.route === "install") return ["After install", "wait"];
   return ["In the pack", "kind"];
@@ -83,13 +73,8 @@ export function Dlc({
   picked,
   installed,
   smp,
-  smpError,
-  smpAddress,
   nativeDlc,
   installingBackport,
-  installingNative,
-  canInstallNative,
-  onInstallNative,
   gameIcon,
   onAddPackages,
   onAddFolder,
@@ -121,18 +106,13 @@ export function Dlc({
   if (busy) hint = "Reading what you picked…";
   else if (picked > 0 && !plan) hint = "Couldn't read the DLC you picked: remove them and add them again.";
   else if (items.length > 0) hint = "Added to the packed copy.";
-  if (smp?.installed && nativeDlc.length > 0) {
-    hint = `ShadowMount+ ${smp.version} found: ${nativeDlc.length} of these install natively on the PS5 when it is sent.`;
-  } else if (smp && !smp.installed && dlc.length > 0) {
-    hint = `ShadowMount+ ${smp.version} found, but this game's base is mounted rather than installed, so its DLC goes inside the packed copy.`;
+  if (nativeDlc.length > 0) {
+    hint = `${nativeDlc.length} of these install on the PS5 through Sony's installer once the game is sent.`;
   }
   if (plan?.problem) hint = plan.problem;
-  else if (toInstall.length > 0 && !smp?.installed) {
-    hint = smp
-      ? `ShadowMount+ ${smp.version} answered, but this game's base is mounted rather than installed, and it refuses DLC for those.`
-      : `No package installer: ShadowMount+ didn't answer${smpAddress ? ` at ${smpAddress}:10101` : ""}${
-          smpError ? ` (${smpError})` : ""
-        }. Start it, then reopen this game.`;
+  else if (toInstall.length > 0) {
+    hint =
+      "An image can't carry DLC: unpack it to a folder first, or install the game as a PKG so Sony's installer can add the DLC.";
   }
   const backport = items.find((i) => i.kind === "backport");
 
@@ -198,16 +178,6 @@ export function Dlc({
             Closing the app while packing starts the pack over; sending picks up where it stopped.
           </p>
         )}
-        {canInstallNative && items.some((i) => i.path.toLowerCase().endsWith(".pkg")) && (
-          <button
-            className="add-button"
-            onClick={onInstallNative}
-            disabled={installingNative || busy}
-            title="Sends them to the PS5 and installs them through Sony's installer, like ps5upload does."
-          >
-            {installingNative ? "Installing…" : "Install DLC on the PS5 (stream)"}
-          </button>
-        )}
         {backport && smp && (
           <button
             className="add-button"
@@ -272,8 +242,8 @@ export function Dlc({
             )}
             {toInstall.length > 0 && (
               <p className="popover-note">
-                {smp?.installed
-                  ? "ShadowMount+ installs these on the PS5 after the game is sent."
+                {nativeDlc.length > 0
+                  ? "These install on the PS5 after the game is sent."
                   : "Marked “After install” will not be packed: no package installer is available."}
               </p>
             )}

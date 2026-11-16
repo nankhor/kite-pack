@@ -71,12 +71,15 @@ screen asks you to start the new one.
 
 ### Installing DLC through Sony's installer
 
-The helper 0.3.0 can also hand a package to **Sony's installer** with
-`sceAppInstUtilInstallByPackage`, the route ps5upload uses. In the DLC panel, **Install DLC on
-the PS5 (stream)** serves the picked `.pkg` files from this computer over the network, has the
-console fetch and install them, and waits until each shows up in the console's add-on list.
-It works for a mounted folder game too: Sony only needs the title registered, which ShadowMount+
-has already done. Keep the game closed while it installs.
+With the helper 0.3.0 and **Send** on, picked `.pkg` DLC are installed through **Sony's
+installer** (the route ps5upload uses) after the game has been sent, instead of being packed:
+the app serves each package from this computer, the console fetches it, Sony writes it to
+`/user/addcont`, and the job only marks it done once it appears there. The list says
+**Installs on the PS5** for those, and no `dlc_emu`/`fakelib` is involved. This works for a
+mounted folder game too: Sony only needs the title registered, which ShadowMount+ has done.
+
+With Send off, or an older helper, the DLC go inside the packed copy instead (**In the pack**),
+as before. Keep the game closed while the DLC install.
 
 ## Download
 

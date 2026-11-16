@@ -2582,6 +2582,7 @@ version = "0.1.3"
 dependencies = [
  "ava1",
  "if-addrs",
+ "kite-forge",
  "kite-pipeline",
  "kite-smp",
  "serde",

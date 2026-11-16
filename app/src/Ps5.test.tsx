@@ -38,7 +38,6 @@ class FakeBackend implements Backend {
   smpStatus = vi.fn(async () => {
     throw "nothing answers";
   });
-  installDlcNative = vi.fn(async (_path: string, _titleId: string) => "LABEL");
   installBackport = vi.fn(async (_path: string) => {});
   bundlePlan = vi.fn(async () => ({ items: [], route: "inPack" as const, problem: null, emulatorFrom: "none" as const }));
   pickDlcFolder = vi.fn(async () => null);

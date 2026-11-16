@@ -70,8 +70,6 @@ export interface Backend {
   smpStatus(titleId?: string | null): Promise<SmpStatus>;
   /** Sends a backport folder and has ShadowMount+ install it; rejects with the reason. */
   installBackport(path: string): Promise<void>;
-  /** Streams a DLC package to Sony's installer on the PS5; answers the installed label. */
-  installDlcNative(path: string, titleId: string): Promise<string>;
   /** What the PS5 has installed (reads the console; takes a couple of seconds). */
   library(): Promise<Library>;
   /** One title on the console by id, or null when it is not installed. */
@@ -153,7 +151,6 @@ export const tauriBackend: Backend = {
   dlcEmuVersion: () => invoke("dlc_emu_version"),
   smpStatus: (titleId) => invoke("smp_status", { titleId: titleId ?? null }),
   installBackport: (path) => invoke("install_backport", { path }),
-  installDlcNative: (path, titleId) => invoke("install_dlc_native", { path, titleId }),
   bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
   pickDlcFolder: async () => single(await open({ directory: true, multiple: false })),
   pickBackport: async () => single(await open({ directory: true, multiple: false })),

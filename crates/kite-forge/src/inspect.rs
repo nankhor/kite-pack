@@ -38,6 +38,29 @@ pub struct DlcInfo {
     pub icon_data_url: Option<String>,
 }
 
+/// A DLC package on its own: the game it belongs to, and its content id, label, name and size.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DlcPackage {
+    pub title_id: String,
+    pub info: DlcInfo,
+}
+
+/// Reads a DLC package without needing its game: Sony's installer wants the game id and label.
+pub fn inspect_dlc(path: &Path) -> Result<DlcPackage, String> {
+    let found = inspect(path).map_err(|e| format!("{e:#}"))?;
+    if !found.additional_content {
+        return Err("That isn't a DLC package".into());
+    }
+    let content_id = found.content_id.ok_or("A DLC without a content id can't be installed")?;
+    let title_id = found.title_id.ok_or("A DLC without a game id can't be installed")?;
+    let label = content_id.chars().rev().take(16).collect::<Vec<_>>().into_iter().rev().collect();
+    Ok(DlcPackage {
+        title_id,
+        info: DlcInfo { content_id, label, name: found.title_name, bytes: found.total_bytes, icon_data_url: found.cover },
+    })
+}
+
 /// Why a dropped file can't be packed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceProblem {
