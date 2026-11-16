@@ -109,15 +109,28 @@ pub struct Client {
 impl Client {
     /// `host` is an IPv4 or IPv6 address without a scheme; IPv6 goes in brackets.
     pub fn new(host: &str, port: u16) -> Client {
-        let host = host
-            .trim()
-            .trim_start_matches("http://")
+        // A pasted address may carry a scheme, a port, or brackets around an IPv6 address.
+        let raw = host.trim();
+        let raw = raw
+            .strip_prefix("http://")
+            .or_else(|| raw.strip_prefix("https://"))
+            .unwrap_or(raw)
             .trim_end_matches('/');
-        let host = if host.contains(':') && !host.starts_with('[') {
-            format!("[{host}]")
+        let host = if let Some(rest) = raw.strip_prefix('[') {
+            // [v6] or [v6]:port: take the bracket contents.
+            rest.split(']').next().unwrap_or(rest).to_string()
+        } else if raw.matches(':').count() == 1 {
+            // host:port, but not a bare IPv6 address.
+            let (before, after) = raw.split_once(':').unwrap_or((raw, ""));
+            if after.chars().all(|c| c.is_ascii_digit()) && !after.is_empty() {
+                before.to_string()
+            } else {
+                raw.to_string()
+            }
         } else {
-            host.to_string()
+            raw.to_string()
         };
+        let host = if host.contains(':') { format!("[{host}]") } else { host };
         Client {
             base: format!("http://{host}:{port}"),
         }
@@ -404,6 +417,16 @@ mod tests {
             .install_backport("/data/kite/incoming/PPSA01234 Game")
             .unwrap();
         assert_eq!(job.job_id, 3);
+    }
+
+    #[test]
+    fn addresses_with_a_scheme_or_a_port_still_point_at_the_api() {
+        let a = Client::new("192.168.1.42", 10101);
+        assert_eq!(a.base(), "http://192.168.1.42:10101");
+        assert_eq!(Client::new("192.168.1.42:9131", 10101).base(), a.base());
+        assert_eq!(Client::new("http://192.168.1.42:9131/", 10101).base(), a.base());
+        assert_eq!(Client::new("[fe80::1]", 10101).base(), "http://[fe80::1]:10101");
+        assert_eq!(Client::new("[fe80::1]:9131", 10101).base(), "http://[fe80::1]:10101");
     }
 
     #[test]

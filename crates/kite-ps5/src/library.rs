@@ -420,24 +420,35 @@ async fn measure_on(s: &Session, title_id: &str, game_dirs: &[String]) -> Result
     let app_dir = format!("{APP}/{title_id}");
     let patch_dir = format!("{PATCH}/{title_id}");
     let dlc_dir = format!("{ADDCONT}/{title_id}");
-    let (app, update, dlc) =
-        tokio::join!(meta::du(s, &app_dir), meta::du(s, &patch_dir), meta::du(s, &dlc_dir));
-    let (app, update, dlc) = (or_zero(app)?, or_zero(update)?, or_zero(dlc)?);
+    // Walked here, one folder at a time, rather than with the helper's own recursive walk: a
+    // single call over a 90 GB dump takes longer than the session's 12-second dead limit, and the
+    // link is declared lost while the console is still counting. A `list` per folder keeps the
+    // session answering, and leaves the helper at 0.2.0.
+    let app = walk_usage(s, &app_dir).await?;
+    let update = walk_usage(s, &patch_dir).await?;
+    let dlc = walk_usage(s, &dlc_dir).await?;
 
     let dumps = find_dumps(s, title_id, game_dirs).await?;
-    let (mut dump_bytes, mut dump_partial) = (0, false);
-    for path in &dumps {
-        let u = or_zero(meta::du(s, path).await)?;
-        dump_bytes += u.bytes;
-        dump_partial |= u.partial;
+    let (mut dump_bytes, mut dump_partial) = (0u64, false);
+    for dump in &dumps {
+        match dump.bytes {
+            // A dump that is one image file: its size came with the listing.
+            Some(bytes) => dump_bytes = dump_bytes.saturating_add(bytes),
+            None => {
+                let u = walk_usage(s, &dump.path).await?;
+                dump_bytes = dump_bytes.saturating_add(u.bytes);
+                dump_partial |= u.partial;
+            }
+        }
     }
+    let paths = dumps.into_iter().map(|d| d.path).collect();
     Ok(Measured {
         bytes: app.bytes + update.bytes + dlc.bytes + dump_bytes,
         app_bytes: app.bytes,
         update_bytes: update.bytes,
         dlc_bytes: dlc.bytes,
         dump_bytes,
-        dumps,
+        dumps: paths,
         partial: app.partial || update.partial || dlc.partial || dump_partial,
     })
 }
@@ -451,7 +462,13 @@ const DUMP_PROBE_MAX: usize = 300;
 /// (`PPSA08338-app`, `[Name]-[PPSA08338].ffpkg`, whatever its case), and any other folder whose
 /// `sce_sys/param.json` says it is that title. A folder that is missing, or that the helper
 /// won't read, has none.
-async fn find_dumps(s: &Session, title_id: &str, game_dirs: &[String]) -> Result<Vec<String>, MetaError> {
+struct Dump {
+    path: String,
+    /// Set for a dump that is one image file; a folder is walked instead.
+    bytes: Option<u64>,
+}
+
+async fn find_dumps(s: &Session, title_id: &str, game_dirs: &[String]) -> Result<Vec<Dump>, MetaError> {
     let want = title_id.to_ascii_uppercase();
     let mut found = Vec::new();
     let mut probes = 0;
@@ -470,17 +487,17 @@ async fn find_dumps(s: &Session, title_id: &str, game_dirs: &[String]) -> Result
         for e in entries.iter().take(DUMP_SCAN_MAX) {
             let path = format!("{dir}/{}", e.name);
             if e.name.to_ascii_uppercase().contains(&want) {
-                found.push(path);
+                found.push(Dump { path, bytes: (!e.is_folder()).then_some(e.size) });
             } else if e.is_folder() && probes < DUMP_PROBE_MAX {
                 probes += 1;
                 let param = meta::read_all(s, &format!("{path}/sce_sys/param.json"), PARAM_MAX).await;
                 if param.ok().and_then(|b| param_title_id(&b)).is_some_and(|id| id.eq_ignore_ascii_case(title_id)) {
-                    found.push(path);
+                    found.push(Dump { path, bytes: None });
                 }
             }
         }
     }
-    found.sort();
+    found.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(found)
 }
 
@@ -490,13 +507,38 @@ fn param_title_id(bytes: &[u8]) -> Option<String> {
     v.get("titleId")?.as_str().map(String::from)
 }
 
-/// A folder that is not there takes no space: an update or add-on folder a title does not have.
-fn or_zero(u: Result<meta::Usage, MetaError>) -> Result<meta::Usage, MetaError> {
-    match u {
-        Ok(u) => Ok(u),
-        Err(MetaError::NotFound) => Ok(meta::Usage { bytes: 0, files: 0, dirs: 0, partial: false }),
-        Err(e) => Err(e),
+/// The most folders one walk visits; past it the size is a lower bound rather than a very long walk.
+const WALK_MAX_DIRS: u64 = 100_000;
+
+/// What a folder takes, walked a folder at a time so each call is short and the session stays up.
+/// A folder that is missing takes no space; one the helper won't read makes the total a lower
+/// bound (`partial`); a lost session is an error, not a partial size.
+async fn walk_usage(s: &Session, root: &str) -> Result<meta::Usage, MetaError> {
+    let mut stack = vec![root.to_string()];
+    let (mut bytes, mut files, mut dirs, mut partial) = (0u64, 0u64, 0u64, false);
+    while let Some(dir) = stack.pop() {
+        if dirs >= WALK_MAX_DIRS {
+            partial = true;
+            break;
+        }
+        match meta::list(s, &dir).await {
+            Ok(entries) => {
+                dirs += 1;
+                for e in entries {
+                    if e.is_folder() {
+                        stack.push(format!("{dir}/{}", e.name));
+                    } else if e.kind == "file" {
+                        bytes = bytes.saturating_add(e.size);
+                        files += 1;
+                    }
+                }
+            }
+            Err(MetaError::NotFound) => {}
+            Err(MetaError::Path) | Err(MetaError::Refused { .. }) => partial = true,
+            Err(e) => return Err(e),
+        }
     }
+    Ok(meta::Usage { bytes, files, dirs, partial })
 }
 
 /// A whole file from the console, up to `max` bytes: the post-send check for a tile and its art,
