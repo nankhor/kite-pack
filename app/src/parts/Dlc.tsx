@@ -7,6 +7,8 @@ interface Props {
   plan: BundlePlan | null;
   /** Reading the picks. */
   busy: boolean;
+  /** How many DLC/backport are picked (so a failed plan read can say so). */
+  picked: number;
   /** DLC labels the console already has installed. */
   installed: string[];
   /** ShadowMount+, when it answers. */
@@ -72,6 +74,7 @@ function Icon({ item, gameIcon }: { item: BundleItem; gameIcon: string | null })
 export function Dlc({
   plan,
   busy,
+  picked,
   installed,
   smp,
   smpError,
@@ -107,6 +110,7 @@ export function Dlc({
 
   let hint = "Add DLC packages, a DLC folder, or a backport. They go inside the packed copy, so the PS5 gets them with the game.";
   if (busy) hint = "Reading what you picked…";
+  else if (picked > 0 && !plan) hint = "Couldn't read the DLC you picked: remove them and add them again.";
   else if (items.length > 0) hint = "Folded into the packed copy before it is written.";
   if (smp?.installed && nativeDlc.length > 0) {
     hint = `ShadowMount+ ${smp.version} found: ${nativeDlc.length} of these install natively on the PS5 when it is sent.`;

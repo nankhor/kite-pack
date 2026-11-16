@@ -79,6 +79,8 @@ export default function App({
   /** Why ShadowMount+ couldn't be reached, when it couldn't. */
   const [smpError, setSmpError] = useState<string | null>(null);
   const [installingBackport, setInstallingBackport] = useState(false);
+  /** A DLC package/folder/backport picker is open, or the folder it gave is being read. */
+  const [choosing, setChoosing] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -363,6 +365,10 @@ export default function App({
   async function pack() {
     if (!s.source) return;
     const picked = current.current.bundle.dlc.length + (current.current.bundle.backport ? 1 : 0);
+    if (choosing) {
+      dispatch({ type: "message", text: "Still adding the DLC you picked. Pack again in a moment." });
+      return;
+    }
     if (readingPicks) {
       dispatch({ type: "message", text: "Still reading the DLC you picked. Pack again in a moment." });
       return;
@@ -460,11 +466,25 @@ export default function App({
   }
 
   async function addDlcPackages() {
-    addPicks(await backend.pickDlcFiles());
+    setChoosing(true);
+    try {
+      addPicks(await backend.pickDlcFiles());
+    } finally {
+      setChoosing(false);
+    }
   }
 
   /** A DLC dump folder goes in as it is; a folder of packages gives its DLC packages for this game. */
   async function addDlcFolder() {
+    setChoosing(true);
+    try {
+      await addFolderPicks();
+    } finally {
+      setChoosing(false);
+    }
+  }
+
+  async function addFolderPicks() {
     const dir = await backend.pickDlcFolder();
     const game = current.current.game;
     if (!dir) return;
@@ -489,6 +509,15 @@ export default function App({
   }
 
   async function addBackport() {
+    setChoosing(true);
+    try {
+      await pickBackport();
+    } finally {
+      setChoosing(false);
+    }
+  }
+
+  async function pickBackport() {
     const dir = await backend.pickBackport();
     if (!dir) return;
     dispatch({ type: "bundle", bundle: { ...current.current.bundle, backport: dir } });
@@ -677,7 +706,8 @@ export default function App({
             {s.phase === "ready" && (
               <Dlc
                 plan={s.bundlePlan}
-                busy={readingPicks}
+                busy={readingPicks || choosing}
+                picked={s.bundle.dlc.length + (s.bundle.backport ? 1 : 0)}
                 installed={installedLabels}
                 smp={smp}
                 smpError={smpError}
@@ -698,7 +728,7 @@ export default function App({
             phase={s.phase}
             note={note}
             canShow={packedKept}
-            canPack={!readingPicks && (picksEmpty || !!s.bundlePlan)}
+            canPack={!choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}
