@@ -58,17 +58,27 @@ impl Packer for ForgePacker {
         let format = to_forge_format(req.format);
         std::fs::create_dir_all(&req.output_dir)
             .map_err(|e| failed(format!("Couldn't create {}: {e}", req.output_dir.display())))?;
-        // What the user picked (DLC, a backport) is folded into a staging tree first: Forge
-        // packs one folder, and the index it writes must describe the final files. The staging
-        // folder is dropped when this returns, leaving the game untouched.
+        // A package can't carry files. Unpack it to a plain folder first, fold the picks in,
+        // then let Forge write the chosen format: its index then describes the final files.
         let (pack_source, _staging, staged) = if req.bundle.is_empty() {
             (req.source.clone(), None, None)
-        } else {
+        } else if req.source.is_dir() {
             if cancel.load(Ordering::SeqCst) {
                 return Err(PackError::Cancelled);
             }
             let (staging, out) = crate::bundle::stage(&req.source, &req.bundle).map_err(PackError::Failed)?;
             (staging.path().to_path_buf(), Some(staging), Some(out))
+        } else {
+            let checked = crate::bundle::plan(&req.source, &req.bundle);
+            if let Some(problem) = checked.problem {
+                return Err(PackError::Failed(problem));
+            }
+            let unpacked = crate::bundle::unpack_to(&req.source, &req.output_dir).map_err(PackError::Failed)?;
+            if cancel.load(Ordering::SeqCst) {
+                return Err(PackError::Cancelled);
+            }
+            let out = crate::bundle::apply(unpacked.path(), &req.bundle).map_err(PackError::Failed)?;
+            (unpacked.path().to_path_buf(), Some(unpacked), Some(out))
         };
         // Forge never hands back a path that exists: a second pack gets "-2", "-3", ...
         let output = generated_output(&req.source, format, &req.output_dir, &[], Some(PackKind::Zstd), None)

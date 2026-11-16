@@ -47,8 +47,8 @@ On the Pack tab, **Add DLC** (one button: **Packages…** for `.pkg` files, **Fo
 dump folder or a folder of packages) and **Add backport** put files inside the packed copy before
 it is written, so one thing goes to the PS5 and the DLC is there without being installed
 separately. Each entry says where it goes: **In the pack**, **On the PS5** (already installed, so
-it is left out), or **After install** for an image or `.pkg` game, which needs a package installer
-the helper cannot drive yet.
+it is left out), **Via ShadowMount+** (installed natively, when the base is an installed PKG), or
+**After install** for an image, which still needs unpacking or a package installer.
 
 - DLC is added the way the console's DLC emulator reads it: the files under `addcontN/`, an entry
   in `dlc_emu.ini`, and the emulator's modules in `fakelib/` when the dump has none of its own.
@@ -59,8 +59,10 @@ the helper cannot drive yet.
 - The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
   btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed
   once packing ends.
-- This works on a game folder. An image or a `.pkg` packs exactly as it is; its DLC is marked
-  **After install** and left out until there is a package installer.
+- This works on a game folder and on a `.pkg`: the package is unpacked to a temporary folder, the
+  DLC are folded in, and the chosen format is written from that, so the pack's index names the
+  DLC. An image still packs as it is; its DLC are marked **After install** until the image is
+  unpacked or the base is installed as a PKG.
 
 This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
 screen asks you to start the new one.
