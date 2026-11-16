@@ -33,11 +33,14 @@
   box-sizing: border-box;
 }
 
+/* The window itself never scrolls, either way: each screen fills it and scrolls inside. */
 html,
 body,
 #root {
   margin: 0;
   height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--ground);
 }
 
