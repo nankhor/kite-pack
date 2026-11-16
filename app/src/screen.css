@@ -1,7 +1,9 @@
 /* The screen, laid out as the IconFlow board. */
 
 .screen {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   padding: 18px clamp(20px, 5vw, 64px) 36px;
   display: flex;
   flex-direction: column;
@@ -97,10 +99,16 @@
   gap: 10px;
 }
 
+/* Under the tabs: the part of a screen that scrolls, up and down only (room for focus rings). */
 .page {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin: -4px;
+  padding: 4px;
 }
 
 .ps5-chip {
@@ -161,6 +169,8 @@
 
 .empty {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -329,8 +339,6 @@
 
 /* The Pack page fills the window: each side scrolls on its own, and Pack stays in view. */
 .screen.pack-screen {
-  height: 100vh;
-  min-height: 0;
   padding-bottom: 24px;
 }
 
@@ -352,14 +360,16 @@
   padding: 4px;
 }
 
+/* Narrow windows: one column that scrolls as a whole, still inside the window. */
 @media (max-width: 920px) {
-  .screen.pack-screen {
-    height: auto;
-  }
-
   .pack-page {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: none;
+    grid-auto-rows: max-content;
+    overflow-x: hidden;
+    overflow-y: auto;
+    margin: -4px;
+    padding: 4px;
   }
 
   .pack-main,
@@ -1592,8 +1602,9 @@
   font-weight: 700;
 }
 
+/* Tables fit their width: long words wrap instead of scrolling sideways. */
 .table-box {
-  overflow-x: auto;
+  overflow-x: hidden;
 }
 
 .history-table {
@@ -1768,11 +1779,33 @@
   background: rgba(255, 255, 255, 0.035);
 }
 
+/* The title opens the game's page: it reads as the title, and the whole row is the target. */
+.library-table .history-title {
+  align-self: flex-start;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.library-row:hover .history-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .ps5-game-top {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px 0;
 }
 
 .ps5-game-badge {
@@ -1803,8 +1836,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  max-height: 220px;
-  overflow-y: auto;
 }
 
 .ps5-dlc-list li {
@@ -1914,10 +1945,12 @@
 }
 
 .size-note {
+  max-width: 280px;
   color: var(--label);
   font-size: 12px;
   font-weight: 500;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* A newer Kite Pack, under the tabs */
