@@ -31,8 +31,13 @@ impl Installer for SonyInstaller {
     fn is_installed(&self, pkg: &std::path::Path, target: &SendTarget) -> Result<bool, InstallError> {
         let dlc = inspect_dlc(pkg).map_err(InstallError::Failed)?;
         let console = self.console(target);
-        let game = crate::installed_title(&console, &self.keys, &dlc.title_id).map_err(from_ps5)?;
-        Ok(game.is_some_and(|g| g.dlc.iter().any(|l| l.eq_ignore_ascii_case(&dlc.info.label))))
+        // A read that fails just means "can't confirm": the install attempt will say what's
+        // wrong, rather than failing the step before it starts.
+        let game = crate::library::installed_title_as(&console, &self.keys, &self.keys.install, &dlc.title_id);
+        Ok(game
+            .ok()
+            .flatten()
+            .is_some_and(|g| g.dlc.iter().any(|l| l.eq_ignore_ascii_case(&dlc.info.label))))
     }
 
     fn install(&self, pkg: &std::path::Path, target: &SendTarget, cancel: &AtomicBool) -> Result<(), InstallError> {
@@ -46,9 +51,10 @@ impl Installer for SonyInstaller {
             if cancel.load(Ordering::SeqCst) {
                 return Err(InstallError::Cancelled);
             }
-            match crate::installed_title(&console, &self.keys, &dlc.title_id) {
+            match crate::library::installed_title_as(&console, &self.keys, &self.keys.install, &dlc.title_id) {
                 Ok(Some(_)) => break,
                 Ok(None) => {}
+                Err(e) if transient(&e.message()) => {}
                 Err(e) => return Err(from_ps5(e)),
             }
             if Instant::now() > registered {
@@ -72,7 +78,7 @@ impl Installer for SonyInstaller {
                     break;
                 }
                 // A registration that lands late: the title exists a moment after the send.
-                Err(e) if attempt < 9 && e.message().contains("registered") => {
+                Err(e) if attempt < 9 && (e.message().contains("registered") || transient(&e.message())) => {
                     std::thread::sleep(Duration::from_secs(3));
                 }
                 Err(e) => return Err(from_ps5(e)),
@@ -88,11 +94,14 @@ impl Installer for SonyInstaller {
             if cancel.load(Ordering::SeqCst) {
                 return Err(InstallError::Cancelled);
             }
-            match crate::installed_title(&console, &self.keys, &dlc.title_id) {
+            match crate::library::installed_title_as(&console, &self.keys, &self.keys.install, &dlc.title_id) {
                 Ok(Some(game)) if game.dlc.iter().any(|l| l.eq_ignore_ascii_case(&dlc.info.label)) => {
+                    // Let Sony's installer settle before the next package starts.
+                    std::thread::sleep(Duration::from_secs(2));
                     return Ok(());
                 }
                 Ok(_) => {}
+                Err(e) if transient(&e.message()) => {}
                 Err(e) => return Err(from_ps5(e)),
             }
             if Instant::now() > deadline {
@@ -103,6 +112,14 @@ impl Installer for SonyInstaller {
             std::thread::sleep(Duration::from_secs(2));
         }
     }
+}
+
+/// A session that went away while we were asking: worth another try, unlike a refusal.
+fn transient(message: &str) -> bool {
+    let low = message.to_ascii_lowercase();
+    // A cut session is worth another try. "The PS5 isn't reachable" is not: retrying just
+    // stretches the failure over minutes, which is what made a stuck job look frozen.
+    low.contains("connection lost") || low.contains("session ended")
 }
 
 fn from_ps5(e: Ps5Error) -> InstallError {

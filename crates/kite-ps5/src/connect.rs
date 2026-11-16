@@ -54,6 +54,10 @@ pub struct Keys {
     /// while sending, so with the sender's key each one cut the send (Paused until the retry).
     /// With a key of their own they are another device and the send carries on.
     pub(crate) checker: Arc<Identity>,
+    /// What DLC installs and their verification connect as. A key of their own, so the
+    /// periodic status check (the checker) can't end an install's session, and the sender's
+    /// isn't used either.
+    pub(crate) install: Arc<Identity>,
     pub(crate) peers: Arc<Mutex<PeerStore>>,
 }
 
@@ -62,8 +66,14 @@ impl Keys {
         std::fs::create_dir_all(dir)?;
         let identity = Identity::load_or_create(&dir.join("identity"))?;
         let checker = Identity::load_or_create(&dir.join("identity-check"))?;
+        let install = Identity::load_or_create(&dir.join("identity-install"))?;
         let peers = PeerStore::load(&dir.join("peers"))?;
-        Ok(Keys { identity: Arc::new(identity), checker: Arc::new(checker), peers: Arc::new(Mutex::new(peers)) })
+        Ok(Keys {
+            identity: Arc::new(identity),
+            checker: Arc::new(checker),
+            install: Arc::new(install),
+            peers: Arc::new(Mutex::new(peers)),
+        })
     }
 }
 

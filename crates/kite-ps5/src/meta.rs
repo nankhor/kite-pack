@@ -175,7 +175,7 @@ fn kind(i: u8) -> String {
 }
 
 const METHOD_INSTALL_URL: u16 = 40;
-const INSTALL_TIMEOUT: Duration = Duration::from_secs(180);
+const INSTALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 async fn call(s: &Session, method: u16, path: &str, offset: u64, limit: u32) -> Result<Vec<u8>, MetaError> {
     call_within(s, method, path, offset, limit, CALL_TIMEOUT).await
