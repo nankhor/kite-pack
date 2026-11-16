@@ -676,6 +676,9 @@ describe("inside the packed copy", () => {
 
     expect(await screen.findByRole("button", { name: /2 add-ons/ })).toBeInTheDocument();
     expect(screen.getByText("Folded into the packed copy before it is written.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Closing the app while packing starts the pack over; sending picks up where it stopped."),
+    ).toBeInTheDocument();
     expect(screen.getByText("Packs into /Games with 2 add-ons inside.")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /2 add-ons/ }));
@@ -683,6 +686,14 @@ describe("inside the packed copy", () => {
     expect(within(list).getByText("suits.pkg")).toBeInTheDocument();
     expect(within(list).getByText("map.pkg")).toBeInTheDocument();
     expect(within(list).getAllByText("In the pack")).toHaveLength(2);
+  });
+
+  it("does not let Pack start while the picked DLC is still being read", async () => {
+    await showGame();
+    // A plan that never answers: the picks are still being read.
+    backend.bundlePlan.mockImplementation(() => new Promise(() => {}));
+    await addPackages("/DLC/suits.pkg");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Pack" })).toBeDisabled());
   });
 
   it("shows each DLC's install in a window over the page", async () => {

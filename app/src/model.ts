@@ -128,10 +128,16 @@ function pendingStatus(kind: StepKind, withDlc: boolean): string {
 
 function doneStatus(step: StepView, job: JobView): string {
   switch (step.kind) {
-    case "pack":
-      return job.packedBytes !== null
-        ? `${formatSize(job.packedBytes)} in ${folderName(job.outputDir)}`
-        : "Packed and checked";
+    case "pack": {
+      const base =
+        job.packedBytes !== null
+          ? `${formatSize(job.packedBytes)} in ${folderName(job.outputDir)}`
+          : "Packed and checked";
+      // The packer's own line about what it folded in: kept in the job, so it still shows after a
+      // restart, when the screen no longer has the picks.
+      const bundled = step.note?.split(" · ").find((part) => part.startsWith("bundled: "));
+      return bundled ? `${base} · ${bundled.slice("bundled: ".length)}` : base;
+    }
     case "deleteOriginal":
     case "deletePacked":
       return "In the Trash";
@@ -391,7 +397,9 @@ export function jobBar(
     const p = progress && progress.index === index && progress.total > 0 ? progress : null;
     let fill: number | null = row.state === "done" || row.state === "failed" ? 100 : (row.bar ?? 0);
     let note = row.status;
-    if (row.state === "done" && kind === "pack" && inside > 0) {
+    // The pack step's own note already says what it bundled; the screen's count is only for
+    // jobs whose packer said nothing (or older jobs).
+    if (row.state === "done" && kind === "pack" && inside > 0 && !row.status.includes("·")) {
       note = `${row.status}, ${inside} ${inside === 1 ? "add-on" : "add-ons"} inside`;
     } else if (row.state === "active") {
       if (kind === "pack") note = p ? `${row.bar}% packed` : "";

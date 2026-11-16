@@ -1370,6 +1370,13 @@
   font-weight: 800;
 }
 
+.dlc-closing {
+  margin: 6px 2px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+
 .dlc-hint {
   color: var(--label);
   font-size: 14px;

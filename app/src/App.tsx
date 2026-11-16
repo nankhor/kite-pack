@@ -362,6 +362,15 @@ export default function App({
 
   async function pack() {
     if (!s.source) return;
+    const picked = current.current.bundle.dlc.length + (current.current.bundle.backport ? 1 : 0);
+    if (readingPicks) {
+      dispatch({ type: "message", text: "Still reading the DLC you picked. Pack again in a moment." });
+      return;
+    }
+    if (picked > 0 && !s.bundlePlan) {
+      dispatch({ type: "message", text: "Couldn't read the DLC you picked: remove them and add them again." });
+      return;
+    }
     dispatch({ type: "starting" });
     const send = s.options.send && sendable;
     try {
@@ -617,6 +626,7 @@ export default function App({
   const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
+  const picksEmpty = s.bundle.dlc.length === 0 && !s.bundle.backport;
   const nativeDlc = sending && smp?.installed ? installable(s.bundlePlan?.items ?? []) : [];
   const goingIn = (s.bundlePlan?.items ?? []).filter(
     (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels) && !nativeDlc.includes(i.path),
@@ -688,6 +698,7 @@ export default function App({
             phase={s.phase}
             note={note}
             canShow={packedKept}
+            canPack={!readingPicks && (picksEmpty || !!s.bundlePlan)}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}

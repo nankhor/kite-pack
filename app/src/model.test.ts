@@ -541,3 +541,20 @@ describe("folderNote", () => {
     expect(folderNote(0, ["a.pkg", "b.pkg"], "Ashen Tide")).toBe("None of the 2 packages in that folder is DLC for Ashen Tide.");
   });
 });
+
+
+describe("the pack row's add-on count", () => {
+  it("is said once, even when the pack step already says it", () => {
+    const bar = jobBar(
+      job([
+        { kind: "pack", state: "done", note: "612 files, 80 GB, checked · bundled: 60 DLC inside, DLC emulator added" },
+        { kind: "send", state: "running", note: null },
+      ]),
+      null,
+      0,
+      { inside: 60 },
+    );
+    const pack = bar.parts.find((p) => p.kind === "pack")!;
+    expect(pack.note).toBe("Packed and checked · 60 DLC inside, DLC emulator added");
+  });
+});

@@ -4,6 +4,8 @@ interface Props {
   phase: Phase;
   note: string;
   canShow: boolean;
+  /** False while the picked DLC is still being read: packing then would leave them out. */
+  canPack?: boolean;
   onPack: () => void;
   onChangeGame: () => void;
   onCancel: () => void;
@@ -25,7 +27,7 @@ export function Footer(p: Props) {
             <button className="button secondary" onClick={p.onChangeGame}>
               Change game
             </button>
-            <button className="button primary big" onClick={p.onPack}>
+            <button className="button primary big" onClick={p.onPack} disabled={p.canPack === false}>
               Pack
             </button>
           </>

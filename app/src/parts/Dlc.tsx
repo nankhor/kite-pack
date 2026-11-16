@@ -180,6 +180,11 @@ export function Dlc({
         <button className="add-button" onClick={onAddBackport} disabled={busy}>
           {PLUS}Add backport
         </button>
+        {items.length > 0 && (
+          <p className="dlc-closing">
+            Closing the app while packing starts the pack over; sending picks up where it stopped.
+          </p>
+        )}
         {backport && smp && (
           <button
             className="add-button"
