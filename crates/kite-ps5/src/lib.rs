@@ -8,18 +8,22 @@ mod library;
 mod meta;
 mod send;
 mod settings;
+mod smp;
+mod smp_status;
 mod status;
 
 pub use connect::{Console, HelperInfo, Keys, hello};
 pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
 pub use launch::{StartOutcome, start_helper};
 pub use library::{
-    GameIcon, InstalledGame, Library, Measured, free_space, installed, installed_title, icons, measure,
-    read_file,
+    GameIcon, InstalledGame, Library, Measured, free_space, icons, installed, installed_title,
+    measure, read_file,
 };
 pub use meta::{Entry, FreeSpace, MetaError, Usage};
 pub use send::Ps5Sender;
 pub use settings::Settings;
+pub use smp::{INCOMING, SmpInstaller};
+pub use smp_status::SmpStatus;
 pub use status::{Status, status};
 
 use std::sync::OnceLock;

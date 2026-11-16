@@ -62,7 +62,12 @@ impl World {
     }
 
     fn session_full(&self, packer: Arc<dyn Packer>, sender: Arc<dyn Sender>) -> Session {
-        let ports = Ports { packer, trash: Arc::new(BinTrash(self.bin.clone())), sender };
+        let ports = Ports {
+            packer,
+            trash: Arc::new(BinTrash(self.bin.clone())),
+            sender,
+            installer: Arc::new(kite_pipeline::Unavailable),
+        };
         Session::new(self.jobs.clone(), ports).unwrap()
     }
 

@@ -63,6 +63,15 @@ fn from_ava1(e: Ava1SendError) -> SendError {
     }
 }
 
+impl Ps5Sender {
+    /// Sends one file or folder to `target`'s destination, with nothing to report along the way.
+    /// Used to put a DLC package or a backport somewhere on the console for ShadowMount+ to
+    /// install; the packed copy goes through [`Sender::send`] instead.
+    pub fn upload(&self, local: &Path, target: &SendTarget, cancel: &AtomicBool) -> Result<(), SendError> {
+        self.send(local, target, &|_| {}, cancel)
+    }
+}
+
 impl Sender for Ps5Sender {
     fn send(&self, local: &Path, target: &SendTarget, progress: &dyn Fn(Progress), cancel: &AtomicBool) -> Result<(), SendError> {
         if cancel.load(Ordering::SeqCst) {

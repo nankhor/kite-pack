@@ -5,8 +5,8 @@ mod view;
 pub use view::{JobState, JobView, StepView, UiEvent, packed_size};
 
 use kite_pipeline::{
-    Job, JobStore, Options, Packer, Progress, RunEvent, RunOutcome, Runner, Sender, StepKind,
-    StepState, ThreadSleeper, Trash, Unavailable,
+    Installer, Job, JobStore, Options, Packer, Progress, RunEvent, RunOutcome, Runner, Sender, StepKind,
+    StepState, ThreadSleeper, Trash,
 };
 use std::cell::Cell;
 use std::io;
@@ -15,11 +15,13 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// What packs, what deletes and what sends to the PS5. DLC install arrives later.
+/// What packs, what deletes, what sends to the PS5, and what installs DLC there.
 pub struct Ports {
     pub packer: Arc<dyn Packer>,
     pub trash: Arc<dyn Trash>,
     pub sender: Arc<dyn Sender>,
+    /// Installs DLC packages on the console; ShadowMount+'s API, in the app.
+    pub installer: Arc<dyn Installer>,
 }
 
 pub type Emit = Arc<dyn Fn(UiEvent) + Send + Sync>;
@@ -139,6 +141,7 @@ impl Session {
             packer: self.ports.packer.clone(),
             trash: self.ports.trash.clone(),
             sender: self.ports.sender.clone(),
+            installer: self.ports.installer.clone(),
         };
         std::thread::spawn(move || {
             let end = run(job, &store, &ports, &cancel, &exiting, &emit, &revs);
@@ -170,7 +173,7 @@ fn run(
         packer: &*ports.packer,
         trash: &*ports.trash,
         sender: &*ports.sender,
-        installer: &Unavailable,
+        installer: &*ports.installer,
         sleeper: &ThreadSleeper,
         store,
         retry_every: Duration::from_secs(5),

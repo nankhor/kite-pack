@@ -11,6 +11,9 @@ pub struct Settings {
     pub address: Option<String>,
     pub helper_port: u16,
     pub loader_port: u16,
+    /// ShadowMount+'s HTTP API port; 10101 unless its config says otherwise.
+    #[serde(default = "default_smp_port")]
+    pub smp_port: u16,
     /// Where games go on the PS5: a folder ShadowMount+ watches.
     pub destination: String,
     /// Where packed copies go on this computer; None for beside the game.
@@ -23,16 +26,24 @@ impl Default for Settings {
             address: None,
             helper_port: crate::DISCOVERY_PORT,
             loader_port: 9021,
+            smp_port: kite_smp::DEFAULT_PORT,
             destination: "/data/homebrew".into(),
             packed_folder: None,
         }
     }
 }
 
+fn default_smp_port() -> u16 {
+    kite_smp::DEFAULT_PORT
+}
+
 impl Settings {
     /// The saved settings; the defaults when there are none or they can't be read.
     pub fn load(path: &Path) -> Settings {
-        std::fs::read(path).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+        std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .unwrap_or_default()
     }
 
     pub fn save(&self, path: &Path) -> io::Result<()> {
@@ -40,7 +51,10 @@ impl Settings {
             std::fs::create_dir_all(dir)?;
         }
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(self).map_err(io::Error::other)?)?;
+        std::fs::write(
+            &tmp,
+            serde_json::to_vec_pretty(self).map_err(io::Error::other)?,
+        )?;
         std::fs::rename(&tmp, path)
     }
 }

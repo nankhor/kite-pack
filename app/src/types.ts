@@ -93,6 +93,19 @@ export interface ProgressState {
   recent: { at: number; done: number }[];
 }
 
+/** ShadowMount+'s answer about this console, and the game's base (kite-ps5's SmpStatus). */
+export interface SmpStatus {
+  host: string;
+  port: number;
+  version: string;
+  apiVersion: number;
+  /** The base is installed as a native package: ShadowMount+ installs DLC for it. */
+  installed: boolean;
+  /** The base is only registered from a folder or image. */
+  baseInstalled: boolean;
+  sourceType: string;
+}
+
 /** The app's PS5 settings (kite-ps5's Settings). */
 export interface Settings {
   address: string | null;
@@ -102,6 +115,8 @@ export interface Settings {
   destination: string;
   /** Where packed copies go on this computer; null for next to each game. */
   packedFolder: string | null;
+  /** ShadowMount+'s HTTP API port; 10101 unless its config says otherwise. */
+  smpPort?: number;
 }
 
 export type Status =

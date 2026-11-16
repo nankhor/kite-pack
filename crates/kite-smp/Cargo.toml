@@ -1,0 +1,14 @@
+[package]
+name = "kite-smp"
+description = "Kite Pack's ShadowMount+ side: its HTTP API, for installing DLC packages and backports"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+ureq = { version = "3", default-features = false, features = ["json"] }
+
+[dev-dependencies]
+tempfile.workspace = true

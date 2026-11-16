@@ -11,7 +11,8 @@ use history::{Entry, History};
 use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
 use kite_ps5::{
-    Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings, StartOutcome, Status,
+    Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings,
+    SmpInstaller, SmpStatus, StartOutcome, Status,
 };
 use kite_session::{Emit, JobView, Ports, Session, UiEvent};
 use serde::{Deserialize, Serialize};
@@ -32,7 +33,13 @@ static HELPER_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kite-helper
 struct Ps5 {
     keys: Keys,
     settings_path: PathBuf,
-    settings: Mutex<Settings>,
+    /// Shared with the ShadowMount+ installer, which reads the current address and ports.
+    settings: Arc<Mutex<Settings>>,
+}
+
+/// ShadowMount+ installs, for the DLC that goes through it and for backports.
+struct Smp {
+    installer: Arc<SmpInstaller>,
 }
 
 impl Ps5 {
@@ -42,7 +49,10 @@ impl Ps5 {
 
     fn console(&self) -> Option<Console> {
         let s = self.settings();
-        s.address.map(|address| Console { address, port: s.helper_port })
+        s.address.map(|address| Console {
+            address,
+            port: s.helper_port,
+        })
     }
 }
 
@@ -99,8 +109,12 @@ fn emitter(app: AppHandle) -> Emit {
 }
 
 /// Runs blocking work (disk, network) off the main thread.
-async fn blocking<T: Send + 'static>(work: impl FnOnce() -> T + Send + 'static) -> Result<T, String> {
-    tauri::async_runtime::spawn_blocking(work).await.map_err(|e| e.to_string())
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Reads a dropped or chosen item. Archives can take a while, so off the main thread.
@@ -119,9 +133,14 @@ fn start(
 ) -> Result<JobView, String> {
     let send = if options.send {
         let settings = ps5.settings();
-        let address = settings.address.ok_or("Set up your PS5 in Settings first.")?;
+        let address = settings
+            .address
+            .ok_or("Set up your PS5 in Settings first.")?;
         // The port goes with the address, so a job resumed later reaches the same helper.
-        Some(SendTarget { console: format!("{address}:{}", settings.helper_port), destination: settings.destination })
+        Some(SendTarget {
+            console: format!("{address}:{}", settings.helper_port),
+            destination: settings.destination,
+        })
     } else {
         None
     };
@@ -154,8 +173,12 @@ async fn check_dlc(path: PathBuf, title_id: String) -> Result<DlcInfo, String> {
 #[tauri::command]
 async fn dlc_in_folder(path: PathBuf, title_id: String) -> Result<DlcFolder, String> {
     blocking(move || {
-        let pkgs = packages::packages_in(&path).map_err(|e| format!("Couldn't read the folder: {e}"))?;
-        let mut folder = DlcFolder { found: vec![], skipped: vec![] };
+        let pkgs =
+            packages::packages_in(&path).map_err(|e| format!("Couldn't read the folder: {e}"))?;
+        let mut folder = DlcFolder {
+            found: vec![],
+            skipped: vec![],
+        };
         for pkg in pkgs {
             match kite_forge::check_dlc(&pkg, &title_id) {
                 Ok(info) => folder.found.push(PickedDlc { path: pkg, info }),
@@ -183,7 +206,11 @@ async fn check_update() -> Result<Option<kite_update::Update>, String> {
 /// Downloads the update, checks it and puts it in place; it runs from the next launch.
 #[tauri::command]
 async fn install_update(app: AppHandle, update: kite_update::Update) -> Result<(), String> {
-    let dir = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("update");
+    let dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("update");
     blocking(move || {
         let cancel = std::sync::atomic::AtomicBool::new(false);
         let mut shown = u64::MAX;
@@ -211,6 +238,39 @@ fn restart_app(app: AppHandle) -> Result<(), String> {
     app.restart();
 }
 
+/// ShadowMount+'s version, and what it knows of this game: whether its base is installed as a
+/// package (DLC can be installed) or only mounted (DLC cannot).
+#[tauri::command]
+async fn smp_status(smp: State<'_, Smp>, title_id: Option<String>) -> Result<SmpStatus, String> {
+    let installer = smp.installer.clone();
+    blocking(move || installer.status(title_id.as_deref())).await?
+}
+
+/// Installs a backport folder through ShadowMount+: it is sent to the console, then copied to
+/// ShadowMount+'s backports folder, where it is applied at the next launch.
+#[tauri::command]
+async fn install_backport(smp: State<'_, Smp>, path: PathBuf) -> Result<(), String> {
+    let installer = smp.installer.clone();
+    blocking(move || {
+        installer
+            .install_backport(&path, &std::sync::atomic::AtomicBool::new(false))
+            .map_err(install_error_message)
+    })
+    .await?
+}
+
+/// An install failure in the screen's words.
+fn install_error_message(e: kite_pipeline::InstallError) -> String {
+    use kite_pipeline::InstallError::*;
+    match e {
+        Unreachable(why) => format!("The PS5 isn't reachable: {why}"),
+        Refused { code, hint } => format!("{hint} (0x{code:08X})"),
+        NotConfirmed => "It was handed over, but never showed up on the PS5".into(),
+        Failed(why) => why,
+        Cancelled => "Stopped".into(),
+    }
+}
+
 /// Finished jobs, newest first.
 #[tauri::command]
 async fn load_history(app: AppHandle) -> Result<Vec<Entry>, String> {
@@ -219,12 +279,16 @@ async fn load_history(app: AppHandle) -> Result<Vec<Entry>, String> {
 
 #[tauri::command]
 fn add_history(history: State<'_, History>, entry: Entry) -> Result<(), String> {
-    history.add(entry).map_err(|e| format!("Couldn't save the history: {e}"))
+    history
+        .add(entry)
+        .map_err(|e| format!("Couldn't save the history: {e}"))
 }
 
 #[tauri::command]
 fn clear_history(history: State<'_, History>) -> Result<(), String> {
-    history.clear().map_err(|e| format!("Couldn't clear the history: {e}"))
+    history
+        .clear()
+        .map_err(|e| format!("Couldn't clear the history: {e}"))
 }
 
 #[tauri::command]
@@ -250,7 +314,9 @@ fn unfinished(session: State<'_, Session>) -> Option<JobView> {
 /// A game given when the app started: "Open with", or dropped on the app's icon.
 #[tauri::command]
 fn initial_path() -> Option<String> {
-    std::env::args().skip(1).find(|a| !a.starts_with('-') && Path::new(a).exists())
+    std::env::args()
+        .skip(1)
+        .find(|a| !a.starts_with('-') && Path::new(a).exists())
 }
 
 #[tauri::command]
@@ -260,7 +326,9 @@ fn settings(ps5: State<'_, Ps5>) -> Settings {
 
 #[tauri::command]
 fn save_settings(ps5: State<'_, Ps5>, settings: Settings) -> Result<(), String> {
-    settings.save(&ps5.settings_path).map_err(|e| format!("Couldn't save the settings: {e}"))?;
+    settings
+        .save(&ps5.settings_path)
+        .map_err(|e| format!("Couldn't save the settings: {e}"))?;
     *ps5.settings.lock().unwrap() = settings;
     Ok(())
 }
@@ -295,7 +363,11 @@ async fn bundle_plan(
 ) -> Result<kite_forge::BundlePlan, String> {
     blocking(move || {
         let _ = app;
-        let bundle = kite_pipeline::Bundle { dlc, backport, emulator: None };
+        let bundle = kite_pipeline::Bundle {
+            dlc,
+            backport,
+            emulator: None,
+        };
         Ok(kite_forge::bundle::plan(&source, &bundle))
     })
     .await?
@@ -303,7 +375,10 @@ async fn bundle_plan(
 
 /// One title on the console by id, for the game screen: `null` when it is not installed.
 #[tauri::command]
-async fn installed_title(app: AppHandle, title_id: String) -> Result<Option<kite_ps5::InstalledGame>, String> {
+async fn installed_title(
+    app: AppHandle,
+    title_id: String,
+) -> Result<Option<kite_ps5::InstalledGame>, String> {
     blocking(move || {
         let ps5 = app.state::<Ps5>();
         let console = ps5.console().ok_or("Set up your PS5 in Settings first.")?;
@@ -366,7 +441,8 @@ async fn start_helper(app: AppHandle) -> Result<StartOutcome, String> {
     blocking(move || {
         let s = app.state::<Ps5>().settings();
         let address = s.address.ok_or("Choose your PS5 first.")?;
-        kite_ps5::start_helper(&address, s.loader_port, s.helper_port, HELPER_ELF).map_err(|e| e.message())
+        kite_ps5::start_helper(&address, s.loader_port, s.helper_port, HELPER_ELF)
+            .map_err(|e| e.message())
     })
     .await?
 }
@@ -381,13 +457,33 @@ fn main() {
             let settings = Settings::load(&settings_path);
             let keys = Keys::open(&data.join("ava1"))?;
             let sender = Ps5Sender::new(keys.clone(), settings.helper_port, data.join("outboards"));
+            let settings = Arc::new(Mutex::new(settings));
+            let smp = {
+                let settings = Arc::clone(&settings);
+                let lookup = Arc::new(move || {
+                    let s = settings.lock().unwrap().clone();
+                    let host = s.address?;
+                    Some((host, s.helper_port, s.smp_port))
+                });
+                Arc::new(SmpInstaller::new(
+                    keys.clone(),
+                    data.join("outboards"),
+                    lookup,
+                ))
+            };
             let ports = Ports {
                 packer: Arc::new(ForgePacker { full_verify: false }),
                 trash: Arc::new(SystemTrash),
                 sender: Arc::new(sender),
+                installer: smp.clone(),
             };
             app.manage(Session::new(data.join("jobs"), ports)?);
-            app.manage(Ps5 { keys, settings_path, settings: Mutex::new(settings) });
+            app.manage(Ps5 {
+                keys,
+                settings_path,
+                settings,
+            });
+            app.manage(Smp { installer: smp });
             app.manage(History::new(data));
             // The copy an update replaced, if one did.
             std::thread::spawn(kite_update::clean_up);
@@ -420,7 +516,9 @@ fn main() {
             free_space,
             check_update,
             install_update,
-            restart_app
+            restart_app,
+            smp_status,
+            install_backport
         ])
         .build(tauri::generate_context!())
         .expect("Kite Pack couldn't start");

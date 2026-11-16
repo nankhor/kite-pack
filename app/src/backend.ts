@@ -23,6 +23,7 @@ import type {
   Measured,
   PackOptions,
   Settings,
+  SmpStatus,
   StartOutcome,
   Status,
   UiEvent,
@@ -65,6 +66,10 @@ export interface Backend {
   bundlePlan(source: string, dlc: string[], backport: string | null): Promise<BundlePlan>;
   /** The DLC emulator release the app carries. */
   dlcEmuVersion(): Promise<string>;
+  /** ShadowMount+, and what it knows of this game; rejects when nothing answers. */
+  smpStatus(titleId?: string | null): Promise<SmpStatus>;
+  /** Sends a backport folder and has ShadowMount+ install it; rejects with the reason. */
+  installBackport(path: string): Promise<void>;
   /** What the PS5 has installed (reads the console; takes a couple of seconds). */
   library(): Promise<Library>;
   /** One title on the console by id, or null when it is not installed. */
@@ -144,6 +149,8 @@ export const tauriBackend: Backend = {
   ps5Status: () => invoke("ps5_status"),
   discover: () => invoke("discover"),
   dlcEmuVersion: () => invoke("dlc_emu_version"),
+  smpStatus: (titleId) => invoke("smp_status", { titleId: titleId ?? null }),
+  installBackport: (path) => invoke("install_backport", { path }),
   bundlePlan: (source, dlc, backport) => invoke("bundle_plan", { source, dlc, backport }),
   pickDlcFolder: async () => single(await open({ directory: true, multiple: false })),
   pickBackport: async () => single(await open({ directory: true, multiple: false })),

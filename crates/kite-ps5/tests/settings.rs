@@ -21,6 +21,7 @@ fn settings_round_trip() {
         address: Some("192.168.1.42".into()),
         helper_port: 9131,
         loader_port: 9020,
+        smp_port: kite_smp::DEFAULT_PORT,
         destination: "/mnt/ext0/homebrew".into(),
         packed_folder: Some(PathBuf::from("/Games/Packed")),
     };

@@ -17,6 +17,7 @@ import type {
   Measured,
   PackOptions,
   Settings,
+  SmpStatus,
   StartOutcome,
   Status,
   UiEvent,
@@ -94,6 +95,10 @@ class FakeBackend implements Backend {
   });
   discover = vi.fn(async () => this.found);
   dlcEmuVersion = vi.fn(async () => "0.3");
+  smpStatus = vi.fn(async (): Promise<SmpStatus> => {
+    throw "nothing answers";
+  });
+  installBackport = vi.fn(async (_path: string) => {});
   bundlePlan = vi.fn(async (_source: string, dlc: string[], backport: string | null): Promise<BundlePlan> => ({
     items: [
       ...dlc.map((path) => ({
@@ -1164,5 +1169,72 @@ describe("updates", () => {
     backend.latest = NEXT;
     await userEvent.click(screen.getByRole("button", { name: "Check now" }));
     expect(await screen.findByText("Kite Pack 0.1.4 is out.", { selector: ".field-hint" })).toBeInTheDocument();
+  });
+});
+
+
+describe("installing on the PS5 with ShadowMount+", () => {
+  const SMP: SmpStatus = {
+    host: "192.168.1.42",
+    port: 10101,
+    version: "1.7",
+    apiVersion: 1,
+    installed: true,
+    baseInstalled: true,
+    sourceType: "pkg",
+  };
+
+  async function addPackages(...paths: string[]) {
+    backend.dlcPicked = paths;
+    await userEvent.click(screen.getByRole("button", { name: /Add DLC/ }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /Packages/ }));
+  }
+
+  it("installs packages natively when the base is installed as a package", async () => {
+    backend.smpStatus.mockResolvedValue(SMP);
+    backend.cfg.address = "192.168.1.42";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await addPackages("/DLC/suits.pkg");
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+
+    expect(await screen.findByText(/1 of these install natively/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /1 add-on/ }));
+    expect(screen.getByText("Via ShadowMount+")).toBeInTheDocument();
+
+
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),
+    );
+  });
+
+  it("keeps packages in the pack when the base is only mounted", async () => {
+    backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, baseInstalled: true, sourceType: "folder" });
+    backend.cfg.address = "192.168.1.42";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await addPackages("/DLC/suits.pkg");
+    await screen.findByRole("button", { name: /1 add-on/ });
+
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenLastCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ dlc: [], bundle: { dlc: ["/DLC/suits.pkg"], backport: null } }),
+    );
+  });
+
+  it("installs a backport through ShadowMount+", async () => {
+    backend.smpStatus.mockResolvedValue({ ...SMP, installed: false, sourceType: "folder" });
+    backend.pickBackport.mockResolvedValueOnce("/Backports/v1.00");
+    await showGame();
+    await userEvent.click(screen.getByRole("button", { name: "Add backport" }));
+
+    await userEvent.click(await screen.findByRole("button", { name: "Install backport on the PS5" }));
+    expect(backend.installBackport).toHaveBeenCalledWith("/Backports/v1.00");
+    expect(await screen.findByText(/Backport installed/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /1 backport/ })).not.toBeInTheDocument());
   });
 });

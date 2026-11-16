@@ -91,6 +91,15 @@ You need a jailbroken PS5 with an ELF loader (port 9021) and ShadowMount+ watchi
 
 The helper accepts any computer on your home network (private addresses) with no code, the same trust as the ELF loader itself, and refuses others. It writes only under `/data` and `/mnt`, and keeps its own files in `/data/kite`.
 
+### Installing through ShadowMount+
+
+ShadowMount+ has an HTTP API (`/api/v1`, port 10101 by default). When it answers, Kite Pack uses it for two things instead of packing them into the game:
+
+- **DLC packages**: sent to the PS5 under `/data/kite/incoming`, then installed by Sony's installer through ShadowMount+. This is a real install (`/user/addcont`), with no `dlc_emu` involved. It needs the base game installed as a package: for a game mounted from a folder or image, ShadowMount+ refuses DLC, and Kite Pack keeps the DLC inside the packed copy instead.
+- **Backports**: **Install backport on the PS5** sends the folder, then ShadowMount+ copies it to `/data/homebrew/backports/` and applies it at the next launch. This is ShadowMount+'s own supported route, so its fakelib handling decides how it is applied.
+
+The port is `smpPort` in `settings.json` (10101 unless ShadowMount+'s config says otherwise). The API has no authentication, so Kite Pack only talks to the PS5 you chose in Settings, on your own network.
+
 ## Build
 
 You need Rust (stable), a C compiler and Node 22. On Linux, also the WebKitGTK 4.1 development libraries (see `.github/workflows/ci.yml`). The PS5 build of the helper needs the PS5 payload SDK (`scripts/install-ps5-sdk.sh`) and LLVM; `make -C helper host` builds it for this computer, which the tests use.

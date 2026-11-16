@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { formatSize } from "../model";
-import type { BundleItem, BundlePlan } from "../types";
+import type { BundleItem, BundlePlan, SmpStatus } from "../types";
 
 interface Props {
   /** What the picked DLC and backport would add; null until read. */
@@ -9,6 +9,14 @@ interface Props {
   busy: boolean;
   /** DLC labels the console already has installed. */
   installed: string[];
+  /** ShadowMount+, when it answers. */
+  smp: SmpStatus | null;
+  /** The DLC packages ShadowMount+ will install natively. */
+  nativeDlc: string[];
+  /** Sending a backport to ShadowMount+ right now. */
+  installingBackport: boolean;
+  /** Sends the picked backport to ShadowMount+, which applies it at the next launch. */
+  onInstallBackport: () => void;
   /** Stands in for a DLC that has no icon of its own. */
   gameIcon: string | null;
   onAddPackages: () => void;
@@ -41,9 +49,10 @@ const isInstalled = (item: BundleItem, installed: string[]) =>
   item.label !== null && installed.some((l) => l.toLowerCase() === item.label!.toLowerCase());
 
 /** What an item's badge says, and why. */
-function badge(item: BundleItem, installed: string[]): [string, string] {
+function badge(item: BundleItem, installed: string[], nativeDlc: string[]): [string, string] {
   if (item.problem) return ["Can't go in", "bad"];
   if (isInstalled(item, installed)) return ["On the PS5", "have"];
+  if (nativeDlc.includes(item.path)) return ["Via ShadowMount+", "kind"];
   if (item.kind === "backport") return ["Backport", "kind"];
   if (item.route === "install") return ["After install", "wait"];
   return ["In the pack", "kind"];
@@ -60,10 +69,14 @@ export function Dlc({
   plan,
   busy,
   installed,
+  smp,
+  nativeDlc,
+  installingBackport,
   gameIcon,
   onAddPackages,
   onAddFolder,
   onAddBackport,
+  onInstallBackport,
   onRemove,
   onRemoveAll,
 }: Props) {
@@ -89,11 +102,17 @@ export function Dlc({
   let hint = "Add DLC packages, a DLC folder, or a backport. They go inside the packed copy, so the PS5 gets them with the game.";
   if (busy) hint = "Reading what you picked…";
   else if (items.length > 0) hint = "Folded into the packed copy before it is written.";
+  if (smp?.installed && nativeDlc.length > 0) {
+    hint = `ShadowMount+ ${smp.version} found: ${nativeDlc.length} of these install natively on the PS5 when it is sent.`;
+  } else if (smp && !smp.installed && dlc.length > 0) {
+    hint = `ShadowMount+ ${smp.version} found, but this game's base is mounted rather than installed, so its DLC goes inside the packed copy.`;
+  }
   if (plan?.problem) hint = plan.problem;
   else if (toInstall.length > 0) {
     hint =
       "An image or a .pkg can't carry DLC: installing it needs the PS5's package installer, which the Kite helper can't run yet.";
   }
+  const backport = items.find((i) => i.kind === "backport");
 
   const label = (n: number) => `${n} ${n === 1 ? "add-on" : "add-ons"}`;
 
@@ -152,6 +171,16 @@ export function Dlc({
         <button className="add-button" onClick={onAddBackport} disabled={busy}>
           {PLUS}Add backport
         </button>
+        {backport && smp && (
+          <button
+            className="add-button"
+            onClick={onInstallBackport}
+            disabled={installingBackport || busy}
+            title="Sends it to ShadowMount+, which applies it the next time the game starts."
+          >
+            {installingBackport ? "Installing…" : "Install backport on the PS5"}
+          </button>
+        )}
         {shown && <div className="sheet-backdrop" aria-hidden="true" onMouseDown={() => setOpen(false)} />}
         {shown && (
           <div
@@ -182,7 +211,7 @@ export function Dlc({
             </div>
             <ol className="popover-list">
               {items.map((item, i) => {
-                const [word, tone] = badge(item, installed);
+                const [word, tone] = badge(item, installed, nativeDlc);
                 return (
                   <li key={`${item.kind}:${item.path}`}>
                     <span className="popover-n">{i + 1}</span>

@@ -15,7 +15,7 @@ import { Showcase, type DetailsView } from "./parts/Showcase";
 import { UpdateBar } from "./parts/UpdateBar";
 import { baseName, parentOf } from "./paths";
 import { initial, reduce } from "./state";
-import type { BundleSelection, GameInfo, Settings, Status, View } from "./types";
+import type { BundleItem, BundleSelection, GameInfo, Settings, SmpStatus, Status, View } from "./types";
 import { DEFAULT_PREFS, type UpdateInfo, type UpdatePrefs, type UpdateView } from "./updates";
 
 /** How often the PS5 chip checks the helper while the app is open. */
@@ -74,6 +74,9 @@ export default function App({
   /** A newer Kite Pack, and how far its install has come. */
   const [update, setUpdate] = useState<UpdateView>({ state: "none" });
   const [updatePrefs, setUpdatePrefsState] = useState<UpdatePrefs>(DEFAULT_PREFS);
+  /** ShadowMount+, when it answers: it can install DLC packages and backports natively. */
+  const [smp, setSmp] = useState<SmpStatus | null>(null);
+  const [installingBackport, setInstallingBackport] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -233,6 +236,22 @@ export default function App({
     if (path) await open(path);
   }
 
+  // ShadowMount+ answers (or doesn't) for the game in front: its version also says whether the
+  // base is installed as a package, which is what decides if DLC can be installed natively.
+  const titleId = s.game?.titleId ?? null;
+  useEffect(() => {
+    let live = true;
+    setSmp(null);
+    if (!titleId) return;
+    backend
+      .smpStatus(titleId)
+      .then((found) => live && setSmp(found))
+      .catch(() => live && setSmp(null));
+    return () => {
+      live = false;
+    };
+  }, [backend, titleId]);
+
   useEffect(() => {
     void backend.dlcEmuVersion().then(setDlcEmu).catch(() => {});
     void backend
@@ -342,19 +361,54 @@ export default function App({
       const items = (s.bundlePlan?.items ?? []).filter(
         (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
       );
-      const dlc = items.filter((i) => i.kind === "dlc").map((i) => i.path);
-      const backport = items.find((i) => i.kind === "backport")?.path ?? null;
+      // DLC packages a native install can take go to ShadowMount+, not into the pack.
+      const native = send && smp?.installed ? installable(items) : [];
+      const rest = items.filter((i) => !native.includes(i.path));
+      const dlc = rest.filter((i) => i.kind === "dlc").map((i) => i.path);
+      const backport = rest.find((i) => i.kind === "backport")?.path ?? null;
       const bundle: BundleSelection | undefined = dlc.length || backport ? { dlc, backport } : undefined;
       const options = {
         ...s.options,
         send,
         deletePacked: send && s.options.deletePacked,
-        dlc: [],
+        dlc: native,
         bundle,
       };
       dispatch({ type: "started", job: await backend.start(s.source, options) });
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
+    }
+  }
+
+  /** The picked DLC that are packages a native install can take (the rest go in the pack). */
+  function installable(items: BundleItem[]) {
+    return items
+      .filter(
+        (i) =>
+          i.kind === "dlc" &&
+          i.route === "inPack" &&
+          !i.problem &&
+          i.path.toLowerCase().endsWith(".pkg") &&
+          !onConsole(i.label, installedLabels),
+      )
+      .map((i) => i.path);
+  }
+
+  async function installBackportNow() {
+    const path = current.current.bundle.backport;
+    if (!path) return;
+    setInstallingBackport(true);
+    try {
+      await backend.installBackport(path);
+      dispatch({ type: "bundle", bundle: { ...current.current.bundle, backport: null } });
+      dispatch({
+        type: "message",
+        text: "Backport installed. ShadowMount+ applies it the next time the game starts.",
+      });
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+    } finally {
+      setInstallingBackport(false);
     }
   }
 
@@ -553,8 +607,9 @@ export default function App({
   const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
+  const nativeDlc = sending && smp?.installed ? installable(s.bundlePlan?.items ?? []) : [];
   const goingIn = (s.bundlePlan?.items ?? []).filter(
-    (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
+    (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels) && !nativeDlc.includes(i.path),
   ).length;
   const note =
     s.phase === "ready" || !s.job
@@ -604,10 +659,14 @@ export default function App({
                 plan={s.bundlePlan}
                 busy={readingPicks}
                 installed={installedLabels}
+                smp={smp}
+                nativeDlc={nativeDlc}
+                installingBackport={installingBackport}
                 gameIcon={s.game.iconDataUrl}
                 onAddPackages={() => void addDlcPackages()}
                 onAddFolder={() => void addDlcFolder()}
                 onAddBackport={() => void addBackport()}
+                onInstallBackport={() => void installBackportNow()}
                 onRemove={removePick}
                 onRemoveAll={() => dispatch({ type: "bundle", bundle: { dlc: [], backport: null } })}
               />
