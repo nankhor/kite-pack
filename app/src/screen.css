@@ -2027,6 +2027,7 @@
   color: var(--note);
   font-size: 14px;
   user-select: text;
+}
 
 /* The DLC lists (what goes in the pack, and each DLC's install): a window over the page, wide
    enough for names, rather than a pop-up squeezed into the panel and cut off by its scrolling. */
