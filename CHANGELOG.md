@@ -1,52 +1,47 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
-Tabs, History, and DLC and backports inside the pack.
+Complete Edition: DLC installed by Sony's own installer, a page for every game, and the PS5 tab.
 
-- **Tabs.** Pack, PS5 and History across the top; Settings behind the gear. The Pack tab's badge
-  keeps a running job in sight from any tab.
-- **PS5 tab.** The connection and where games go moved out of Settings, and **Show what's
-  installed** reads the console underneath them.
-- **History.** Each finished job, newest first, with its icon, sizes, how much it saved and where
-  the packed copy is.
-- **DLC and backports inside the pack.**
+- **DLC through Sony's installer.** With **Send to PS5** on, the DLC packages you pick are
+  installed on the PS5 by Sony's own installer once the game is there. Kite Pack serves each
+  package from your computer, the console fetches it, and each DLC is only marked done once the
+  PS5 has it. This works for a game played from a folder too. Keep the game closed while the DLC
+  install.
+- **Add as many DLC as you want.** **Add DLC › Packages…** takes any number of `.pkg` files at
+  once; **Folder…** takes a DLC dump folder, or a folder of packages and adds every DLC package in
+  it. Each entry says where it goes: **Installs on the PS5**, **In the pack**, or **On the PS5**
+  when the console already has it (left out). With Send off, the DLC go inside the packed copy,
+  with the DLC emulator Kite Pack carries ([dlc_emu](https://github.com/drakmor/dlc_emu) 0.3).
+- **`.pkg` games take DLC too.** With **Save as Folder**, a fake `.pkg` game is packed once and its
+  DLC are unpacked straight into the finished folder.
+- **Backports.** **Add backport** folds a backport into the packed copy. When ShadowMount+ answers,
+  **Install backport on the PS5** hands it to ShadowMount+, which applies it the next time the
+  game starts.
+- **A page for every game.** Adding a game opens its page: artwork, studio, release date, tags,
+  story and screenshots from IGDB, looked up through Kite Pack's own service (no key in the app).
+  **Wrong game?** picks the right one. Settings › Game details turns it off.
+- **One progress bar** for the whole job: packing, sending and each DLC, with a list of every DLC
+  and how it stands.
+- **Tabs.** Pack, PS5 and History across the top; Settings behind the gear.
+- **The PS5 tab.** Every game the console has installed, with its tile, version, update, add-ons,
+  drive and size, measured on its own; and the room left where games go. Click a game for its
+  page: the size broken down (app, update, add-ons, the dump it's mounted from) and every add-on
+  installed. Nothing on the console is changed.
+- **History.** Every finished job, newest first, with its sizes and how much it saved.
+- **Updates itself.** Kite Pack looks for a newer version on GitHub when it opens, downloads it,
+  checks it, and asks before restarting. Settings › Updates can install updates automatically.
+- **Tidier window.** The window itself never scrolls (only the part under the tabs does), nothing
+  scrolls sideways, and the DLC lists open as a window over the page.
+- **Kite helper 0.3.0.** Installing DLC and the PS5 tab need the new helper; the app asks you to
+  start it (Settings › Start the Kite helper). Packing and sending still work with an older one.
 
-- **Inside the packed copy.** One **Add DLC** button (**Packages…** or **Folder…**) and **Add
-  backport** fold files into the packed copy before it is written, so one thing goes to the PS5
-  and the DLC works without installing it separately. Each entry says where it goes — in the
-  pack, already on the PS5, or after an install that this build cannot do yet — and a DLC for
-  another game or a bad backport folder is refused in plain words before anything is written.
-- **DLC the way the console reads it**: each one's files under `addcontN/`, an entry in
-  `dlc_emu.ini` (content id, `download_status`, `mount_point`) and, when the dump has none of its
-  own, the DLC emulator's modules in `fakelib/`. A dump that already carries the emulator, or the
-  same DLC twice, is left alone. DLC already listed in the dump's `dlc_emu.ini` is not added again.
-- **The DLC emulator is included.** Kite Pack carries [dlc_emu](https://github.com/drakmor/dlc_emu)
-  0.3 (GPL-3.0; source and modules under `third_party/dlc_emu/`), so a dump with no emulator of
-  its own gets one with no setup step. Settings says which release is included. A dump that
-  already carries an emulator keeps its own.
-- **A backport is an overlay**: its `eboot.bin`, `sce_sys/` and `fakelib/` replace the game's
-  before packing, and its title id is checked against the game's.
-- **Nothing is written to your dump.** The game is staged beside it as a copy-on-write clone
-  (APFS, btrfs/XFS) or a copy, the DLC and backport are folded into the clone, and the clone is
-  removed when packing ends.
-- DLC and backports fold into a **game folder**; an image or a `.pkg` still packs as it is.
+Downloads: `Kite-Pack-…-windows-x64.exe` (just run it), `Kite-Pack-…-macos.dmg` (Apple silicon and Intel), `Kite-Pack-…-linux-x64.AppImage`, and `kite-helper.elf` for the PS5. The command-line tool is no longer in the downloads; build it from source (`cargo build --release -p kite-cli`) if you use it.
 
-See what is on the PS5.
+Use your own games. Kite Pack doesn't provide games, and we don't condone piracy. Support the developers.
 
-- **On the PS5.** The PS5 tab's **Show what's installed** (and **See what's on the PS5** on the
-  start screen) lists what the console has installed: tile, name, title id, version, whether the
-  update is installed, how many add-ons, and which drive. **Measure** shows what one title takes,
-  app, update and add-ons counted separately, and the screen says how much room is left where
-  games go.
-- **Already on the PS5.** Opening a game now says whether the console already has it, and marks the
-  DLC that is already there.
-- **Kite helper 0.2.0** answers the read-only calls the screen needs (list, stat, read, a recursive
-  size and free space). Packing and sending are unchanged, and an older helper keeps working: the
-  new screen asks you to start the new one.
-- Nothing on the console is changed. The app reads `/user/appmeta`, `/user/app`, `/user/patch` and
-  `/user/addcont` — those four folders, nothing else — and a path is resolved before the helper's
-  policy sees it, so a symlink cannot lead elsewhere.
+The builds aren't signed with an Apple or Microsoft certificate yet. On macOS, the first time, run `xattr -cr "/Applications/Kite Pack.app"` in Terminal, or open it once, then click Open Anyway in System Settings → Privacy & Security. On Windows, choose More info, then Run anyway, if SmartScreen stops it. On Linux, make the AppImage executable (`chmod +x`).
 
 ## 0.1.3
 
