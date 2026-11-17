@@ -115,3 +115,34 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
         .collect();
     assert!(leftovers.is_empty(), "staging was left behind");
 }
+
+#[test]
+fn a_package_written_as_a_folder_gets_its_dlc_as_loose_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg = make_fake_pkg(tmp.path());
+    let dlc = make_dlc_folder(tmp.path().join("dlc").as_path(), "Tidebreaker");
+    let out = tmp.path().join("out");
+    std::fs::create_dir_all(&out).unwrap();
+
+    // The package is packed once, then the DLC is unpacked into the finished folder: it stays
+    // loose, so the zstd index is untouched.
+    let bundle = Bundle { dlc: vec![dlc], backport: None, emulator: None };
+    assert_eq!(kite_forge::bundle::plan(&pkg, &bundle).route, "inPack");
+    let packed = pack(&pkg, &out, bundle);
+
+    assert!(packed.join("ampr_zstd.index").is_file());
+    assert!(
+        packed.join("addcont0/sce_sys/param.json").is_file(),
+        "the DLC is not loose in the packed folder"
+    );
+    let ini = std::fs::read_to_string(packed.join("dlc_emu.ini")).unwrap();
+    assert!(ini.contains("content_id=UP0000-PPSA01234_00-TIDEBREAKER00000"), "{ini}");
+    assert!(ini.contains("mount_point=/app0/addcont0"), "{ini}");
+    let carried = kite_forge::dlc_emu::modules();
+    assert_eq!(
+        std::fs::read(packed.join("fakelib").join(carried[0].name)).unwrap(),
+        carried[0].bytes,
+    );
+    // The package stays a package.
+    assert!(pkg.is_file());
+}

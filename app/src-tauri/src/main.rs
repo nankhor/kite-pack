@@ -12,7 +12,7 @@ use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
 use kite_ps5::{
     Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings,
-    SmpInstaller, SmpStatus, StartOutcome, Status,
+    SmpInstaller, SmpStatus, SonyInstaller, StartOutcome, Status,
 };
 use kite_session::{Emit, JobView, Ports, Session, UiEvent};
 use serde::{Deserialize, Serialize};
@@ -457,6 +457,7 @@ fn main() {
             let settings = Settings::load(&settings_path);
             let keys = Keys::open(&data.join("ava1"))?;
             let sender = Ps5Sender::new(keys.clone(), settings.helper_port, data.join("outboards"));
+            let settings_port = settings.helper_port;
             let settings = Arc::new(Mutex::new(settings));
             let smp = {
                 let settings = Arc::clone(&settings);
@@ -475,7 +476,8 @@ fn main() {
                 packer: Arc::new(ForgePacker { full_verify: false }),
                 trash: Arc::new(SystemTrash),
                 sender: Arc::new(sender),
-                installer: smp.clone(),
+                // DLC installs go through Sony's installer, streamed from this computer.
+                installer: Arc::new(SonyInstaller::new(keys.clone(), settings_port)),
             };
             app.manage(Session::new(data.join("jobs"), ports)?);
             app.manage(Ps5 {

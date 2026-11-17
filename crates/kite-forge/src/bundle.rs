@@ -161,9 +161,11 @@ pub fn plan(source: &Path, bundle: &Bundle) -> BundlePlan {
         );
     }
 
-    // Where each one goes: a game folder can carry DLC and a backport; an image or a package
-    // could only get DLC through the PS5's installer, which the helper cannot drive yet.
-    let folder_source = source.is_dir();
+    // Where each one goes: a game folder can carry DLC and a backport. So can a `.pkg`: the
+    // packer unpacks it to a folder, folds the picks in, and writes the chosen format from that.
+    // An image still needs the PS5's installer (or unpacking by hand) for now.
+    let kind = game.as_ref().map(|g| g.kind.as_str()).unwrap_or("");
+    let folder_source = source.is_dir() || kind == "pkg";
     for item in &mut items {
         item.route = if item.problem.is_some() {
             "blocked".into()
@@ -379,13 +381,22 @@ pub fn stage(source: &Path, bundle: &Bundle) -> Result<(Staging, Staged), String
     }
 
     let staging = new_staging(source)?;
-    let mut out = Staged::default();
     let (files, bytes) = walk_totals(source)?;
     stage_tree(source, staging.path())?;
+    let mut out = apply(staging.path(), bundle)?;
     out.staged_files = files;
     out.staged_bytes = bytes;
+    Ok((staging, out))
+}
 
-    let ini_path = staging.path().join("dlc_emu.ini");
+/// Folds the picks into an existing game folder, which is the game itself when the packer has
+/// just written a package or image out as a folder. Validation is left to the caller's `plan`.
+pub fn apply(folder: &Path, bundle: &Bundle) -> Result<Staged, String> {
+    if !folder.is_dir() {
+        return Err("The packed copy isn't a folder, so the DLC can't go inside".into());
+    }
+    let mut out = Staged::default();
+    let ini_path = folder.join("dlc_emu.ini");
     let mut ini = match fs::read_to_string(&ini_path) {
         Ok(text) if text.len() <= INI_MAX => text,
         Ok(_) => return Err("The dump's dlc_emu.ini is too big for the emulator to read".into()),
@@ -406,9 +417,9 @@ pub fn stage(source: &Path, bundle: &Bundle) -> Result<(Staging, Staged), String
         if ini_entry_count(&ini) >= INI_MAX_ENTRIES {
             return Err("The dump already has the emulator's 1024-entry limit of DLC".into());
         }
-        let index = next_addcont_index(staging.path(), &ini)?;
+        let index = next_addcont_index(folder, &ini)?;
         let mount = format!("/app0/addcont{index}");
-        let dest = staging.path().join(format!("addcont{index}"));
+        let dest = folder.join(format!("addcont{index}"));
         fs::create_dir_all(&dest).map_err(|e| format!("Couldn't make {}: {e}", dest.display()))?;
         copy_item(path, &dest)?;
         if !ini.is_empty() && !ini.ends_with('\n') {
@@ -421,8 +432,8 @@ pub fn stage(source: &Path, bundle: &Bundle) -> Result<(Staging, Staged), String
         out.dlc += 1;
     }
 
-    if out.dlc > 0 && !has_emulator(staging.path()) {
-        let fakelib = staging.path().join("fakelib");
+    if out.dlc > 0 && !has_emulator(folder) {
+        let fakelib = folder.join("fakelib");
         fs::create_dir_all(&fakelib).map_err(|e| format!("Couldn't make {}: {e}", fakelib.display()))?;
         match bundle.emulator.as_deref() {
             // A folder the caller supplied wins, for a newer emulator than the one carried.
@@ -453,12 +464,32 @@ pub fn stage(source: &Path, bundle: &Bundle) -> Result<(Staging, Staged), String
     }
 
     if let Some(backport) = &bundle.backport {
-        let (files, bytes) = copy_tree(backport, staging.path(), true)?;
+        let (files, bytes) = copy_tree(backport, folder, true)?;
         out.backport_files = files;
         out.backport_bytes = bytes;
     }
 
-    Ok((staging, out))
+    Ok(out)
+}
+
+/// Unpacks a package (or an image) into a plain folder, so the picks can be folded in and Forge
+/// can write the chosen format with its index describing the final files.
+pub fn unpack_to(source: &Path, dir: &Path) -> Result<Staging, String> {
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let name = format!(".kite-unpack-{}-{nanos}", std::process::id());
+    let staging = Staging { path: dir.join(name) };
+    fs::create_dir_all(&staging.path).map_err(|e| format!("Couldn't make room to unpack: {e}"))?;
+    if let Err(e) = unpack_into(source, &staging.path) {
+        return Err(e);
+    }
+    Ok(staging)
+}
+
+fn unpack_into(source: &Path, dest: &Path) -> Result<(), String> {
+    if source.is_dir() {
+        return copy_tree(source, dest, true).map(|_| ());
+    }
+    copy_item(source, dest)
 }
 
 /// A staging folder beside the game, so hard links work; the system temp folder if the game's

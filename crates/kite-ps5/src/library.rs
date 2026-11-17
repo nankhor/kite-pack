@@ -128,11 +128,22 @@ pub fn installed_title(
     keys: &Keys,
     title_id: &str,
 ) -> Result<Option<InstalledGame>, Ps5Error> {
+    installed_title_as(console, keys, &keys.checker, title_id)
+}
+
+/// The same read on a given identity. DLC installs use theirs so the periodic status check,
+/// which has its own key, can't cut the install's session.
+pub(crate) fn installed_title_as(
+    console: &Console,
+    keys: &Keys,
+    me: &std::sync::Arc<ava1::keys::Identity>,
+    title_id: &str,
+) -> Result<Option<InstalledGame>, Ps5Error> {
     if !looks_like_title_id(title_id) {
         return Err(Ps5Error::Failed("That isn't a title id".into()));
     }
     runtime().block_on(async {
-        let session = open(console, &keys.checker, keys).await?;
+        let session = open(console, me, keys).await?;
         let out = read_one(&session, title_id).await;
         session.close().await;
         out.map_err(meta::into_ps5)
@@ -513,6 +524,17 @@ pub fn read_file(
     runtime().block_on(async {
         let session = open(console, &keys.checker, keys).await?;
         let out = meta::read_all(&session, path, max).await;
+        session.close().await;
+        out.map_err(meta::into_ps5)
+    })
+}
+
+/// Streams a package to the console and installs it through Sony's installer. `url` must be
+/// reachable by the console (the app serves the package on this computer).
+pub fn install_url(console: &Console, keys: &Keys, url: &str, name: &str) -> Result<(), Ps5Error> {
+    runtime().block_on(async {
+        let session = open(console, &keys.install, keys).await?;
+        let out = meta::install_url(&session, url, name).await;
         session.close().await;
         out.map_err(meta::into_ps5)
     })

@@ -3,7 +3,7 @@
 #   make host   build/host/kite-helper, for this computer (tests run it as a stand-in PS5)
 #   make ps5    kite-helper.elf, with the PS5 payload SDK (PS5_PAYLOAD_SDK set; CI does this)
 
-VERSION := 0.2.0
+VERSION := 0.3.0
 AVA1 := third_party/ava1/c
 MONO := $(AVA1)/third_party/monocypher
 B3 := $(AVA1)/third_party/blake3
@@ -11,7 +11,7 @@ B3 := $(AVA1)/third_party/blake3
 AVA1_SRCS := $(filter-out $(AVA1)/platform_ps5.c $(AVA1)/platform_posix.c $(AVA1)/ava1_chacha_avx2.c,$(wildcard $(AVA1)/*.c)) \
              $(AVA1)/gen/ava1_gen.c
 DEP_SRCS := $(MONO)/monocypher.c $(B3)/blake3.c $(B3)/blake3_dispatch.c $(B3)/blake3_portable.c
-OUR_SRCS := src/kite_helper.c src/meta.c
+OUR_SRCS := src/kite_helper.c src/meta.c src/install.c
 HEADERS := $(wildcard src/*.h) $(wildcard $(AVA1)/*.h) $(AVA1)/gen/ava1_gen.h
 
 INC := -Isrc -I$(AVA1) -I$(AVA1)/gen -I$(MONO) -I$(B3)
@@ -50,8 +50,9 @@ build/ps5/chacha_avx2.o: $(AVA1)/ava1_chacha_avx2.c $(HEADERS)
 	$(CC) -O2 -std=gnu11 -w -mavx2 $(INC) -c -o $@ $<
 
 kite-helper.elf: $(OUR_SRCS) src/notify_ps5.c $(AVA1_SRCS) $(AVA1)/platform_ps5.c $(DEP_SRCS) $(HEADERS) build/ps5/chacha_avx2.o Makefile
-	$(CC) -O2 -std=gnu11 -pthread -w $(INC) $(DEFS) -DKITE_PLATFORM='"ps5"' -o $@ \
-		$(OUR_SRCS) src/notify_ps5.c $(AVA1_SRCS) $(AVA1)/platform_ps5.c $(DEP_SRCS) build/ps5/chacha_avx2.o
+	$(CC) -O2 -std=gnu11 -pthread -w $(INC) $(DEFS) -DKITE_PLATFORM='"ps5"' -DKITE_HAVE_INSTALL=1 -o $@ \
+		$(OUR_SRCS) src/notify_ps5.c $(AVA1_SRCS) $(AVA1)/platform_ps5.c $(DEP_SRCS) build/ps5/chacha_avx2.o \
+		-lSceIpmi -lSceAppInstUtil -lkernel_sys
 	$(STRIP) $@
 else
 kite-helper.elf:

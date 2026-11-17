@@ -98,3 +98,13 @@ fn game_info_reaches_the_screen_in_camel_case() {
     assert!(json.get("iconDataUrl").is_some());
     assert!(json.get("title_id").is_none());
 }
+
+#[test]
+fn a_dlc_package_is_read_without_its_game() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dlc = make_dlc_folder(tmp.path().join("dlc").as_path(), "Tidebreaker");
+    let got = inspect_dlc(&dlc).unwrap();
+    assert_eq!(got.title_id, "PPSA01234");
+    assert_eq!(got.info.label, "TIDEBREAKER00000");
+    assert_eq!(got.info.content_id, "UP0000-PPSA01234_00-TIDEBREAKER00000");
+}

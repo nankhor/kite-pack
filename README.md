@@ -47,8 +47,8 @@ On the Pack tab, **Add DLC** (one button: **Packages…** for `.pkg` files, **Fo
 dump folder or a folder of packages) and **Add backport** put files inside the packed copy before
 it is written, so one thing goes to the PS5 and the DLC is there without being installed
 separately. Each entry says where it goes: **In the pack**, **On the PS5** (already installed, so
-it is left out), or **After install** for an image or `.pkg` game, which needs a package installer
-the helper cannot drive yet.
+it is left out), **Via ShadowMount+** (installed natively, when the base is an installed PKG), or
+**After install** for an image, which still needs unpacking or a package installer.
 
 - DLC is added the way the console's DLC emulator reads it: the files under `addcontN/`, an entry
   in `dlc_emu.ini`, and the emulator's modules in `fakelib/` when the dump has none of its own.
@@ -59,11 +59,27 @@ the helper cannot drive yet.
 - The original dump is never changed: it is cloned beside itself (copy-on-write on APFS and
   btrfs/XFS, a copy elsewhere), the additions are folded into the clone, and the clone is removed
   once packing ends.
-- This works on a game folder. An image or a `.pkg` packs exactly as it is; its DLC is marked
-  **After install** and left out until there is a package installer.
+- This works on a game folder and on a `.pkg`. With **Save as Folder**, the package is packed
+  once and the DLC are then unpacked straight into the finished folder, as loose files the game
+  reads from disk — fast, and the zstd pack is untouched. For an image output the package is
+  unpacked, the DLC folded in, and the image written again (the DLC are compressed too, but the
+  whole game is packed a second time). An image *source* still packs as it is; its DLC are
+  marked **After install** until it is unpacked or the base is installed as a PKG.
 
-This needs the Kite helper 0.2.0. Packing and sending still work with an older helper; the new
+This needs the Kite helper 0.3.0. Packing and sending still work with an older helper; the new
 screen asks you to start the new one.
+
+### Installing DLC through Sony's installer
+
+With the helper 0.3.0 and **Send** on, picked `.pkg` DLC are installed through **Sony's
+installer** (the route ps5upload uses) after the game has been sent, instead of being packed:
+the app serves each package from this computer, the console fetches it, Sony writes it to
+`/user/addcont`, and the job only marks it done once it appears there. The list says
+**Installs on the PS5** for those, and no `dlc_emu`/`fakelib` is involved. This works for a
+mounted folder game too: Sony only needs the title registered, which ShadowMount+ has done.
+
+With Send off, or an older helper, the DLC go inside the packed copy instead (**In the pack**),
+as before. Keep the game closed while the DLC install.
 
 ## Download
 

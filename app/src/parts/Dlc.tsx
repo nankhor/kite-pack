@@ -13,10 +13,6 @@ interface Props {
   installed: string[];
   /** ShadowMount+, when it answers. */
   smp: SmpStatus | null;
-  /** Why ShadowMount+ couldn't be asked, when it couldn't. */
-  smpError: string | null;
-  /** The PS5's address, for the hint. */
-  smpAddress: string | null;
   /** The DLC packages ShadowMount+ will install natively. */
   nativeDlc: string[];
   /** Sending a backport to ShadowMount+ right now. */
@@ -58,7 +54,7 @@ const isInstalled = (item: BundleItem, installed: string[]) =>
 function badge(item: BundleItem, installed: string[], nativeDlc: string[]): [string, string] {
   if (item.problem) return ["Can't go in", "bad"];
   if (isInstalled(item, installed)) return ["On the PS5", "have"];
-  if (nativeDlc.includes(item.path)) return ["Via ShadowMount+", "kind"];
+  if (nativeDlc.includes(item.path)) return ["Installs on the PS5", "kind"];
   if (item.kind === "backport") return ["Backport", "kind"];
   if (item.route === "install") return ["After install", "wait"];
   return ["In the pack", "kind"];
@@ -77,8 +73,6 @@ export function Dlc({
   picked,
   installed,
   smp,
-  smpError,
-  smpAddress,
   nativeDlc,
   installingBackport,
   gameIcon,
@@ -111,19 +105,14 @@ export function Dlc({
   let hint = "Add DLC packages, a DLC folder, or a backport. They go inside the packed copy, so the PS5 gets them with the game.";
   if (busy) hint = "Reading what you picked…";
   else if (picked > 0 && !plan) hint = "Couldn't read the DLC you picked: remove them and add them again.";
-  else if (items.length > 0) hint = "Folded into the packed copy before it is written.";
-  if (smp?.installed && nativeDlc.length > 0) {
-    hint = `ShadowMount+ ${smp.version} found: ${nativeDlc.length} of these install natively on the PS5 when it is sent.`;
-  } else if (smp && !smp.installed && dlc.length > 0) {
-    hint = `ShadowMount+ ${smp.version} found, but this game's base is mounted rather than installed, so its DLC goes inside the packed copy.`;
+  else if (items.length > 0) hint = "Added to the packed copy.";
+  if (nativeDlc.length > 0) {
+    hint = `${nativeDlc.length} of these install on the PS5 through Sony's installer once the game is sent.`;
   }
   if (plan?.problem) hint = plan.problem;
-  else if (toInstall.length > 0 && !smp?.installed) {
-    hint = smp
-      ? `ShadowMount+ ${smp.version} answered, but this game's base is mounted rather than installed, and it refuses DLC for those.`
-      : `No package installer: ShadowMount+ didn't answer${smpAddress ? ` at ${smpAddress}:10101` : ""}${
-          smpError ? ` (${smpError})` : ""
-        }. Start it, then reopen this game.`;
+  else if (toInstall.length > 0) {
+    hint =
+      "An image can't carry DLC: unpack it to a folder first, or install the game as a PKG so Sony's installer can add the DLC.";
   }
   const backport = items.find((i) => i.kind === "backport");
 
@@ -253,8 +242,8 @@ export function Dlc({
             )}
             {toInstall.length > 0 && (
               <p className="popover-note">
-                {smp?.installed
-                  ? "ShadowMount+ installs these on the PS5 after the game is sent."
+                {nativeDlc.length > 0
+                  ? "These install on the PS5 after the game is sent."
                   : "Marked “After install” will not be packed: no package installer is available."}
               </p>
             )}

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { folderNote, footerNote, historyEntry, jobBar, packBadge } from "./model";
+import { folderNote, footerNote, historyEntry, jobBar, packBadge, versionAtLeast } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
@@ -451,6 +451,9 @@ export default function App({
 
   const sendable = canSend(s.status);
   const installedLabels = s.onPs5?.dlc ?? [];
+  /** The helper 0.3.0 answers Sony's installer for streamed DLC. */
+  const canInstallNative =
+    s.status?.state === "running" && versionAtLeast(s.status.version, 0, 3);
 
   async function pack() {
     if (!s.source || preparingRef.current) return;
@@ -484,7 +487,8 @@ export default function App({
         (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels),
       );
       // DLC packages a native install can take go to ShadowMount+, not into the pack.
-      const native = send && smp?.installed ? installable(items) : [];
+      // Sony's installer takes .pkg DLC when the helper can stream them, even for a mounted game.
+      const native = send && canInstallNative ? installable(items) : [];
       const rest = items.filter((i) => !native.includes(i.path));
       const dlc = rest.filter((i) => i.kind === "dlc").map((i) => i.path);
       const backport = rest.find((i) => i.kind === "backport")?.path ?? null;
@@ -776,7 +780,7 @@ export default function App({
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
   const picksEmpty = s.bundle.dlc.length === 0 && !s.bundle.backport;
-  const nativeDlc = sending && smp?.installed ? installable(s.bundlePlan?.items ?? []) : [];
+  const nativeDlc = sending && canInstallNative ? installable(s.bundlePlan?.items ?? []) : [];
   const goingIn = (s.bundlePlan?.items ?? []).filter(
     (i) => i.route === "inPack" && !i.problem && !onConsole(i.label, installedLabels) && !nativeDlc.includes(i.path),
   ).length;
@@ -832,8 +836,6 @@ export default function App({
                 picked={s.bundle.dlc.length + (s.bundle.backport ? 1 : 0)}
                 installed={installedLabels}
                 smp={smp}
-                smpError={smpError}
-                smpAddress={s.settings?.address ?? null}
                 nativeDlc={nativeDlc}
                 installingBackport={installingBackport}
                 gameIcon={s.game.iconDataUrl}
