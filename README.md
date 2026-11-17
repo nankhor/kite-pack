@@ -91,7 +91,7 @@ Each [release](https://github.com/nankhor/kite-pack/releases) has the app:
 
 - **The Kite helper:** `kite-helper.elf`, if you'd rather load it on the PS5 yourself. The app carries it too.
 
-The command-line tool is there too, as `kite-pack-cli-…` archives.
+The command-line tool isn't in the downloads: build it from source (below).
 
 The builds aren't signed with an Apple or Microsoft certificate yet, so the first launch needs one extra step.
 
