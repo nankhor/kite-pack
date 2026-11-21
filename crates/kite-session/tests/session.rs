@@ -54,7 +54,7 @@ impl World {
     }
 
     fn session(&self) -> Session {
-        self.session_with(Arc::new(ForgePacker { full_verify: false }))
+        self.session_with(Arc::new(ForgePacker::default()))
     }
 
     fn session_with(&self, packer: Arc<dyn Packer>) -> Session {
@@ -316,7 +316,7 @@ impl Sender for FakeSender {
 #[test]
 fn send_step_runs_and_reports_progress() {
     let w = World::new();
-    let session = w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(FakeSender));
+    let session = w.session_full(Arc::new(ForgePacker::default()), Arc::new(FakeSender));
     let events = Events::default();
     let mut options = w.options(false);
     options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
@@ -345,7 +345,7 @@ fn send_step_runs_and_reports_progress() {
 #[test]
 fn packed_size_is_kept_when_the_packed_copy_goes_to_the_trash() {
     let w = World::new();
-    let session = w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(FakeSender));
+    let session = w.session_full(Arc::new(ForgePacker::default()), Arc::new(FakeSender));
     let events = Events::default();
     let mut options = w.options(false);
     options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
@@ -380,7 +380,7 @@ impl Sender for DropsOnceSender {
 fn send_shows_running_again_when_the_ps5_comes_back() {
     let w = World::new();
     let session =
-        w.session_full(Arc::new(ForgePacker { full_verify: false }), Arc::new(DropsOnceSender(Mutex::new(0))));
+        w.session_full(Arc::new(ForgePacker::default()), Arc::new(DropsOnceSender(Mutex::new(0))));
     let events = Events::default();
     let mut options = w.options(false);
     options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });

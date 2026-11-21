@@ -10,8 +10,9 @@ use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use crate::snapshot::Snapshot;
 use crate::steps::{StepKind, StepState};
+use std::io::{Read, Write};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
@@ -60,7 +61,13 @@ struct Ready {
     packed: PathBuf,
     file: PathBuf,
     part: Part,
+    copy_first: bool,
 }
+
+/// Spare room a copy leaves on the disk, beyond what the pack may still write.
+const COPY_SPARE: u64 = 1 << 30;
+/// A copy reads and writes this much at a time, and looks for [`Progress::PartsClosing`] between.
+const COPY_STEP: usize = 8 << 20;
 
 /// What the pack step and its part sender share.
 #[derive(Default)]
@@ -73,6 +80,53 @@ struct Ahead {
     busy: AtomicBool,
     /// The parts the PS5 has, in the order they went.
     sent: Mutex<Vec<Part>>,
+    /// The packer is publishing its folder: no part may be read where it is any more.
+    sealed: AtomicBool,
+    /// What the pack has left to read, from its last progress: an upper bound on what it may
+    /// still write (a stored chunk is never bigger than its source).
+    left: AtomicU64,
+    /// Where copies of parts are made, once one is: removed when the step ends.
+    copies: Mutex<Option<PathBuf>>,
+}
+
+/// Copies `ready`'s part out of the packer's folder to send the copy instead, `COPY_STEP` at a
+/// time, so the original is never held open for long. `None`, and nothing left behind, when the
+/// disk hasn't room for the copy and the rest of the pack, when the packer starts publishing its
+/// folder (the copy stops at once: its rename must not meet an open file), or on any failure.
+fn copy_out(ready: &Ready, ahead: &Ahead) -> Option<PathBuf> {
+    let name = ready.packed.file_name()?.to_string_lossy().into_owned();
+    let dir = ready.packed.parent()?.join(format!(".{name}.kite-copy"));
+    let need = ahead.left.load(Ordering::SeqCst).saturating_add(ready.part.size).saturating_add(COPY_SPARE);
+    if fs4::available_space(ready.packed.parent()?).ok()? < need {
+        return None;
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+    *ahead.copies.lock().unwrap_or_else(|e| e.into_inner()) = Some(dir.clone());
+    let to = dir.join(&ready.part.rel);
+    let copied = (|| -> std::io::Result<bool> {
+        let mut from = std::fs::File::open(&ready.file)?;
+        let mut into = std::fs::File::create(&to)?;
+        let mut buf = vec![0u8; COPY_STEP];
+        let mut done = 0u64;
+        loop {
+            if ahead.sealed.load(Ordering::SeqCst) || ahead.stop.load(Ordering::SeqCst) {
+                return Ok(false);
+            }
+            let n = from.read(&mut buf)?;
+            if n == 0 {
+                break;
+            }
+            into.write_all(&buf[..n])?;
+            done += n as u64;
+        }
+        Ok(done == ready.part.size)
+    })();
+    if matches!(copied, Ok(true)) {
+        Some(to)
+    } else {
+        let _ = std::fs::remove_file(&to);
+        None
+    }
 }
 
 /// Sends parts ahead one at a time, as the packer finishes them, until the PS5 can't take one
@@ -82,9 +136,19 @@ fn send_parts_ahead(sender: &dyn Sender, target: &SendTarget, parts: mpsc::Recei
     for ready in parts {
         if taking && !ahead.closing.load(Ordering::SeqCst) && !ahead.stop.load(Ordering::SeqCst) {
             ahead.busy.store(true, Ordering::SeqCst);
-            match sender.send_ahead(&ready.packed, &ready.file, &ready.part, target, &ahead.stop) {
-                Ok(true) => ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone()),
-                Ok(false) | Err(_) => taking = false,
+            // A part that can't stay open where it is goes as a copy, or not at all.
+            let copy = if ready.copy_first { copy_out(&ready, ahead) } else { None };
+            if ready.copy_first && copy.is_none() {
+                taking = false;
+            } else {
+                let file = copy.as_deref().unwrap_or(&ready.file);
+                match sender.send_ahead(&ready.packed, file, &ready.part, target, &ahead.stop) {
+                    Ok(true) => ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone()),
+                    Ok(false) | Err(_) => taking = false,
+                }
+            }
+            if let Some(copy) = copy {
+                let _ = std::fs::remove_file(copy);
             }
             ahead.busy.store(false, Ordering::SeqCst);
         }
@@ -356,8 +420,13 @@ impl Runner<'_> {
             let progress = |progress: Progress| {
                 match progress {
                     // No part sender (not sending, or not a folder): nothing waits for it.
-                    Progress::PartReady { packed, file, part } => {
-                        let _ = tx.send(Ready { packed, file, part });
+                    Progress::PartReady { packed, file, part, copy_first } => {
+                        let _ = tx.send(Ready { packed, file, part, copy_first });
+                    }
+                    Progress::PartsClosing => ahead.sealed.store(true, Ordering::SeqCst),
+                    Progress::Bytes { done, total } => {
+                        ahead.left.store(total.saturating_sub(done), Ordering::SeqCst);
+                        events(RunEvent::Progress { index, progress: Progress::Bytes { done, total } });
                     }
                     other => events(RunEvent::Progress { index, progress: other }),
                 }
@@ -380,6 +449,9 @@ impl Runner<'_> {
                 }
                 let _ = worker.join();
                 show_ahead();
+            }
+            if let Some(dir) = ahead.copies.lock().unwrap_or_else(|e| e.into_inner()).take() {
+                let _ = std::fs::remove_dir_all(dir);
             }
             out
         });

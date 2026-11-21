@@ -113,7 +113,9 @@ The helper accepts any computer on your home network (private addresses) with no
 
 With **Send to PS5** on and **Save as: Folder**, a big game goes to the PS5 while it is still being packed. The packed copy is written in parts of up to 4 GB, and each finished part is sent while the next one is compressed. When the pack ends, only what is left goes over, and each early part has its 64-byte header written in place. Sending and packing then take about as long as the slower of the two, instead of one after the other.
 
-This needs the Kite helper 0.4.0, which adds that one bounded write (`fs.patch`: at most 4 KB, inside a file that already exists where transfers may write). With an older helper, on Windows, or for an image (exFAT, `.ffpkg`, `.ffpfs`), the packed copy is sent after packing, as before.
+On Windows each part is first copied out of the folder Forge is packing into, and the copy is sent: a file held open there would stop Forge's rename of that folder when the pack is done (it tries once, and the pack would fail). The copy takes a few seconds per part and up to 4 GB of free space while it is on its way, and is made only when the disk has room for it and for the rest of the pack. Copying stops the moment Forge starts its final check; whatever wasn't sent by then goes with the rest.
+
+This needs the Kite helper 0.4.0, which adds that one bounded write (`fs.patch`: at most 4 KB, inside a file that already exists where transfers may write). With an older helper, or for an image (exFAT, `.ffpkg`, `.ffpfs`), the packed copy is sent after packing, as before.
 
 ### Installing through ShadowMount+
 

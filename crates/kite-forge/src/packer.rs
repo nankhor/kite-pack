@@ -20,20 +20,35 @@ const LOOK_EVERY: Duration = Duration::from_millis(500);
 /// other, and volume N+1 is only created once N is synced: so N is finished, but for its 64-byte
 /// header, which Forge writes into every volume once the whole pack is done.
 ///
-/// A volume is announced where it is, in the `.part` folder: the sender opens it once and keeps
-/// it open, which outlives the rename. It can't be linked elsewhere instead: Forge's check
-/// refuses a file with two names. Not on Windows, where a file held open in a folder stops the
-/// folder's rename (and so the pack): there every volume goes after the pack, as before.
+/// A volume is announced where it is, in the `.part` folder. On Mac and Linux the sender opens it
+/// once and keeps it open, which outlives the rename. On Windows a file held open in a folder
+/// stops the folder's rename, which Forge tries once, failing the pack: there it is announced
+/// with `copy_first`, copied out and the copy sent, and [`Progress::PartsClosing`] stops any
+/// copy the moment Forge leaves writing. It can't be linked elsewhere instead: Forge's check
+/// refuses a file with two names.
 pub(crate) struct Parts {
     output: PathBuf,
+    copy_first: bool,
     part_dir: Option<PathBuf>,
     next: u32,
     last_look: Option<Instant>,
+    closed: bool,
 }
 
+/// Forge's stages once every volume is written: its check, then publishing the folder.
+const AFTER_WRITING: [&str; 2] = ["verify", "finalize"];
+
 impl Parts {
-    pub(crate) fn new(output: &Path) -> Parts {
-        Parts { output: output.to_path_buf(), part_dir: None, next: 0, last_look: None }
+    pub(crate) fn new(output: &Path, copy_first: bool) -> Parts {
+        Parts { output: output.to_path_buf(), copy_first, part_dir: None, next: 0, last_look: None, closed: false }
+    }
+
+    /// Forge moved on to `stage`: once past writing, says so (once) and announces no more.
+    pub(crate) fn stage(&mut self, stage: &str, progress: &dyn Fn(Progress)) {
+        if !self.closed && AFTER_WRITING.contains(&stage) {
+            self.closed = true;
+            progress(Progress::PartsClosing);
+        }
     }
 
     /// Forge's `.part` folder for this output, made by this process.
@@ -50,7 +65,7 @@ impl Parts {
 
     /// Announces every volume finished since the last look (at most every [`LOOK_EVERY`]).
     pub(crate) fn look(&mut self, progress: &dyn Fn(Progress)) {
-        if self.last_look.is_some_and(|t| t.elapsed() < LOOK_EVERY) {
+        if self.closed || self.last_look.is_some_and(|t| t.elapsed() < LOOK_EVERY) {
             return;
         }
         self.last_look = Some(Instant::now());
@@ -67,6 +82,7 @@ impl Parts {
                 packed: self.output.clone(),
                 file,
                 part: Part { rel: name, size: meta.len(), settled_from: VOLUME_HEADER_SIZE as u64 },
+                copy_first: self.copy_first,
             });
         }
     }
@@ -75,6 +91,16 @@ impl Parts {
 pub struct ForgePacker {
     /// Re-read every byte of the output instead of Forge's fast sampled check.
     pub full_verify: bool,
+    /// Volumes sent while packing are copied out of Forge's folder first, and the copy sent:
+    /// on Windows, where a file held open in that folder would stop Forge's rename (it tries
+    /// once) and fail the pack. Mac and Linux read them in place.
+    pub copy_parts: bool,
+}
+
+impl Default for ForgePacker {
+    fn default() -> ForgePacker {
+        ForgePacker { full_verify: false, copy_parts: cfg!(windows) }
+    }
 }
 
 /// What the staging step folded in, in one line for the job's checks.
@@ -176,8 +202,7 @@ impl Packer for ForgePacker {
         let mut stage = String::new();
         let mut cancel_sent = false;
         // Volumes that can go to the PS5 before the pack ends: a folder output, when asked.
-        let mut parts =
-            (req.ahead && req.format == OutputFormat::Folder && !cfg!(windows)).then(|| Parts::new(&output));
+        let mut parts = (req.ahead && req.format == OutputFormat::Folder).then(|| Parts::new(&output, self.copy_parts));
         loop {
             if !cancel_sent && cancel.load(Ordering::SeqCst) {
                 jobs.cancel(id);
@@ -189,6 +214,10 @@ impl Packer for ForgePacker {
             match rx.recv_timeout(POLL) {
                 Ok(Event::Progress { job, stage: now, done, total }) if job == id => {
                     if now != stage {
+                        // First: a copy reading a volume in Forge's folder stops before its rename.
+                        if let Some(parts) = parts.as_mut() {
+                            parts.stage(&now, progress);
+                        }
                         stage = now.clone();
                         progress(Progress::Stage(now));
                     }
@@ -253,7 +282,7 @@ mod tests {
     fn a_volume_is_announced_once_the_next_one_starts() {
         let tmp = tempfile::tempdir().unwrap();
         let output = tmp.path().join("[Ashen Tide]-[PPSA01234]");
-        let mut parts = Parts::new(&output);
+        let mut parts = Parts::new(&output, false);
         assert!(look(&mut parts).is_empty(), "no folder yet");
 
         // Another process's folder, and a look-alike name, are none of ours.
@@ -266,7 +295,8 @@ mod tests {
 
         std::fs::write(dir.join("ampr_zstd-001.pak"), vec![2u8; 10]).unwrap();
         let seen = look(&mut parts);
-        let [Progress::PartReady { packed, file, part }] = &seen[..] else { panic!("{seen:?}") };
+        let [Progress::PartReady { packed, file, part, copy_first }] = &seen[..] else { panic!("{seen:?}") };
+        assert!(!copy_first);
         assert_eq!(packed, &output);
         assert_eq!(file, &dir.join("ampr_zstd-000.pak"));
         assert_eq!(part, &Part { rel: "ampr_zstd-000.pak".into(), size: 300, settled_from: 64 });
@@ -286,12 +316,42 @@ mod tests {
     }
 
     #[test]
+    fn writing_ends_at_the_check_and_is_told_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(format!("G.1-{}.part", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ampr_zstd-000.pak"), b"x").unwrap();
+        let mut parts = Parts::new(&tmp.path().join("G"), true);
+        let seen = RefCell::new(Vec::new());
+        for stage in ["scan", "write", "pack", "verify", "finalize"] {
+            parts.stage(stage, &|p| seen.borrow_mut().push(p));
+        }
+        assert_eq!(seen.into_inner(), vec![Progress::PartsClosing]);
+        // And nothing is announced after it: those volumes go with the rest.
+        std::fs::write(dir.join("ampr_zstd-001.pak"), b"x").unwrap();
+        assert!(look(&mut parts).is_empty());
+    }
+
+    #[test]
+    fn on_windows_parts_are_to_be_copied_first() {
+        assert_eq!(ForgePacker::default().copy_parts, cfg!(windows));
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join(format!("G.1-{}.part", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ampr_zstd-000.pak"), b"x").unwrap();
+        std::fs::write(dir.join("ampr_zstd-001.pak"), b"x").unwrap();
+        let mut parts = Parts::new(&tmp.path().join("G"), true);
+        let seen = look(&mut parts);
+        assert!(matches!(&seen[..], [Progress::PartReady { copy_first: true, .. }]), "{seen:?}");
+    }
+
+    #[test]
     fn looks_are_spaced_out() {
         let tmp = tempfile::tempdir().unwrap();
         let output = tmp.path().join("G");
         let dir = tmp.path().join(format!("G.1-{}.part", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let mut parts = Parts::new(&output);
+        let mut parts = Parts::new(&output, false);
         let n = std::cell::Cell::new(0);
         parts.look(&|_| n.set(n.get() + 1));
         std::fs::write(dir.join("ampr_zstd-000.pak"), b"x").unwrap();
