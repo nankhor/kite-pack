@@ -529,6 +529,19 @@ pub fn read_file(
     })
 }
 
+/// The helper's one write, `fs.patch`: `bytes` at `offset` inside a file that exists where
+/// transfers may write. Kite Pack uses it through [`crate::Ps5Sender`]; this is for tests of
+/// the helper's bounds.
+#[doc(hidden)]
+pub fn patch_file(console: &Console, keys: &Keys, path: &str, offset: u64, bytes: &[u8]) -> Result<(), MetaError> {
+    runtime().block_on(async {
+        let session = open(console, &keys.checker, keys).await.map_err(MetaError::Network)?;
+        let out = meta::patch(&session, path, offset, bytes).await;
+        session.close().await;
+        out
+    })
+}
+
 /// Streams a package to the console and installs it through Sony's installer. `url` must be
 /// reachable by the console (the app serves the package on this computer).
 pub fn install_url(console: &Console, keys: &Keys, url: &str, name: &str) -> Result<(), Ps5Error> {

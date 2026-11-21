@@ -13,6 +13,9 @@ pub enum UiEvent {
     Stage { id: String, index: usize, stage: String },
     /// Bytes done in the running step; at most every 100 ms.
     Progress { id: String, index: usize, done: u64, total: u64 },
+    /// While Pack runs: parts of the packed copy already on the PS5, and whether the next one
+    /// is on its way.
+    Ahead { id: String, index: usize, sent: usize, sending: bool },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

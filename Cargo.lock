@@ -2558,6 +2558,7 @@ dependencies = [
  "dunce",
  "kite-pipeline",
  "ps5-dump-forge-core",
+ "ps5-dump-forge-zstd",
  "serde",
  "serde_json",
  "tempfile",

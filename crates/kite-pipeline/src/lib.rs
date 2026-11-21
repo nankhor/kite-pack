@@ -10,8 +10,8 @@ mod steps;
 mod system_trash;
 
 pub use ports::{
-    InstallError, Installer, PackError, PackOutcome, PackRequest, Packer, Progress, SendError,
-    Sender, Sleeper, ThreadSleeper, Trash, Unavailable,
+    InstallError, Installer, PackError, PackOutcome, PackRequest, Packer, Part, Progress,
+    SendError, Sender, Sleeper, ThreadSleeper, Trash, Unavailable,
 };
 pub use runner::{RunEvent, RunOutcome, Runner};
 pub use system_trash::SystemTrash;

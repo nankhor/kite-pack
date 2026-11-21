@@ -28,6 +28,7 @@ kite-smp = { path = "crates/kite-smp" }
 # PS5 Dump Forge (quer3q), GPL-3.0-or-later. Pinned: move it on purpose, with ampr-emu-ng
 # (the runtime packed games get; see the patch below).
 ps5-dump-forge-core = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-zstd = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
 
 # Forge patches lzma-rust2 (sevenz-rust2's decoder, data bounded); a [patch] only applies in
 # the root workspace, so ours repeats Forge's.

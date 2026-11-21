@@ -207,3 +207,119 @@ fn a_status_check_doesnt_cut_a_send() {
     result.expect("the send must carry on through a status check");
     assert_eq!(std::fs::read(helper.share.join("homebrew/big.ffpkg")).unwrap(), std::fs::read(&image).unwrap());
 }
+
+// ---- parts sent while packing ----------------------------------------------------------------
+
+use kite_pipeline::Part;
+
+/// A packed folder whose first volume went ahead while packing: `part` holds that volume as it
+/// was then, its 64-byte header still zeros; the folder holds it as finished.
+fn packed_with_a_part_ahead(dir: &Path) -> (PathBuf, PathBuf, Part) {
+    let packed = packed_folder(dir);
+    let mut volume = std::fs::read(packed.join("ampr_zstd-000.pak")).unwrap();
+    volume[..64].fill(0);
+    let part_dir = dir.join(".[Ashen Tide]-[PPSA01234].kite-ahead");
+    std::fs::create_dir_all(&part_dir).unwrap();
+    std::fs::write(part_dir.join("ampr_zstd-000.pak"), &volume).unwrap();
+    let part = Part { rel: "ampr_zstd-000.pak".into(), size: volume.len() as u64, settled_from: 64 };
+    (packed, part_dir.join("ampr_zstd-000.pak"), part)
+}
+
+#[test]
+fn a_part_sent_ahead_is_left_out_and_its_header_put_right() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let (packed, early, part) = packed_with_a_part_ahead(tmp.path());
+    let s = sender(tmp.path(), helper.port);
+    let t = target(&helper);
+    let landed = helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]");
+
+    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    let there = std::fs::read(landed.join("ampr_zstd-000.pak")).unwrap();
+    assert_eq!(&there[..64], &[0u8; 64][..], "it went with the header it had then");
+
+    let totals = Mutex::new(Vec::new());
+    s.send_rest(&packed, &t, &[part.clone()], &|p| {
+        if let Progress::Bytes { total, .. } = p {
+            totals.lock().unwrap().push(total);
+        }
+    }, &AtomicBool::new(false))
+    .unwrap();
+
+    same_tree(&packed, &landed);
+    let total = *totals.lock().unwrap().last().unwrap();
+    assert!(total < part.size, "the volume wasn't sent again ({total} bytes went)");
+}
+
+#[test]
+fn a_part_gone_from_the_console_goes_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let (packed, early, part) = packed_with_a_part_ahead(tmp.path());
+    let s = sender(tmp.path(), helper.port);
+    let t = target(&helper);
+    let landed = helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]");
+
+    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    std::fs::remove_file(landed.join("ampr_zstd-000.pak")).unwrap();
+    s.send_rest(&packed, &t, &[part], &|_| {}, &AtomicBool::new(false)).unwrap();
+    same_tree(&packed, &landed);
+}
+
+#[test]
+fn a_part_that_changed_size_goes_again() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let (packed, early, part) = packed_with_a_part_ahead(tmp.path());
+    let s = sender(tmp.path(), helper.port);
+    let t = target(&helper);
+    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    // The finished volume isn't the one announced: never trust what went ahead then.
+    std::fs::write(packed.join("ampr_zstd-000.pak"), noise(2_000_000, 9)).unwrap();
+    s.send_rest(&packed, &t, &[part], &|_| {}, &AtomicBool::new(false)).unwrap();
+    same_tree(&packed, &helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]"));
+}
+
+// ---- the helper's one write ------------------------------------------------------------------
+
+fn keys(dir: &Path) -> Keys {
+    Keys::open(&dir.join("pc")).unwrap()
+}
+
+#[test]
+fn a_patch_writes_inside_an_existing_file_and_nowhere_else() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let (console, k) = (helper.console(), keys(tmp.path()));
+    let file = helper.share.join("game.pak");
+    std::fs::write(&file, vec![7u8; 100]).unwrap();
+    let path = file.display().to_string();
+
+    kite_ps5::patch_file(&console, &k, &path, 10, b"kite").unwrap();
+    let after = std::fs::read(&file).unwrap();
+    assert_eq!(after.len(), 100, "never grown");
+    assert_eq!(&after[10..14], b"kite");
+    assert!(after[..10].iter().chain(&after[14..]).all(|&b| b == 7));
+
+    // Never past the end, so never grown.
+    let past = kite_ps5::patch_file(&console, &k, &path, 98, b"kite").unwrap_err();
+    assert!(matches!(past, kite_ps5::MetaError::Refused { code: 41, .. }), "{past:?}");
+    assert_eq!(std::fs::read(&file).unwrap(), after);
+    // Never makes a file.
+    let missing = helper.share.join("new.pak").display().to_string();
+    assert!(kite_ps5::patch_file(&console, &k, &missing, 0, b"x").unwrap_err().is_not_found());
+    assert!(!helper.share.join("new.pak").exists());
+    // Never outside the folders transfers may write, not even through a link.
+    let outside = tmp.path().join("outside.bin");
+    std::fs::write(&outside, vec![1u8; 100]).unwrap();
+    let refused = kite_ps5::patch_file(&console, &k, &outside.display().to_string(), 0, b"x").unwrap_err();
+    assert_eq!(refused, kite_ps5::MetaError::Path);
+    std::os::unix::fs::symlink(&outside, helper.share.join("link.pak")).unwrap();
+    let through = helper.share.join("link.pak").display().to_string();
+    assert_eq!(kite_ps5::patch_file(&console, &k, &through, 0, b"x").unwrap_err(), kite_ps5::MetaError::Path);
+    assert_eq!(std::fs::read(&outside).unwrap(), vec![1u8; 100]);
+    // Never a folder, and never more than 4 KiB at once.
+    let folder = helper.share.display().to_string();
+    assert_eq!(kite_ps5::patch_file(&console, &k, &folder, 0, b"x").unwrap_err(), kite_ps5::MetaError::Path);
+    assert!(kite_ps5::patch_file(&console, &k, &path, 0, &[0u8; 4097]).is_err());
+}

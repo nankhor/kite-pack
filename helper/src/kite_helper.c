@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
     }
     signal(SIGPIPE, SIG_IGN);
     mkdir(state, 0700);
-    kite_meta_init(root, meta_read_allowed);
+    kite_meta_init(root, meta_read_allowed, may_write);
 
     memset(&cfg, 0, sizeof cfg);
     cfg.port = (uint16_t)port;

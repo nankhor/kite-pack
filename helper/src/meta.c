@@ -1,4 +1,5 @@
-/* Read-only console metadata: see meta.h for the methods, the wire layout and the policy. */
+/* Console metadata (read-only, but for fs.patch): see meta.h for the methods, the wire layout
+ * and the policy. */
 #include "meta.h"
 #include "install.h"
 
@@ -24,8 +25,9 @@
 /* The console's root, "" on the PS5; a folder in host tests. */
 static char g_root[PATH_MAX];
 static int (*g_allowed)(const char *real);
+static int (*g_may_write)(const char *real);
 
-void kite_meta_init(const char *root, int (*allowed)(const char *real)) {
+void kite_meta_init(const char *root, int (*allowed)(const char *real), int (*may_write)(const char *real)) {
     g_root[0] = '\0';
     if (root && root[0]) {
         char real[PATH_MAX];
@@ -33,6 +35,7 @@ void kite_meta_init(const char *root, int (*allowed)(const char *real)) {
         snprintf(g_root, sizeof g_root, "%s", realpath(root, real) ? real : root);
     }
     g_allowed = allowed;
+    g_may_write = may_write;
 }
 
 int kite_meta_serves(uint16_t method) {
@@ -42,6 +45,7 @@ int kite_meta_serves(uint16_t method) {
     case KITE_METHOD_FS_READ:
     case KITE_METHOD_FS_DU:
     case KITE_METHOD_FS_FREESPACE:
+    case KITE_METHOD_FS_PATCH:
     case KITE_METHOD_INSTALL_URL:
         return 1;
     default:
@@ -467,6 +471,55 @@ static int fs_freespace(const struct request *rq, uint8_t *out, size_t cap, size
     return AVA1_STATUS_OK;
 }
 
+/* ---- fs.patch --------------------------------------------------------------------------------- */
+
+/* `bytes` (rq->limit of them, already bounded and present) into an existing regular file under
+ * the write roots, at rq->offset, inside its current size; synced before the answer. */
+static int fs_patch(const struct request *rq, const uint8_t *bytes) {
+    char real[PATH_MAX];
+    int rc = resolve(rq->path, rq->path_len, real, sizeof real);
+    if (rc != AVA1_STATUS_OK) return rc;
+    /* The real path, symlinks resolved, must be somewhere transfers may write. */
+    if (!g_may_write || !g_may_write(real)) return AVA1_ERR_PATH;
+
+    /* Only a regular file: a folder or a device is refused before anything is opened. */
+    struct stat before;
+    if (stat(real, &before) != 0) return errno == ENOENT ? KITE_ERR_NOT_FOUND : AVA1_ERR_IO;
+    if (!S_ISREG(before.st_mode)) return AVA1_ERR_PATH;
+
+    /* No O_CREAT and no O_TRUNC: the file must be there, and stays its size. */
+    int fd = open(real, O_WRONLY | O_NONBLOCK | O_CLOEXEC | O_NOFOLLOW);
+    if (fd < 0) return errno == ENOENT ? KITE_ERR_NOT_FOUND : errno == EISDIR ? AVA1_ERR_PATH : AVA1_ERR_IO;
+    struct stat st;
+    if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        return AVA1_ERR_PATH;
+    }
+    uint64_t size = (uint64_t)st.st_size;
+    if (rq->offset > size || rq->limit > size - rq->offset) {
+        close(fd);
+        return KITE_ERR_RANGE;
+    }
+
+    size_t done = 0;
+    while (done < rq->limit) {
+        ssize_t n = pwrite(fd, bytes + done, rq->limit - done, (off_t)(rq->offset + done));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            close(fd);
+            return AVA1_ERR_IO;
+        }
+        if (n == 0) {
+            close(fd);
+            return AVA1_ERR_IO;
+        }
+        done += (size_t)n;
+    }
+    rc = fsync(fd) == 0 ? AVA1_STATUS_OK : AVA1_ERR_IO;
+    if (close(fd) != 0 && rc == AVA1_STATUS_OK) rc = AVA1_ERR_IO;
+    return rc;
+}
+
 /* ---- dispatch --------------------------------------------------------------------------------- */
 
 int kite_meta_rpc(uint16_t method, const uint8_t *body, uint32_t len, uint8_t *out, size_t cap,
@@ -501,6 +554,14 @@ int kite_meta_rpc(uint16_t method, const uint8_t *body, uint32_t len, uint8_t *o
     memset(&rq, 0, sizeof rq);
     int rc = parse_request(body, len, &rq);
     if (rc != AVA1_STATUS_OK) return rc;
+
+    /* fs.patch: the request's `limit` is the byte count, and exactly that many bytes follow. */
+    if (method == KITE_METHOD_FS_PATCH) {
+        size_t head = 2 + rq.path_len + 8 + 4;
+        if (rq.limit == 0 || rq.limit > KITE_PATCH_MAX || len != head + rq.limit) return AVA1_ERR_PROTOCOL;
+        *out_len = 0;
+        return fs_patch(&rq, body + head);
+    }
 
     switch (method) {
     case KITE_METHOD_FS_LIST:
