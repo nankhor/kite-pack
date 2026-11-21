@@ -1,0 +1,26 @@
+# PS5 Dump Forge's `ps5-dump-forge-zstd` (quer3q, GPL-3.0-or-later) at the commit Kite Pack pins,
+# with one change: a chunk that can't shrink is stored raw without the slow compression. See
+# README.md here.
+[package]
+name = "ps5-dump-forge-zstd"
+version = "0.5.6"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[features]
+default = ["std"]
+# Off (`default-features = false`): `no_std`, the format's convention only
+# (magics, layout, names, `Chunk`, the volume header), for the runtime.
+std = ["dep:getrandom", "dep:ps5upload-fpkg", "dep:rayon", "dep:zstd", "crc32fast/std"]
+
+[dependencies]
+crc32fast = { version = "1.5", default-features = false }
+getrandom = { version = "0.4", optional = true }
+ps5upload-fpkg = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5", optional = true }
+rayon = { version = "1.11", optional = true }
+zstd = { version = "0.13.3", default-features = false, optional = true }
+
+[[test]]
+name = "roundtrip"
+required-features = ["std"]

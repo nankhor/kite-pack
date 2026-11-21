@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Max packs faster.** Video, audio and other already-compressed files are no longer put
+  through the slow compression before being stored as they are. A quick check spots them first,
+  so **Max** runs more than ten times as fast on that part of a game (Medium gains a little).
+  The packed copy ends about 0.5% bigger on those files; everything else packs as before.
 - **Newest emulator in packed games.** Packed games now get
   [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng) v0.5.0, up from v0.3.4. It has no index
   size limit (Final Fantasy XVI, Demon's Souls, Returnal and God of War Ragnarök stopped on it),
