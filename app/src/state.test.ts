@@ -44,6 +44,21 @@ describe("progress", () => {
     expect(s.progress).toMatchObject({ startedAt: 61_000, startedDone: 300, recent: [{ at: 61_000, done: 300 }] });
   });
 
+  it("keeps the parts already sent beside the pack's own progress", () => {
+    const packing: State = {
+      ...initial,
+      phase: "running",
+      job: { ...sendJob("pending", 1), steps: [{ kind: "pack", state: "running", note: null }, { kind: "send", state: "pending", note: null }] },
+    };
+    let s = on(packing, { type: "progress", id: "j1", index: 0, done: 10, total: 100 }, 0);
+    s = on(s, { type: "ahead", id: "j1", index: 0, sent: 1, sending: true }, 500);
+    s = on(s, { type: "progress", id: "j1", index: 0, done: 20, total: 100 }, 1_000);
+    expect(s.progress).toMatchObject({ index: 0, done: 20, ahead: { sent: 1, sending: true } });
+    // Another job's count is not this one's.
+    s = on(s, { type: "ahead", id: "other", index: 0, sent: 5, sending: false }, 1_500);
+    expect(s.progress?.ahead).toEqual({ sent: 1, sending: true });
+  });
+
   it("keeps the estimate going while the send keeps running", () => {
     let s = on(sending, sent(100), 0);
     s = on(s, { type: "job", job: sendJob("running", 2) }, 1_000);

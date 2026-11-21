@@ -474,6 +474,17 @@ describe("jobBar", () => {
     expect(bar.overall).toBe(33);
   });
 
+  it("says what Send has while Pack still runs", () => {
+    const packing = job([st("pack", "running"), st("deleteOriginal", "pending"), st("send", "pending")]);
+    const at = (ahead: ProgressState["ahead"]) =>
+      jobBar(packing, progress({ index: 0, done: 62, total: 100, ahead }), 0).parts[2].note;
+    expect(at(undefined)).toBe("Starts when packing ends");
+    expect(at({ sent: 0, sending: false })).toBe("Starts when packing ends");
+    expect(at({ sent: 0, sending: true })).toBe("Sending the first part while it packs");
+    expect(at({ sent: 1, sending: true })).toBe("1 part on the PS5, the next on its way");
+    expect(at({ sent: 3, sending: false })).toBe("3 parts already on the PS5");
+  });
+
   it("counts the bytes sent under Send", () => {
     const sending = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000 });
     const bar = jobBar(sending, progress({ index: 1, done: 44_100_000_000, total: 71_200_000_000 }), 0);

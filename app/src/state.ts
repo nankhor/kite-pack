@@ -136,6 +136,7 @@ function onEvent(s: State, e: UiEvent, now: number): State {
   };
   const p = s.progress && s.progress.index === e.index ? s.progress : fresh;
   if (e.type === "stage") return { ...s, progress: { ...p, stage: e.stage } };
+  if (e.type === "ahead") return { ...s, progress: { ...p, ahead: { sent: e.sent, sending: e.sending } } };
   const started = p.startedAt === null ? { startedAt: now, startedDone: e.done } : {};
   const recent = [...p.recent.filter((r) => r.at >= now - SPEED_WINDOW), { at: now, done: e.done }];
   return { ...s, progress: { ...p, ...started, done: e.done, total: e.total, recent } };

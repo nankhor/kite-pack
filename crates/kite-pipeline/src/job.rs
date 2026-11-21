@@ -18,6 +18,10 @@ pub struct Job {
     /// The original as it was before packing, when it is to be deleted.
     pub snapshot: Option<Snapshot>,
     pub created_unix: u64,
+    /// Parts of the packed copy that went to the PS5 while it was being packed; Send leaves
+    /// them out. Empty in jobs saved before there was such a thing.
+    #[serde(default)]
+    pub ahead: Vec<crate::Part>,
 }
 
 pub(crate) fn now_unix() -> u64 {
@@ -39,6 +43,7 @@ impl Job {
             packed: None,
             snapshot: None,
             created_unix: now_unix(),
+            ahead: Vec::new(),
         })
     }
 

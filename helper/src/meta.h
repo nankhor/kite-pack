@@ -1,4 +1,4 @@
-/* The Kite helper's read-only console metadata calls.
+/* The Kite helper's console metadata calls: read-only, but for one bounded patch.
  *
  * Kite Pack needs to know what is installed on the PS5 to show a library, to skip a game that
  * is already there, and to tell which DLC the console already has. None of that needs Sony's
@@ -24,9 +24,18 @@
  *   fs.du      -> u64 bytes | u64 files | u64 dirs | u8 partial
  *   fs.freespace -> u64 total | u64 free | u64 usable | u64 reserve
  *
+ *   fs.patch   request: u16 path_len | path | u64 offset | u32 len | bytes[len] -> no body
+ *              Writes `len` (1..KITE_PATCH_MAX) bytes at `offset` into a regular file that
+ *              exists under the write roots (the folders transfers may write), never past its
+ *              end: no file is made, grown, cut short or renamed. Kite Pack uses it to put a
+ *              pack volume's 64-byte header in place once the pack is done, after the volume
+ *              itself went over while the rest was still being packed. A transfer can already
+ *              write anything there, so this gives a computer no new reach.
+ *
  * kind: 1 file, 2 directory, 3 symbolic link, 4 other.
  * Status: AVA1_STATUS_OK, AVA1_ERR_PATH (refused path), KITE_ERR_NOT_FOUND (no such path),
- * AVA1_ERR_IO (a real failure), AVA1_ERR_INTERNAL (the reply did not fit).
+ * AVA1_ERR_IO (a real failure), AVA1_ERR_INTERNAL (the reply did not fit), KITE_ERR_RANGE
+ * (fs.patch: the bytes would not lie inside the file).
  */
 #ifndef KITE_META_H
 #define KITE_META_H
@@ -41,11 +50,14 @@
 #define KITE_METHOD_FS_READ 26
 #define KITE_METHOD_FS_DU 27
 #define KITE_METHOD_FS_FREESPACE 28
+#define KITE_METHOD_FS_PATCH 29
 #define KITE_METHOD_INSTALL_URL 40
 
 /* A path that is not there, told apart from a path that is there and cannot be read: the app
  * treats "/mnt/ext0/user/app does not exist" as "no games on that drive", not as an error. */
 #define KITE_ERR_NOT_FOUND 40
+/* fs.patch: the bytes would not lie inside the file (it is never grown). */
+#define KITE_ERR_RANGE 41
 
 /* The most this layer accepts or returns in one call. */
 #define KITE_LIST_MAX 256u        /* entries per fs.list, like the data plane's pages */
@@ -53,6 +65,7 @@
 #define KITE_DU_MAX_DIRS 200000u
 #define KITE_DU_MAX_MS 10000u     /* a walk that runs this long says `partial` and stops */
 #define KITE_NAME_MAX 255u
+#define KITE_PATCH_MAX 4096u       /* bytes per fs.patch */
 
 /* One directory entry, as fs.list reports it. */
 typedef struct {
@@ -72,8 +85,10 @@ typedef struct {
 
 /* `root` is a test hook: it is prefixed to every request path, so a host test can stand a
  * folder up as a console root. "" on the PS5. `allowed` decides whether a resolved absolute
- * path may be read; the helper passes its read policy. Call before the server starts. */
-void kite_meta_init(const char *root, int (*allowed)(const char *real));
+ * path may be read; the helper passes its read policy. `may_write` decides whether fs.patch
+ * may write it; the helper passes the transfers' write policy (NULL refuses every patch).
+ * Call before the server starts. */
+void kite_meta_init(const char *root, int (*allowed)(const char *real), int (*may_write)(const char *real));
 
 /* Is `method` one of ours? */
 int kite_meta_serves(uint16_t method);

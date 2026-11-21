@@ -1,15 +1,18 @@
 //! Runs a job's steps in order, saving the job before every event it reports.
 
 use crate::job::{Job, JobStore, now_unix};
+use crate::options::{OutputFormat, SendTarget};
 use crate::ports::{
-    InstallError, Installer, PackError, PackRequest, Packer, Progress, SendError, Sender,
+    InstallError, Installer, PackError, PackRequest, Packer, Part, Progress, SendError, Sender,
     Sleeper, Trash,
 };
-use std::cell::RefCell;
-use std::path::Path;
+use std::cell::{Cell, RefCell};
+use std::path::{Path, PathBuf};
 use crate::snapshot::Snapshot;
 use crate::steps::{StepKind, StepState};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +54,43 @@ enum StepEnd {
 }
 
 const ORIGINAL_CHANGED: &str = "The original changed since packing; it was kept";
+
+/// A finished part, on its way from the packer to the PS5 while the pack goes on.
+struct Ready {
+    packed: PathBuf,
+    file: PathBuf,
+    part: Part,
+}
+
+/// What the pack step and its part sender share.
+#[derive(Default)]
+struct Ahead {
+    /// The pack is over: send no more parts (the one on its way finishes).
+    closing: AtomicBool,
+    /// Stop the part on its way too: the pack failed or was cancelled.
+    stop: AtomicBool,
+    /// A part is on its way right now.
+    busy: AtomicBool,
+    /// The parts the PS5 has, in the order they went.
+    sent: Mutex<Vec<Part>>,
+}
+
+/// Sends parts ahead one at a time, as the packer finishes them, until the PS5 can't take one
+/// (an older helper, the PS5 away, a failure: whatever is left then goes with the rest).
+fn send_parts_ahead(sender: &dyn Sender, target: &SendTarget, parts: mpsc::Receiver<Ready>, ahead: &Ahead) {
+    let mut taking = true;
+    for ready in parts {
+        if taking && !ahead.closing.load(Ordering::SeqCst) && !ahead.stop.load(Ordering::SeqCst) {
+            ahead.busy.store(true, Ordering::SeqCst);
+            match sender.send_ahead(&ready.packed, &ready.file, &ready.part, target, &ahead.stop) {
+                Ok(true) => ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone()),
+                Ok(false) | Err(_) => taking = false,
+            }
+            ahead.busy.store(false, Ordering::SeqCst);
+        }
+    }
+}
+
 
 /// The packed copy may go only once the PS5 has it and every DLC is confirmed.
 fn sent_and_installed(job: &Job) -> bool {
@@ -183,6 +223,7 @@ impl Runner<'_> {
             return StepEnd::Failed("Nothing packed to send".into());
         };
         loop {
+            let ahead = job.ahead.clone();
             let result = {
                 // The sender calls back on this thread, so the job can be lent to the callback
                 // to mark the step running again when a retry gets going.
@@ -191,7 +232,11 @@ impl Runner<'_> {
                     self.moving_again(&mut lent.borrow_mut(), index, events);
                     events(RunEvent::Progress { index, progress });
                 };
-                self.sender.send(&packed, &target, &progress, cancel)
+                if ahead.is_empty() {
+                    self.sender.send(&packed, &target, &progress, cancel)
+                } else {
+                    self.sender.send_rest(&packed, &target, &ahead, &progress, cancel)
+                }
             };
             match result {
                 Ok(()) => return StepEnd::Done("Sent and checked".into()),
@@ -279,18 +324,74 @@ impl Runner<'_> {
                 Err(e) => return StepEnd::Failed(format!("Couldn't read the original: {e}")),
             }
         }
+        // A packed folder that goes to the PS5 goes part by part as the parts are finished, so
+        // sending overlaps packing instead of starting after it.
+        let target = job.options.send.clone().filter(|_| job.options.format == OutputFormat::Folder);
         let req = PackRequest {
             source: job.source.clone(),
             output_dir: job.options.output_dir.clone(),
             format: job.options.format,
             level: job.options.level,
             bundle: job.options.bundle.clone(),
+            ahead: target.is_some(),
         };
-        let progress = |progress: Progress| events(RunEvent::Progress { index, progress });
-        match self.packer.pack(&req, &progress, cancel) {
+        job.ahead.clear();
+        let ahead = Ahead::default();
+        let result = std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel::<Ready>();
+            let sender = self.sender;
+            let worker = target.as_ref().map(|t| {
+                let ahead = &ahead;
+                scope.spawn(move || send_parts_ahead(sender, t, rx, ahead))
+            });
+            // How many parts the PS5 has, and whether one is on its way, each time that changes.
+            let shown = Cell::new((0usize, false));
+            let show_ahead = || {
+                let now = (ahead.sent.lock().map(|s| s.len()).unwrap_or(0), ahead.busy.load(Ordering::SeqCst));
+                if now != shown.get() {
+                    shown.set(now);
+                    events(RunEvent::Progress { index, progress: Progress::PartsAhead { sent: now.0, sending: now.1 } });
+                }
+            };
+            let progress = |progress: Progress| {
+                match progress {
+                    // No part sender (not sending, or not a folder): nothing waits for it.
+                    Progress::PartReady { packed, file, part } => {
+                        let _ = tx.send(Ready { packed, file, part });
+                    }
+                    other => events(RunEvent::Progress { index, progress: other }),
+                }
+                show_ahead();
+            };
+            let out = self.packer.pack(&req, &progress, cancel);
+            drop(tx);
+            ahead.closing.store(true, Ordering::SeqCst);
+            if out.is_err() {
+                ahead.stop.store(true, Ordering::SeqCst);
+            }
+            if let Some(worker) = worker {
+                // A cancel while the last part finishes stops it too.
+                while !worker.is_finished() {
+                    if cancel.load(Ordering::SeqCst) {
+                        ahead.stop.store(true, Ordering::SeqCst);
+                    }
+                    show_ahead();
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                let _ = worker.join();
+                show_ahead();
+            }
+            out
+        });
+        job.ahead = ahead.sent.into_inner().unwrap_or_else(|e| e.into_inner());
+        match result {
             Ok(out) => {
                 job.packed = Some(out.output);
                 let mut note = format!("{} files, {} bytes, checked", out.files, out.bytes);
+                let n = job.ahead.len();
+                if n > 0 {
+                    note.push_str(&format!(" · {n} part{} sent while packing", if n == 1 { "" } else { "s" }));
+                }
                 // What the packer folded in (DLC, a backport), when it says: the screen shows it
                 // under the step, so the packed copy's contents are visible before sending.
                 if let Some(what) = out.checks.iter().find_map(|c| c.strip_prefix("bundled: ")) {

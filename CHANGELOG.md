@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Sends while it packs.** With **Send to PS5** on and **Save as: Folder**, each finished part
+  of the pack (up to 4 GB) goes to the PS5 while the next is still being compressed, instead of
+  everything waiting for the pack to end. The bar shows how many parts the PS5 already has. Needs
+  the Kite helper 0.4.0; with an older helper, on Windows, or for an image, it sends after
+  packing as before.
+- **Kite helper 0.4.0.** One new call: it writes up to 4 KB inside a file that already exists in
+  the folders transfers may write, never past its end, to put each early part's header in place.
 - **Max packs faster.** Video, audio and other already-compressed files are no longer put
   through the slow compression before being stored as they are. A quick check spots them first,
   so **Max** runs more than ten times as fast on that part of a game (Medium gains a little).

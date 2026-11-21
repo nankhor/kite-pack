@@ -1,13 +1,76 @@
 //! Packs a game with zstd through Forge's own job runner, then reports Forge's checks.
 
-use kite_pipeline::{OutputFormat, PackError, PackOutcome, PackRequest, Packer, Progress};
+use kite_pipeline::{OutputFormat, PackError, PackOutcome, PackRequest, Packer, Part, Progress};
 use ps5_dump_forge_core::{ConvertRequest, Event, Format, Jobs, PackKind, generated_output};
+use ps5_dump_forge_zstd::{VOLUME_HEADER_SIZE, volume_name};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// How often the cancel flag is looked at while Forge is quiet.
 const POLL: Duration = Duration::from_millis(200);
+/// How often the folder being packed is looked at for finished volumes.
+const LOOK_EVERY: Duration = Duration::from_millis(500);
+
+/// Finds the pack volumes Forge has finished while it packs on, so they can go to the PS5 early.
+///
+/// Forge writes a folder into `<output>.<job>-<pid>.part` beside the output and renames it once
+/// it is checked. Its volumes (`ampr_zstd-000.pak`, `-001`, ...) are written one after the
+/// other, and volume N+1 is only created once N is synced: so N is finished, but for its 64-byte
+/// header, which Forge writes into every volume once the whole pack is done.
+///
+/// A volume is announced where it is, in the `.part` folder: the sender opens it once and keeps
+/// it open, which outlives the rename. It can't be linked elsewhere instead: Forge's check
+/// refuses a file with two names. Not on Windows, where a file held open in a folder stops the
+/// folder's rename (and so the pack): there every volume goes after the pack, as before.
+pub(crate) struct Parts {
+    output: PathBuf,
+    part_dir: Option<PathBuf>,
+    next: u32,
+    last_look: Option<Instant>,
+}
+
+impl Parts {
+    pub(crate) fn new(output: &Path) -> Parts {
+        Parts { output: output.to_path_buf(), part_dir: None, next: 0, last_look: None }
+    }
+
+    /// Forge's `.part` folder for this output, made by this process.
+    fn find_part_dir(&self) -> Option<PathBuf> {
+        let name = self.output.file_name()?.to_string_lossy().into_owned();
+        let suffix = format!("-{}.part", std::process::id());
+        let parent = self.output.parent()?;
+        std::fs::read_dir(parent).ok()?.flatten().find_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            let job = n.strip_prefix(&name)?.strip_prefix('.')?.strip_suffix(&suffix)?;
+            (job.bytes().all(|b| b.is_ascii_digit()) && e.path().is_dir()).then(|| e.path())
+        })
+    }
+
+    /// Announces every volume finished since the last look (at most every [`LOOK_EVERY`]).
+    pub(crate) fn look(&mut self, progress: &dyn Fn(Progress)) {
+        if self.last_look.is_some_and(|t| t.elapsed() < LOOK_EVERY) {
+            return;
+        }
+        self.last_look = Some(Instant::now());
+        if self.part_dir.is_none() {
+            self.part_dir = self.find_part_dir();
+        }
+        let Some(dir) = self.part_dir.clone() else { return };
+        while dir.join(volume_name(self.next + 1)).is_file() {
+            let name = volume_name(self.next);
+            let file = dir.join(&name);
+            let Ok(meta) = std::fs::metadata(&file) else { return };
+            self.next += 1;
+            progress(Progress::PartReady {
+                packed: self.output.clone(),
+                file,
+                part: Part { rel: name, size: meta.len(), settled_from: VOLUME_HEADER_SIZE as u64 },
+            });
+        }
+    }
+}
 
 pub struct ForgePacker {
     /// Re-read every byte of the output instead of Forge's fast sampled check.
@@ -112,10 +175,16 @@ impl Packer for ForgePacker {
         let id = jobs.start(request);
         let mut stage = String::new();
         let mut cancel_sent = false;
+        // Volumes that can go to the PS5 before the pack ends: a folder output, when asked.
+        let mut parts =
+            (req.ahead && req.format == OutputFormat::Folder && !cfg!(windows)).then(|| Parts::new(&output));
         loop {
             if !cancel_sent && cancel.load(Ordering::SeqCst) {
                 jobs.cancel(id);
                 cancel_sent = true;
+            }
+            if let Some(parts) = parts.as_mut() {
+                parts.look(progress);
             }
             match rx.recv_timeout(POLL) {
                 Ok(Event::Progress { job, stage: now, done, total }) if job == id => {
@@ -165,5 +234,72 @@ impl Packer for ForgePacker {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    fn look(parts: &mut Parts) -> Vec<Progress> {
+        let seen = RefCell::new(Vec::new());
+        parts.last_look = None;
+        parts.look(&|p| seen.borrow_mut().push(p));
+        seen.into_inner()
+    }
+
+    #[test]
+    fn a_volume_is_announced_once_the_next_one_starts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let output = tmp.path().join("[Ashen Tide]-[PPSA01234]");
+        let mut parts = Parts::new(&output);
+        assert!(look(&mut parts).is_empty(), "no folder yet");
+
+        // Another process's folder, and a look-alike name, are none of ours.
+        std::fs::create_dir_all(tmp.path().join("[Ashen Tide]-[PPSA01234].7-1.part")).unwrap();
+        std::fs::create_dir_all(tmp.path().join(format!("[Ashen Tide]-[PPSA01234].x-{}.part", std::process::id()))).unwrap();
+        let dir = tmp.path().join(format!("[Ashen Tide]-[PPSA01234].7-{}.part", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ampr_zstd-000.pak"), vec![1u8; 300]).unwrap();
+        assert!(look(&mut parts).is_empty(), "volume 0 may still grow");
+
+        std::fs::write(dir.join("ampr_zstd-001.pak"), vec![2u8; 10]).unwrap();
+        let seen = look(&mut parts);
+        let [Progress::PartReady { packed, file, part }] = &seen[..] else { panic!("{seen:?}") };
+        assert_eq!(packed, &output);
+        assert_eq!(file, &dir.join("ampr_zstd-000.pak"));
+        assert_eq!(part, &Part { rel: "ampr_zstd-000.pak".into(), size: 300, settled_from: 64 });
+        assert!(look(&mut parts).is_empty(), "announced once");
+
+        std::fs::write(dir.join("ampr_zstd-002.pak"), b"").unwrap();
+        std::fs::write(dir.join("ampr_zstd-003.pak"), b"").unwrap();
+        let seen = look(&mut parts);
+        let rels: Vec<_> = seen
+            .iter()
+            .map(|p| match p {
+                Progress::PartReady { part, .. } => part.rel.clone(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(rels, ["ampr_zstd-001.pak", "ampr_zstd-002.pak"]);
+    }
+
+    #[test]
+    fn looks_are_spaced_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let output = tmp.path().join("G");
+        let dir = tmp.path().join(format!("G.1-{}.part", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut parts = Parts::new(&output);
+        let n = std::cell::Cell::new(0);
+        parts.look(&|_| n.set(n.get() + 1));
+        std::fs::write(dir.join("ampr_zstd-000.pak"), b"x").unwrap();
+        std::fs::write(dir.join("ampr_zstd-001.pak"), b"x").unwrap();
+        parts.look(&|_| n.set(n.get() + 1));
+        assert_eq!(n.get(), 0, "too soon after the last look");
+        std::thread::sleep(LOOK_EVERY);
+        parts.look(&|_| n.set(n.get() + 1));
+        assert_eq!(n.get(), 1);
     }
 }

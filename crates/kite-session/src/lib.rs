@@ -182,6 +182,11 @@ fn run(
         RunEvent::Progress { index, progress: Progress::Stage(stage) } => {
             emit(UiEvent::Stage { id: id.clone(), index, stage });
         }
+        // The runner keeps finished parts to itself (it sends them ahead); none reach here.
+        RunEvent::Progress { progress: Progress::PartReady { .. }, .. } => {}
+        RunEvent::Progress { index, progress: Progress::PartsAhead { sent, sending } } => {
+            emit(UiEvent::Ahead { id: id.clone(), index, sent, sending });
+        }
         RunEvent::Progress { index, progress: Progress::Bytes { done, total } } => {
             let due = last_progress.get().is_none_or(|t| t.elapsed() >= PROGRESS_EVERY);
             if due || done >= total {

@@ -109,6 +109,12 @@ You need a jailbroken PS5 with an ELF loader (port 9021) and ShadowMount+ watchi
 
 The helper accepts any computer on your home network (private addresses) with no code, the same trust as the ELF loader itself, and refuses others. It writes only under `/data` and `/mnt`, and keeps its own files in `/data/kite`.
 
+### Sending while it packs
+
+With **Send to PS5** on and **Save as: Folder**, a big game goes to the PS5 while it is still being packed. The packed copy is written in parts of up to 4 GB, and each finished part is sent while the next one is compressed. When the pack ends, only what is left goes over, and each early part has its 64-byte header written in place. Sending and packing then take about as long as the slower of the two, instead of one after the other.
+
+This needs the Kite helper 0.4.0, which adds that one bounded write (`fs.patch`: at most 4 KB, inside a file that already exists where transfers may write). With an older helper, on Windows, or for an image (exFAT, `.ffpkg`, `.ffpfs`), the packed copy is sent after packing, as before.
+
 ### Installing through ShadowMount+
 
 ShadowMount+ has an HTTP API (`/api/v1`, port 10101 by default). When it answers, Kite Pack uses it for two things instead of packing them into the game:

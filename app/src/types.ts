@@ -62,7 +62,9 @@ export interface JobView {
 export type UiEvent =
   | { type: "job"; job: JobView }
   | { type: "stage"; id: string; index: number; stage: string }
-  | { type: "progress"; id: string; index: number; done: number; total: number };
+  | { type: "progress"; id: string; index: number; done: number; total: number }
+  /** While Pack runs: parts of the packed copy already on the PS5, and one on its way. */
+  | { type: "ahead"; id: string; index: number; sent: number; sending: boolean };
 
 export type Format = "folder" | "exfat" | "ffpkg" | "ffpfs";
 export type Level = "fast" | "medium" | "max";
@@ -91,6 +93,8 @@ export interface ProgressState {
   startedDone: number;
   /** The last few seconds of progress (ms since epoch, bytes done), for the speed. */
   recent: { at: number; done: number }[];
+  /** While packing: parts already sent to the PS5, and whether the next is on its way. */
+  ahead?: { sent: number; sending: boolean };
 }
 
 /** ShadowMount+'s answer about this console, and the game's base (kite-ps5's SmpStatus). */

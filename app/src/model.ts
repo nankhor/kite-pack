@@ -173,14 +173,27 @@ function stepRow(step: StepView, index: number, job: JobView, progress: Progress
       const [status, bar] = runningStatus(step, p, now);
       return { label, state: "active", status, bar };
     }
-    default:
+    default: {
+      // Send while Pack runs: the parts that went ahead are what it has done so far.
+      const packing = progress && job.steps[progress.index]?.kind === "pack";
+      const ahead = step.kind === "send" && packing ? progress.ahead : undefined;
       return {
         label,
         state: "pending",
-        status: pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
+        status: ahead && (ahead.sent > 0 || ahead.sending)
+          ? aheadStatus(ahead)
+          : pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
         bar: step.kind === "send" ? 0 : null,
       };
+    }
   }
+}
+
+/** Send's line while Pack runs, once parts of the packed copy go ahead. */
+export function aheadStatus({ sent, sending }: { sent: number; sending: boolean }): string {
+  const parts = `${sent} ${sent === 1 ? "part" : "parts"}`;
+  if (sent === 0) return "Sending the first part while it packs";
+  return sending ? `${parts} on the PS5, the next on its way` : `${parts} already on the PS5`;
 }
 
 const ITEM_STATES: Record<StepView["state"], DlcItem["state"]> = {

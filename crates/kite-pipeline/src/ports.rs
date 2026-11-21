@@ -2,6 +2,7 @@
 //! so each rule is tested with fakes and the real implementations live in other crates.
 
 use crate::options::{Level, OutputFormat, SendTarget};
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -14,6 +15,9 @@ pub struct PackRequest {
     pub level: Level,
     /// DLC and a backport to fold in before packing; empty packs the source as it is.
     pub bundle: crate::Bundle,
+    /// Say when a part of a packed folder is finished ([`Progress::PartReady`]), so it can go
+    /// to the PS5 while the rest is still being packed.
+    pub ahead: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +32,25 @@ pub struct PackOutcome {
 pub enum Progress {
     Stage(String),
     Bytes { done: u64, total: u64 },
+    /// A part of the packed folder `packed` is finished and can be sent before the pack ends.
+    /// `file` is where it can be read now (it may move when the pack is published: open it
+    /// once and keep it open). Only sent when the request asked for it; the runner keeps it.
+    PartReady { packed: PathBuf, file: PathBuf, part: Part },
+    /// From the runner, during Pack: how many parts of the packed copy the PS5 has, and
+    /// whether the next one is on its way.
+    PartsAhead { sent: usize, sending: bool },
+}
+
+/// A finished part of a packed folder, such as a pack volume.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Part {
+    /// Where it sits inside the packed folder (`ampr_zstd-000.pak`).
+    pub rel: String,
+    /// Its length, which no longer changes.
+    pub size: u64,
+    /// The bytes before this offset are written once more when the pack ends (a volume's
+    /// header); every byte from here on is final.
+    pub settled_from: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -68,6 +91,33 @@ pub trait Sender: Send + Sync {
         progress: &dyn Fn(Progress),
         cancel: &AtomicBool,
     ) -> Result<(), SendError>;
+
+    /// Sends one finished part of the folder `packed` ahead of the rest, to where it sits once
+    /// `packed` is sent to `target`; `file` is where to read it now. `Ok(false)`: the PS5 can't
+    /// take parts ahead (an older helper), so it goes with the rest.
+    fn send_ahead(
+        &self,
+        _packed: &Path,
+        _file: &Path,
+        _part: &Part,
+        _target: &SendTarget,
+        _cancel: &AtomicBool,
+    ) -> Result<bool, SendError> {
+        Ok(false)
+    }
+
+    /// Sends `local` when the parts in `ahead` went over already: each one found whole on the
+    /// PS5 is left out and has its first bytes put right; any other goes again with the rest.
+    fn send_rest(
+        &self,
+        local: &Path,
+        target: &SendTarget,
+        _ahead: &[Part],
+        progress: &dyn Fn(Progress),
+        cancel: &AtomicBool,
+    ) -> Result<(), SendError> {
+        self.send(local, target, progress, cancel)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

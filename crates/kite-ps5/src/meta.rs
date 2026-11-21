@@ -1,10 +1,11 @@
-//! The Kite helper's read-only console metadata calls: listing a folder, reading a file,
-//! stat, a recursive size, and free space.
+//! The Kite helper's console metadata calls: listing a folder, reading a file, stat, a
+//! recursive size, free space, and one bounded write ([`patch`]).
 //!
 //! These are plain filesystem calls with a read-only policy on the helper's side (see
 //! `helper/src/meta.h`, which documents the wire layout this module implements). They exist so
 //! Kite Pack can show what is installed on the PS5 and check it before sending: no Sony API is
-//! involved, and nothing here can write to the console.
+//! involved. The one write, [`patch`], only rewrites up to 4 KiB inside a file that already
+//! exists where transfers may write: a pack volume's header, once the pack is done.
 //!
 //! The bodies are little-endian binary, like AVA1's own codecs: a 16-byte-prefixed path, then
 //! an offset and a limit. Every reply is bounded by the helper, and a paged list says whether
@@ -29,6 +30,11 @@ const METHOD_FS_STAT: u16 = 25;
 const METHOD_FS_READ: u16 = 26;
 const METHOD_FS_DU: u16 = 27;
 const METHOD_FS_FREESPACE: u16 = 28;
+const METHOD_FS_PATCH: u16 = 29;
+/// The most [`patch`] writes in one call (`KITE_PATCH_MAX`).
+pub const PATCH_MAX: usize = 4096;
+/// AVA1's `ERR_UNKNOWN_METHOD`: a helper older than the method.
+const STATUS_UNKNOWN_METHOD: u16 = 6;
 
 /// The helper's "that path is not there", told apart from "there and unreadable": a drive
 /// with no `user/app` folder is empty, not broken.
@@ -305,6 +311,36 @@ pub async fn stat(s: &Session, path: &str) -> Result<Entry, MetaError> {
     let _mode = r.u32()?;
     let name = path.rsplit('/').next().unwrap_or(path).to_string();
     Ok(Entry { name, kind, size, mtime })
+}
+
+/// Whether the helper takes [`patch`] (0.4.0 and later). An empty request is malformed to one
+/// that does, and an unknown method to an older one.
+pub async fn can_patch(s: &Session) -> Result<bool, MetaError> {
+    match rpc_bytes(s, METHOD_FS_PATCH, &[], CALL_TIMEOUT).await {
+        Err(MetaError::Refused { code: STATUS_UNKNOWN_METHOD, .. }) => Ok(false),
+        Err(MetaError::Network(e)) => Err(MetaError::Network(e)),
+        _ => Ok(true),
+    }
+}
+
+/// Writes `bytes` (1 to [`PATCH_MAX`]) at `offset` into `path`, a file that already exists where
+/// transfers may write; never past its end. The helper syncs it before it answers.
+pub async fn patch(s: &Session, path: &str, offset: u64, bytes: &[u8]) -> Result<(), MetaError> {
+    if bytes.is_empty() || bytes.len() > PATCH_MAX {
+        return Err(MetaError::Protocol(format!("a patch is 1 to {PATCH_MAX} bytes, not {}", bytes.len())));
+    }
+    let mut body = request(path, offset, bytes.len() as u32)?;
+    body.extend_from_slice(bytes);
+    rpc_bytes(s, METHOD_FS_PATCH, &body, CALL_TIMEOUT).await.map(|_| ())
+}
+
+/// Up to `len` bytes of `path` from `offset` (fewer at its end), in one call.
+pub async fn read_at(s: &Session, path: &str, offset: u64, len: usize) -> Result<Vec<u8>, MetaError> {
+    let body = call(s, METHOD_FS_READ, path, offset, len.min(READ_MAX) as u32).await?;
+    let mut r = Reader::new(&body);
+    let got = r.u32()? as usize;
+    let _eof = r.u8()?;
+    Ok(r.take(got)?.to_vec())
 }
 
 /// A whole file, looped over the helper's per-call read cap, up to `max` bytes.

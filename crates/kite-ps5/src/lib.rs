@@ -19,7 +19,7 @@ pub use discover::{DISCOVERY_PORT, Found, discover, discover_at};
 pub use launch::{StartOutcome, start_helper};
 pub use library::{
     GameIcon, InstalledGame, Library, Measured, free_space, icons, install_url, installed,
-    installed_title, measure, read_file,
+    installed_title, measure, patch_file, read_file,
 };
 pub use meta::{Entry, FreeSpace, MetaError, Usage};
 pub use pkgserve::PkgServer;
