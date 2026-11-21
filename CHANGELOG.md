@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- **Newest emulator in packed games.** Packed games now get
+  [ampr-emu-ng](https://github.com/quer3q/ampr-emu-ng) v0.5.0, up from v0.3.4. It has no index
+  size limit (Final Fantasy XVI, Demon's Souls, Returnal and God of War Ragnarök stopped on it),
+  and fixes startup, crash and save problems in several games.
+  Repack a game to give it the new emulator; the pack format is the same.
+- **PS5 Dump Forge v0.5.6.** The packer moves to Forge's latest code, which reads protected
+  files in a package instead of leaving them out and accepts more `ampr_emu.index` layouts.
+
 ## 0.2.0
 
 Complete Edition: DLC installed by Sony's own installer, a page for every game, and the PS5 tab.

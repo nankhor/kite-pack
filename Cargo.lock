@@ -1018,7 +1018,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 3.0.6",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -2742,7 +2742,7 @@ checksum = "ecbdfe44b1bd960b68170b417450a628c43f7cf56bb3c5317e61cb230ee7f226"
 [[package]]
 name = "lzma-rust2"
 version = "0.22.0"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 
 [[package]]
 name = "markup5ever"
@@ -3580,8 +3580,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-archive"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "cc",
  "crc32fast",
@@ -3593,8 +3593,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-core"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "anyhow",
  "blake3",
@@ -3622,8 +3622,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-exfat"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "ps5-dump-forge-patch",
  "ps5upload-fpkg",
@@ -3632,21 +3632,21 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-fpkg"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
+ "aes 0.9.3",
  "ps5upload-fpkg",
 ]
 
 [[package]]
 name = "ps5-dump-forge-ftp"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 
 [[package]]
 name = "ps5-dump-forge-lz4"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
 dependencies = [
  "blake3",
  "crc32fast",
@@ -3659,24 +3659,24 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-nfs"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "libc",
 ]
 
 [[package]]
 name = "ps5-dump-forge-patch"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "crc32fast",
 ]
 
 [[package]]
 name = "ps5-dump-forge-pfs"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "flate2",
  "ps5-dump-forge-patch",
@@ -3685,8 +3685,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-smb"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "getrandom 0.4.3",
  "hmac",
@@ -3696,8 +3696,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-ufs2"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "ps5-dump-forge-patch",
  "ps5upload-fpkg",
@@ -3706,8 +3706,8 @@ dependencies = [
 
 [[package]]
 name = "ps5-dump-forge-zstd"
-version = "0.5.5"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+version = "0.5.6"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "crc32fast",
  "getrandom 0.4.3",
@@ -3719,7 +3719,7 @@ dependencies = [
 [[package]]
 name = "ps5upload-fpkg"
 version = "7.0.22"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "aes 0.9.3",
  "crc32fast",
@@ -3741,7 +3741,7 @@ dependencies = [
 [[package]]
 name = "ps5upload-pkg"
 version = "7.0.22"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd#8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd"
+source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "aes 0.9.3",
  "blake3",
@@ -4993,7 +4993,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

@@ -35,6 +35,21 @@ fn packs_the_test_game_to_a_folder() {
 }
 
 #[test]
+fn packed_games_get_the_emulator_kite_pack_carries() {
+    // ampr-emu-ng v0.5.0, the release vendored with Forge's runtime crate (third_party/forge-lz4).
+    const RUNTIME: &[u8] = include_bytes!("../../../third_party/forge-lz4/ampr-emu-ng/libSceAmpr.sprx");
+    let tmp = tempfile::tempdir().unwrap();
+    let game = make_game(tmp.path(), "Ashen Tide");
+    let out = tmp.path().join("out");
+
+    let done = pack(&request(&game, &out, OutputFormat::Folder)).unwrap();
+
+    let runtime = std::fs::read(done.output.join("fakelib/libSceAmpr.sprx")).unwrap();
+    assert!(runtime == RUNTIME, "the packed game has another runtime ({} bytes)", runtime.len());
+    assert!(runtime.windows(17).any(|w| w == b"ampr-emu-ng 0.5.0"));
+}
+
+#[test]
 fn second_pack_gets_a_new_name() {
     let tmp = tempfile::tempdir().unwrap();
     let game = make_game(tmp.path(), "ashen");

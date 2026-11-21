@@ -1,0 +1,23 @@
+# PS5 Dump Forge's `ps5-dump-forge-lz4` (quer3q, GPL-3.0-or-later) at the commit Kite Pack pins,
+# with one change: it embeds ampr-emu-ng v0.5.0 instead of v0.4.1. See README.md here.
+[package]
+name = "ps5-dump-forge-lz4"
+version = "0.5.6"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+ps5upload-fpkg = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+blake3 = "1"
+crc32fast = "1.5"
+sha2 = "0.11"
+# C liblz4 (block API only): the fast compressor and the HC levels.
+lz4-sys = "1.11"
+# The embedded runtimes are stored zstd-compressed (build.rs) and decoded on first use.
+zstd = { version = "0.13.3", default-features = false }
+# Pack profiles (TOML, `rules::parse_profile`): `toml::Table` needs the `serde` feature; we derive nothing.
+toml = { version = "1.1", default-features = false, features = ["parse", "serde"] }
+
+[build-dependencies]
+zstd = { version = "0.13.3", default-features = false }
