@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "app/src-tauri"]
+members = ["crates/*", "app/src-tauri", "third_party/forge-lz4"]
 resolver = "3"
 
 [workspace.package]
@@ -25,13 +25,19 @@ kite-session = { path = "crates/kite-session" }
 kite-ps5 = { path = "crates/kite-ps5" }
 kite-update = { path = "crates/kite-update" }
 kite-smp = { path = "crates/kite-smp" }
-# PS5 Dump Forge (quer3q), GPL-3.0-or-later. Pinned: move it on purpose, with ampr-emu-ng.
-ps5-dump-forge-core = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd" }
+# PS5 Dump Forge (quer3q), GPL-3.0-or-later. Pinned: move it on purpose, with ampr-emu-ng
+# (the runtime packed games get; see the patch below).
+ps5-dump-forge-core = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
 
 # Forge patches lzma-rust2 (sevenz-rust2's decoder, data bounded); a [patch] only applies in
 # the root workspace, so ours repeats Forge's.
 [patch.crates-io]
-lzma-rust2 = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "8a3c7d3e4bfeac3b4ddf8e9ff020e819ae8ff1cd" }
+lzma-rust2 = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+
+# Forge's runtime crate, with ampr-emu-ng v0.5.0 in it instead of v0.4.1 (third_party/forge-lz4/
+# README.md). Drop this once Forge ships v0.5.0 itself, and move the pin above.
+[patch."https://github.com/quer3q/ps5-dump-forge"]
+ps5-dump-forge-lz4 = { path = "third_party/forge-lz4" }
 
 # Forge's hashing and pack writers are slow unoptimised; tests pack real (tiny) games.
 [profile.dev.package."*"]
