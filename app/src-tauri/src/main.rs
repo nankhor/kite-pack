@@ -473,7 +473,7 @@ fn main() {
                 ))
             };
             let ports = Ports {
-                packer: Arc::new(ForgePacker { full_verify: false }),
+                packer: Arc::new(ForgePacker::default()),
                 trash: Arc::new(SystemTrash),
                 sender: Arc::new(sender),
                 // DLC installs go through Sony's installer, streamed from this computer.

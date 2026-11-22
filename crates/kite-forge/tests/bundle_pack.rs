@@ -16,7 +16,7 @@ fn pack(source: &Path, out: &Path, bundle: Bundle) -> PathBuf {
         bundle,
         ahead: false,
     };
-    ForgePacker { full_verify: false }
+    ForgePacker::default()
         .pack(&req, &|_| {}, &AtomicBool::new(false))
         .expect("pack")
         .output
@@ -100,7 +100,7 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
         bundle: Bundle { dlc: vec![dlc], backport: None, emulator: Some(empty_dir(tmp.path())) },
         ahead: false,
     };
-    let err = ForgePacker { full_verify: false }
+    let err = ForgePacker::default()
         .pack(&req, &|_| {}, &AtomicBool::new(false))
         .unwrap_err();
     let text = match &err {

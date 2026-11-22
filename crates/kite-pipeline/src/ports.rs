@@ -34,8 +34,15 @@ pub enum Progress {
     Bytes { done: u64, total: u64 },
     /// A part of the packed folder `packed` is finished and can be sent before the pack ends.
     /// `file` is where it can be read now (it may move when the pack is published: open it
-    /// once and keep it open). Only sent when the request asked for it; the runner keeps it.
-    PartReady { packed: PathBuf, file: PathBuf, part: Part },
+    /// once and keep it open). With `copy_first`, it must not be held open there for long (on
+    /// Windows a file open in a folder stops the folder's rename, and the packer renames its
+    /// folder to publish the pack): the runner copies it out and sends the copy, and stops
+    /// copying at once on [`Progress::PartsClosing`]. Only sent when the request asked for it;
+    /// the runner keeps it.
+    PartReady { packed: PathBuf, file: PathBuf, part: Part, copy_first: bool },
+    /// The packer is about to publish its folder: nothing may read a part where it is any more.
+    /// The runner keeps it.
+    PartsClosing,
     /// From the runner, during Pack: how many parts of the packed copy the PS5 has, and
     /// whether the next one is on its way.
     PartsAhead { sent: usize, sending: bool },

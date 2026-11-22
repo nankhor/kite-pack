@@ -221,7 +221,7 @@ fn run(store: &JobStore, job: &mut Job) -> ExitCode {
 
     let names: Vec<String> = job.steps.iter().map(|s| step_name(&s.kind)).collect();
     let runner = Runner {
-        packer: &ForgePacker { full_verify: false },
+        packer: &ForgePacker::default(),
         trash: &SystemTrash,
         sender: &Unavailable,
         installer: &Unavailable,

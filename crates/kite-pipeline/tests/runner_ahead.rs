@@ -20,6 +20,12 @@ struct PartsPacker {
     links: PathBuf,
     parts: u32,
     end: Result<(), PackError>,
+    /// Parts to be copied out first, as on Windows.
+    copy_first: bool,
+    /// Says Forge left writing right after announcing this part.
+    close_after: Option<u32>,
+    /// Pretends this much is left to pack, before any part.
+    left: Option<u64>,
     /// The request's `ahead`, as the runner set it.
     asked: Mutex<Option<bool>>,
     taken: Arc<AtomicUsize>,
@@ -31,12 +37,18 @@ impl Packer for PartsPacker {
         *self.asked.lock().unwrap() = Some(req.ahead);
         std::fs::create_dir_all(&self.links).unwrap();
         progress(Progress::Stage("Packing".into()));
+        if let Some(left) = self.left {
+            progress(Progress::Bytes { done: 0, total: left });
+        }
         for i in 0..self.parts {
             let p = part(i);
             let file = self.links.join(&p.rel);
             std::fs::create_dir_all(&self.links).unwrap();
-            std::fs::write(&file, vec![0u8; p.size as usize]).unwrap();
-            progress(Progress::PartReady { packed: self.output.clone(), file, part: p });
+            std::fs::write(&file, vec![i as u8 + 1; p.size as usize]).unwrap();
+            progress(Progress::PartReady { packed: self.output.clone(), file, part: p, copy_first: self.copy_first });
+            if self.close_after == Some(i) {
+                progress(Progress::PartsClosing);
+            }
             let since = Instant::now();
             while self.taken.load(Ordering::SeqCst) <= i as usize && since.elapsed() < Duration::from_secs(1) {
                 std::thread::sleep(Duration::from_millis(5));
@@ -53,6 +65,8 @@ impl Packer for PartsPacker {
 /// keeps one send_ahead going that long, or until it is told to stop.
 struct AheadSender {
     log: CallLog,
+    /// Where each part was read from.
+    files: Mutex<Vec<PathBuf>>,
     ahead: Mutex<Vec<Result<bool, SendError>>>,
     hold: Option<Duration>,
     taken: Arc<AtomicUsize>,
@@ -67,6 +81,9 @@ impl Sender for AheadSender {
     fn send_ahead(&self, packed: &Path, file: &Path, part: &Part, _: &SendTarget, cancel: &AtomicBool) -> Result<bool, SendError> {
         assert!(file.is_file(), "a part is read from a file that is there");
         assert_eq!(packed.file_name().unwrap(), "PPSA01234");
+        let i: u8 = part.rel[10..13].parse().unwrap();
+        assert_eq!(std::fs::read(file).unwrap(), vec![i + 1; part.size as usize], "the part's own bytes");
+        self.files.lock().unwrap().push(file.to_path_buf());
         self.log.lock().unwrap().push(format!("ahead {}", part.rel));
         self.taken.fetch_add(1, Ordering::SeqCst);
         if let Some(hold) = self.hold {
@@ -104,10 +121,13 @@ fn setup(parts: u32, end: Result<(), PackError>, ahead: Vec<Result<bool, SendErr
         links: w.out.join(".PPSA01234.kite-ahead"),
         parts,
         end,
+        copy_first: false,
+        close_after: None,
+        left: None,
         asked: Mutex::new(None),
         taken: taken.clone(),
     };
-    let sender = AheadSender { log: w.log.clone(), ahead: Mutex::new(ahead), hold, taken };
+    let sender = AheadSender { log: w.log.clone(), files: Mutex::new(vec![]), ahead: Mutex::new(ahead), hold, taken };
     Setup { w, packer, sender }
 }
 
@@ -268,4 +288,65 @@ fn a_new_pack_starts_without_old_parts() {
     go(&s, &mut job, &AtomicBool::new(false));
     assert!(job.ahead.is_empty());
     assert_eq!(calls(&s.w.log), ["pack", "send"]);
+}
+
+// ---- parts copied out first (Windows) --------------------------------------------------------
+
+fn copies_dir(s: &Setup) -> PathBuf {
+    s.w.out.join(".PPSA01234.kite-copy")
+}
+
+#[test]
+fn parts_to_copy_go_as_copies_and_the_copies_are_removed() {
+    let mut s = setup(2, Ok(()), vec![], None);
+    s.packer.copy_first = true;
+    let mut job = s.w.job(false, true, false, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert_eq!(job.ahead, vec![part(0), part(1)]);
+    let files = s.sender.files.lock().unwrap().clone();
+    assert_eq!(files, vec![copies_dir(&s).join("ampr_zstd-000.pak"), copies_dir(&s).join("ampr_zstd-001.pak")]);
+    assert!(!copies_dir(&s).exists(), "no copy is left");
+    assert_eq!(std::fs::read(s.packer.links.join("ampr_zstd-001.pak")).unwrap(), vec![2u8; 1001], "originals untouched");
+}
+
+#[test]
+fn no_copy_without_room_for_it_and_the_rest_of_the_pack() {
+    let mut s = setup(2, Ok(()), vec![], None);
+    s.packer.copy_first = true;
+    s.packer.left = Some(u64::MAX / 4);
+    let mut job = s.w.job(false, true, false, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert!(job.ahead.is_empty());
+    assert_eq!(calls(&s.w.log), ["pack", "send"], "everything goes after the pack");
+    assert!(!copies_dir(&s).exists());
+}
+
+#[test]
+fn nothing_is_copied_once_the_packer_publishes() {
+    // Part 0 goes (held 300 ms on its way); part 1 is announced, then Forge leaves writing at
+    // once: by the time the sender is free, part 1 may no longer be read, so it isn't copied.
+    let mut s = setup(2, Ok(()), vec![], Some(Duration::from_millis(300)));
+    s.packer.copy_first = true;
+    s.packer.close_after = Some(1);
+    let mut job = s.w.job(false, true, false, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert_eq!(job.ahead, vec![part(0)]);
+    assert_eq!(calls(&s.w.log), ["pack", "ahead ampr_zstd-000.pak", "send rest without ampr_zstd-000.pak"]);
+    assert!(!copies_dir(&s).exists());
+}
+
+#[test]
+fn closing_doesnt_stop_parts_read_in_place() {
+    // Mac and Linux: the file stays open through the rename, so closing changes nothing.
+    let mut s = setup(2, Ok(()), vec![], Some(Duration::from_millis(300)));
+    s.packer.close_after = Some(1);
+    let mut job = s.w.job(false, true, false, 0);
+    go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(job.ahead, vec![part(0), part(1)], "part 1 still goes ahead, read where it is");
 }

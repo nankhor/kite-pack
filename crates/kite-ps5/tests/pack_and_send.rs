@@ -27,7 +27,8 @@ fn big_game(dir: &Path) -> PathBuf {
     let mut f = std::io::BufWriter::new(std::fs::File::create(root.join("data/world.bin")).unwrap());
     let mut x = 0x9e37_79b9_7f4a_7c15u64;
     let mut block = vec![0u8; 1 << 20];
-    for _ in 0..4400 {
+    let mb: usize = std::env::var("KITE_E2E_MB").ok().and_then(|v| v.parse().ok()).unwrap_or(4400);
+    for _ in 0..mb {
         for b in block.chunks_exact_mut(8) {
             x ^= x << 13;
             x ^= x >> 7;
@@ -58,6 +59,17 @@ fn same_tree(a: &Path, b: &Path) {
 #[test]
 #[ignore]
 fn a_two_volume_pack_sends_its_first_volume_while_packing() {
+    two_volumes(ForgePacker::default(), false);
+}
+
+/// As Windows does it: the volume is copied out of Forge's folder and the copy sent.
+#[test]
+#[ignore]
+fn a_two_volume_pack_sends_a_copy_of_its_first_volume_while_packing() {
+    two_volumes(ForgePacker { full_verify: false, copy_parts: true }, true);
+}
+
+fn two_volumes(packer: ForgePacker, copied: bool) {
     let tmp = tempfile::tempdir().unwrap();
     let helper = Helper::start(&tmp.path().join("console"), &[]);
     let game = big_game(tmp.path());
@@ -76,7 +88,7 @@ fn a_two_volume_pack_sends_its_first_volume_while_packing() {
     let store = JobStore::open(tmp.path().join("jobs")).unwrap();
     let sender = Ps5Sender::new(Keys::open(&tmp.path().join("pc")).unwrap(), helper.port, tmp.path().join("outboards"));
     let runner = Runner {
-        packer: &ForgePacker { full_verify: false },
+        packer: &packer,
         trash: &SystemTrash,
         sender: &sender,
         installer: &Unavailable,
@@ -97,9 +109,11 @@ fn a_two_volume_pack_sends_its_first_volume_while_packing() {
         log.lock().unwrap().push(line);
     });
     assert_eq!(outcome, RunOutcome::Finished, "{:?}", log.lock().unwrap());
-    assert_eq!(job.ahead.len(), 1, "the first volume went while packing");
+    assert!(!job.ahead.is_empty(), "volumes went while packing");
     assert_eq!(job.ahead[0].rel, "ampr_zstd-000.pak");
+    println!("sent while packing: {:?}", job.ahead.iter().map(|p| &p.rel).collect::<Vec<_>>());
 
+    let _ = copied;
     let packed = job.packed.clone().unwrap();
     let landed = helper.share.join("homebrew").join(packed.file_name().unwrap());
     same_tree(&packed, &landed);

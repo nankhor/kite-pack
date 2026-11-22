@@ -183,7 +183,7 @@ fn run(
             emit(UiEvent::Stage { id: id.clone(), index, stage });
         }
         // The runner keeps finished parts to itself (it sends them ahead); none reach here.
-        RunEvent::Progress { progress: Progress::PartReady { .. }, .. } => {}
+        RunEvent::Progress { progress: Progress::PartReady { .. } | Progress::PartsClosing, .. } => {}
         RunEvent::Progress { index, progress: Progress::PartsAhead { sent, sending } } => {
             emit(UiEvent::Ahead { id: id.clone(), index, sent, sending });
         }

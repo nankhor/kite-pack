@@ -12,7 +12,7 @@ fn request(source: &Path, out: &Path, format: OutputFormat) -> PackRequest {
 }
 
 fn pack(req: &PackRequest) -> Result<kite_pipeline::PackOutcome, PackError> {
-    ForgePacker { full_verify: false }.pack(req, &|_| {}, &AtomicBool::new(false))
+    ForgePacker::default().pack(req, &|_| {}, &AtomicBool::new(false))
 }
 
 #[test]
@@ -80,7 +80,7 @@ fn reports_progress() {
     let out = tmp.path().join("out");
     std::fs::create_dir_all(&out).unwrap();
     let seen = Mutex::new(Vec::new());
-    ForgePacker { full_verify: false }
+    ForgePacker::default()
         .pack(&request(&game, &out, OutputFormat::Folder), &|p| seen.lock().unwrap().push(p), &AtomicBool::new(false))
         .unwrap();
     let seen = seen.into_inner().unwrap();
@@ -94,7 +94,7 @@ fn cancel_stops_the_pack() {
     let game = make_game(tmp.path(), "ashen");
     let out = tmp.path().join("out");
     std::fs::create_dir_all(&out).unwrap();
-    let result = ForgePacker { full_verify: false }.pack(
+    let result = ForgePacker::default().pack(
         &request(&game, &out, OutputFormat::Folder),
         &|_| {},
         &AtomicBool::new(true),
