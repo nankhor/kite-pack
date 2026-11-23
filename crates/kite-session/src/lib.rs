@@ -2,7 +2,7 @@
 
 mod view;
 
-pub use view::{JobState, JobView, StepView, UiEvent, packed_size};
+pub use view::{JobState, JobView, StepView, UiEvent, packed_size, packed_size_with};
 
 use kite_pipeline::{
     Installer, Job, JobStore, Options, Packer, Progress, RunEvent, RunOutcome, Runner, Sender, StepKind,
@@ -168,7 +168,7 @@ fn run(
     // away before the job ends. A resumed job whose Pack is already done is measured now.
     let pack_done = |j: &Job| j.steps.iter().any(|st| st.kind == StepKind::Pack && matches!(st.state, StepState::Done { .. }));
     let measured: Cell<Option<u64>> =
-        Cell::new(job.packed.as_deref().filter(|p| pack_done(&job) && p.exists()).map(packed_size));
+        Cell::new(job.packed.as_deref().filter(|p| pack_done(&job) && p.exists()).map(|p| packed_size_with(p, &job.ahead)));
     let runner = Runner {
         packer: &*ports.packer,
         trash: &*ports.trash,
@@ -201,7 +201,7 @@ fn run(
         | RunEvent::StepFailed { .. } => {
             if let Ok(saved) = store.load(&id) {
                 if measured.get().is_none() && pack_done(&saved) {
-                    measured.set(saved.packed.as_deref().map(packed_size));
+                    measured.set(saved.packed.as_deref().map(|p| packed_size_with(p, &saved.ahead)));
                 }
                 let mut view = JobView::of(&saved, JobState::Running);
                 view.packed_bytes = measured.get();
@@ -213,7 +213,7 @@ fn run(
     match runner.run(&mut job, cancel, &events) {
         RunOutcome::Finished => {
             let mut view = JobView::of(&job, JobState::Finished);
-            view.packed_bytes = measured.get().or_else(|| job.packed.as_deref().map(packed_size));
+            view.packed_bytes = measured.get().or_else(|| job.packed.as_deref().map(|p| packed_size_with(p, &job.ahead)));
             view
         }
         RunOutcome::Failed { .. } => JobView::of(&job, JobState::Failed),

@@ -6,7 +6,7 @@ use kite_pipeline::{
     Job, JobStore, Level, Options, OutputFormat, PackError, PackOutcome, PackRequest, Packer,
     Progress, SendError, SendTarget, Sender, StepState, Trash, Unavailable,
 };
-use kite_session::{Emit, JobState, JobView, Ports, Session, UiEvent, packed_size};
+use kite_session::{Emit, JobState, JobView, Ports, Session, UiEvent, packed_size, packed_size_with};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -396,4 +396,18 @@ fn send_shows_running_again_when_the_ps5_comes_back() {
         }
     }
     assert_eq!(shown, vec!["pending", "running", "waiting", "running", "done"]);
+}
+
+#[test]
+fn counts_cut_parts_at_full_size() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Packed");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("ampr_zstd-000.pak"), vec![0; 64]).unwrap();
+    std::fs::write(dir.join("ampr_zstd-001.pak"), vec![0; 500]).unwrap();
+    std::fs::write(dir.join("eboot.bin"), vec![0; 10]).unwrap();
+    let part = |i: u32, size: u64| kite_pipeline::Part { rel: format!("ampr_zstd-{i:03}.pak"), size, settled_from: 64 };
+    // Part 0 was let go (cut to its header); part 1 is still whole.
+    assert_eq!(packed_size_with(&dir, &[part(0, 4000), part(1, 500)]), 4000 + 500 + 10);
+    assert_eq!(packed_size_with(&dir, &[]), packed_size(&dir));
 }

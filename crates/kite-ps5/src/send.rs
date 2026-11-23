@@ -223,13 +223,16 @@ impl Source for HeldFile {
 }
 
 /// Whether `part`, sent ahead, is on the console whole at `<root>/<rel>`, with its first bytes
-/// now matching `local`'s: any doubt, and it goes again with the rest.
+/// now matching `local`'s: any doubt, and it goes again with the rest. Locally the part is
+/// either whole or, once the PS5 had it, cut down to its first bytes (letting parts go).
 async fn fixed_up(session: &ava1::session::Session, local: &Path, root: &str, part: &Part) -> bool {
     if part.rel.is_empty() || part.rel.contains('/') || part.settled_from as usize > meta::PATCH_MAX {
         return false;
     }
     let file = local.join(&part.rel);
-    if std::fs::metadata(&file).map(|m| m.len()).ok() != Some(part.size) {
+    let here = std::fs::metadata(&file).map(|m| m.len()).ok();
+    let cut = part.settled_from > 0 && part.size > part.settled_from && here == Some(part.settled_from);
+    if here != Some(part.size) && !cut {
         return false;
     }
     let remote = format!("{root}/{}", part.rel);
