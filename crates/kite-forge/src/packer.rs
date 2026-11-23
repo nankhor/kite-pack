@@ -191,6 +191,9 @@ impl Packer for ForgePacker {
             "zstd_level": req.level.zstd_level(),
             "full_verify": self.full_verify,
             "delete_source": false,
+            // A folder pack's space check goes by a sample of the game, not by nothing
+            // compressing (third_party/forge-core/README.md).
+            "sample_space": req.format == OutputFormat::Folder,
         }))
         .map_err(failed)?;
 

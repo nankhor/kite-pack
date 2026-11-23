@@ -1,0 +1,36 @@
+# PS5 Dump Forge's `ps5-dump-forge-core` (quer3q, GPL-3.0-or-later) at the commit Kite Pack pins,
+# with one change: a folder pack's free-space check can count the packed files at what a sample
+# of them compresses to, instead of stored raw. See README.md here.
+[package]
+name = "ps5-dump-forge-core"
+version = "0.5.6"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[dependencies]
+anyhow = "1"
+blake3 = "1"
+crc32fast = "1.5"
+dunce = "1.0.5"
+getrandom = "0.4"
+libc = "0.2"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11"
+unicode-normalization = "0.1"
+ps5upload-fpkg = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-exfat = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-ufs2 = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-pfs = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-fpkg = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-lz4 = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-zstd = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-archive = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-smb = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-ftp = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-nfs = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+ps5-dump-forge-patch = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_env, values("ps5"))'] }

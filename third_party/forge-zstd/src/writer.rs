@@ -193,6 +193,18 @@ pub(crate) fn encode_chunk(raw: Vec<u8>, level: u8) -> Result<(Codec, Vec<u8>)> 
     }
 }
 
+/// Kite Pack: what each of `chunks` comes to in a pack at `level`, as [`encode_chunk`] stores it
+/// (zstd, or raw when that is no smaller), compressed on `threads` workers (0: every core). For
+/// guessing a pack's size from a sample of its chunks before packing it.
+pub fn packed_sizes(chunks: Vec<Vec<u8>>, level: u8, threads: usize) -> Result<Vec<u64>> {
+    pool(threads)?.install(|| {
+        chunks
+            .into_par_iter()
+            .map(|raw| encode_chunk(raw, level).map(|(_, stored)| stored.len() as u64))
+            .collect()
+    })
+}
+
 /// Most compression threads a pack uses, one per chunk of a batch. At most two batches are
 /// held raw (one compressing, the next read meanwhile: 16 MiB) and one encoded (8 MiB), beside
 /// the zstd contexts, at most 32 x 5.75 MiB (184 MiB

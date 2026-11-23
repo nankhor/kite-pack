@@ -1,0 +1,961 @@
+//! FPKG output: preflight the source for a package, let the vendored
+//! builder prepare and write it into this job's `.part`, read it back through `FpkgSource`
+//! against the effective manifest, then publish it.
+
+use std::cell::Cell;
+use std::collections::HashMap;
+#[cfg(any(target_os = "freebsd", test))]
+use std::io;
+use std::path::Path;
+#[cfg(any(target_os = "freebsd", test))]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use anyhow::{anyhow, bail};
+use ps5_dump_forge_fpkg::FpkgSource;
+use ps5upload_fpkg::build::{self, BuildControl, BuildRequest, Origin, Prepared, Stage};
+use ps5upload_fpkg::kraken::Level;
+use ps5upload_fpkg::source::{self, SourceFile, SourceTree};
+use ps5upload_fpkg::{Error, cnt_write, sdk_rules};
+use unicode_normalization::is_nfc;
+
+use crate::convert::SourceStamp;
+use crate::finalize::{Part, part_path};
+use crate::jobs::Ctx;
+use crate::prefetch::Prefetch;
+use crate::preflight::{self, GameInfo, listing};
+use crate::verify::{self, HashingTree, Mode};
+use crate::{ConvertRequest, JobReport, KrakenLevel};
+
+/// Shown on every package job: a plaintext debug package installs nowhere else.
+pub(crate) const CONSOLE: &str =
+    "console: installing needs kstuff + fpkg-enable + ppr-patch (drakmor)";
+
+/// `param.json` `applicationCategoryType` values v1 packages: a game, and an app.
+const GAME: u64 = 0;
+const APP: u64 = 65536;
+/// The AMPR file index a libSceAmpr title reads from the image root.
+const AMPR_INDEX: &str = "ampr_emu.index";
+const MIB: u64 = 1024 * 1024;
+
+/// What stops a package build before anything is prepared (findings), and what is worth
+/// showing either way (notes): readiness, category, firmware, ids, package path names, and
+/// the AMPR case-collision rule. Last, whether `eboot.bin` imports libSceAmpr, for `prepare`.
+pub(crate) fn source_findings(
+    tree: &mut dyn SourceTree,
+    info: &GameInfo,
+) -> (Vec<String>, Vec<String>, bool) {
+    let mut findings = Vec::new();
+    let mut notes = Vec::new();
+    let files: Vec<String> = tree
+        .files()
+        .iter()
+        .map(|f| f.path.clone())
+        .filter(|p| sdk_rules::excluded(p).is_none())
+        .collect();
+
+    // ponytail: the category is read from applicationCategoryType alone; a patch that keeps
+    // its game's category passes. Tell patches apart once a dumped patch's param.json is in hand.
+    // Additional content (no eboot.bin) is packaged whatever its category (by user decision);
+    // the no-eboot note below says so.
+    if let Some(json) = &info.param_json
+        && !info.additional_content
+    {
+        match json.get("applicationCategoryType").map(|v| v.as_u64()) {
+            None | Some(Some(GAME)) => notes.push("category: base game".to_string()),
+            Some(Some(APP)) => notes.push("category: app".to_string()),
+            Some(other) => findings.push(format!(
+                "sce_sys/param.json applicationCategoryType is {}: only a base game ({GAME}) or \
+                 an app ({APP}) can be packaged; patches and DLC are not supported yet",
+                other.map_or_else(|| "not a number".to_string(), |n| n.to_string())
+            )),
+        }
+        match build::firmware_version(json) {
+            Some(v) => notes.push(format!(
+                "firmware: the package requires system software {v}"
+            )),
+            None => {
+                notes.push("firmware: param.json names no requiredSystemSoftwareVersion".into())
+            }
+        }
+    }
+    if !files.iter().any(|p| p == "eboot.bin") {
+        // By user decision: packaged as additional content (the builder's content class).
+        notes.push("no eboot.bin: packaged as additional content (DLC) or an update".into());
+    }
+    if let (Some(title), Some(cid)) = (&info.title_id, &info.content_id)
+        && let Some(from_cid) = preflight::title_from_content_id(cid)
+        && *title != from_cid
+    {
+        notes.push(format!(
+            "title id {title} differs from the content id's {from_cid}: the packaged \
+             param.json names {from_cid}"
+        ));
+    }
+
+    // ponytail: readiness scans eboot.bin for libSceAmpr (up to ~80 MiB, not cancellable);
+    // `prepare` takes the answer (`BuildRequest::imports_ampr`) instead of scanning again.
+    let readiness = source::readiness(tree);
+    for c in &readiness.checks {
+        let mark = if c.ok { "ok" } else { "warning" };
+        notes.push(format!("readiness [{mark}] {}: {}", c.name, c.detail));
+    }
+    if let Some(c) = readiness
+        .checks
+        .iter()
+        .find(|c| c.name == "content id" && !c.ok)
+    {
+        findings.push(format!(
+            "content id: {}: a package needs a 36-character contentId in sce_sys/param.json",
+            c.detail
+        ));
+    }
+
+    let mut bad = Vec::new();
+    for path in files.iter().chain(tree.empty_dirs()) {
+        if let Some(why) = bad_package_path(path) {
+            bad.push(format!("{path} ({why})"));
+        }
+    }
+    findings.extend(listing("package path", &bad));
+
+    let ampr = readiness.imports_ampr;
+    // `prepare` builds the index anew for a libSceAmpr title and for a source with its own,
+    // except an LZ4- or zstd-packed one (its index is kept: it lists the packed files, and
+    // the LZ4 pack manifest's file ids come from it; vendor patch 0030);
+    // that copy itself is left out, and so is artwork the container may carry instead (`prepare`
+    // still refuses a clash it does index). A manifest that cannot be read skips this check:
+    // `prepare` fails with that read's error.
+    let own_index = files.iter().any(|p| p.eq_ignore_ascii_case(AMPR_INDEX));
+    if (ampr || own_index) && matches!(source::lz4_packed(tree), Ok(false)) {
+        let listed: Vec<String> = files
+            .iter()
+            .filter(|p| !p.eq_ignore_ascii_case(AMPR_INDEX))
+            .filter(|p| !cnt_write::CONTAINER_ONLY.contains(&p.as_str()))
+            .cloned()
+            .collect();
+        let clashes = case_clashes(&listed);
+        if !clashes.is_empty() {
+            findings.push(format!(
+                "the package's {AMPR_INDEX} cannot be generated, because these paths differ \
+                 only in case:"
+            ));
+            findings.extend(listing("same path but for case", &clashes));
+        }
+    }
+    (findings, notes, ampr)
+}
+
+/// Why a package (PFS) path cannot be written as is: `plan::build` checks nothing.
+fn bad_package_path(path: &str) -> Option<&'static str> {
+    if !is_nfc(path) {
+        return Some("not in NFC");
+    }
+    path.split('/').find_map(|c| match c {
+        "" => Some("empty component (leading, trailing or doubled '/')"),
+        "." | ".." => Some("'.' or '..' component"),
+        _ if c.contains('\0') => Some("NUL in name"),
+        _ if c.len() > 255 => Some("component longer than 255 bytes"),
+        _ => None,
+    })
+}
+
+/// Paths the AMPR index cannot tell apart, as `a = b` pairs. Its key folds ASCII case and
+/// reads `\` as `/` (`ampr_index::key`).
+fn case_clashes(files: &[String]) -> Vec<String> {
+    let key = |p: &str| p.replace('\\', "/").to_ascii_lowercase();
+    let mut seen: HashMap<String, &str> = HashMap::new();
+    let mut clashes = Vec::new();
+    for path in files {
+        match seen.get(&key(path)) {
+            Some(other) => clashes.push(format!("{other} = {path}")),
+            None => {
+                seen.insert(key(path), path);
+            }
+        }
+    }
+    clashes
+}
+
+/// `prepare`'s error as the job reports it: the AMPR index case clash it refuses (the
+/// backstop of `source_findings`' rule) is a preflight finding, the rest as `fpkg` has them.
+fn prepare_error(e: Error) -> anyhow::Error {
+    match e {
+        Error::Format(m) if m.contains(&format!("which {AMPR_INDEX} cannot tell apart")) => {
+            anyhow!("preflight failed:\n  {m}")
+        }
+        e => fpkg("preparing the package")(e),
+    }
+}
+
+/// The vendored error as the job reports it; a stop the job asked for is `cancelled`. The
+/// error stays in the chain, so U7 finds its errno.
+fn fpkg(what: &str) -> impl Fn(Error) -> anyhow::Error + '_ {
+    move |e| match e {
+        Error::Cancelled => anyhow!("cancelled"),
+        e => anyhow::Error::new(e).context(what.to_string()),
+    }
+}
+
+/// `.pkg` output on FreeBSD (U5): the vendored builder writes the file itself, so a thread
+/// beside `build` syncs it through `file` (a clone of the builder's handle) with `sync` once it
+/// has grown by `every` bytes, or each second it grew at all. The build's control watches
+/// `abort`, not the job's `cancel`: the syncer mirrors a cancel into it, and sets it on its
+/// first failure, after which it stops, so the build stops writing unsynced data. Returns
+/// what `build` returned and that failure; the syncer stops promptly once `build` returns, and
+/// `file` is closed by then (U6).
+// ponytail: asynchronous, with no backpressure (the verify pass still hashes every packaged
+// file); the upgrade is a vendor patch threading `durable::Output`
+// through `build::write_package` and `kraken_image::compress`.
+#[cfg(any(target_os = "freebsd", test))]
+fn sync_beside<T>(
+    file: std::fs::File,
+    every: u64,
+    cancel: &AtomicBool,
+    abort: &AtomicBool,
+    sync: impl Fn(&std::fs::File, &AtomicBool) -> io::Result<()> + Send,
+    build: impl FnOnce() -> T,
+) -> io::Result<(T, io::Result<()>)> {
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::{Duration, Instant};
+    std::thread::scope(|s| {
+        let (stop, stopped) = mpsc::channel::<()>();
+        let syncer = std::thread::Builder::new()
+            .name("forge-pkg-sync".into())
+            .spawn_scoped(s, move || {
+                let (mut synced, mut since) = (0u64, Instant::now());
+                let result = loop {
+                    if stopped.recv_timeout(Duration::from_millis(100))
+                        != Err(RecvTimeoutError::Timeout)
+                    {
+                        break Ok(());
+                    }
+                    if cancel.load(Ordering::Relaxed) {
+                        abort.store(true, Ordering::Relaxed);
+                    }
+                    let grown = match file.metadata() {
+                        Ok(meta) => meta.len().saturating_sub(synced),
+                        Err(e) => break Err(e),
+                    };
+                    if grown >= every || (grown > 0 && since.elapsed() >= Duration::from_secs(1)) {
+                        if let Err(e) = sync(&file, cancel) {
+                            break Err(e);
+                        }
+                        (synced, since) = (synced + grown, Instant::now());
+                    }
+                };
+                if result.is_err() {
+                    abort.store(true, Ordering::Relaxed);
+                }
+                result
+            })?;
+        let built = build();
+        drop(stop);
+        let synced = syncer
+            .join()
+            .unwrap_or_else(|_| Err(io::Error::other("the package syncer panicked")));
+        Ok((built, synced))
+    })
+}
+
+/// What a build beside [`sync_beside`] reports: a sync failure is the error (its errno at the
+/// root, for U7), with the build's own error, if any, as context; else the build's result.
+#[cfg(any(target_os = "freebsd", test))]
+fn synced_build<T>(built: ps5upload_fpkg::Result<T>, synced: io::Result<()>) -> anyhow::Result<T> {
+    let Err(e) = synced else {
+        return built.map_err(fpkg("writing the package"));
+    };
+    let e = anyhow::Error::new(e).context("syncing the package while it was written");
+    Err(match built {
+        // Stopped by the syncer itself (or a cancel, which the job reports as such).
+        Ok(_) | Err(Error::Cancelled) => e,
+        Err(b) => e.context(format!("writing the package failed ({b})")),
+    })
+}
+
+/// The builder's request for `req`: a production package, its threads and Kraken level.
+fn build_request(req: &ConvertRequest, dir: &Path, imports_ampr: bool) -> BuildRequest {
+    // `source`/`output_dir` are not read by `prepare`/`write_package`; the `.part` is ours.
+    let mut request = BuildRequest::production(&req.source, dir);
+    request.threads = req.compression_threads;
+    request.imports_ampr = Some(imports_ampr);
+    request.level = match req.kraken_level {
+        KrakenLevel::Fast => Level::Fast,
+        KrakenLevel::Balanced => Level::Balanced,
+        KrakenLevel::Smallest => Level::Smallest,
+        KrakenLevel::Stored => Level::Stored,
+    };
+    request
+}
+
+/// Free bytes a package of about `size` bytes needs at its destination: the size, 1% more and
+/// 64 MiB for what the destination's own file system spends on the new file.
+pub(crate) fn room(size: u64) -> u64 {
+    size.saturating_add(size / 100).saturating_add(64 * MIB)
+}
+
+/// The package `tree` would build into, sized as [`run`]'s preflight sizes it (its findings,
+/// then the builder's `prepare`, reading per-file headers only), for an edit's check: the
+/// package's estimated size, or every finding.
+pub(crate) fn size(
+    req: &ConvertRequest,
+    tree: &mut dyn SourceTree,
+    info: &GameInfo,
+    dir: &Path,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<u64, Vec<String>> {
+    let (findings, _, imports_ampr) = source_findings(tree, info);
+    if !findings.is_empty() {
+        return Err(findings);
+    }
+    let mut control = BuildControl {
+        cancel: Some(cancel),
+        ..BuildControl::default()
+    };
+    let request = build_request(req, dir, imports_ampr);
+    match build::prepare(tree, &request, &mut control) {
+        Ok(prepared) => Ok(prepared.estimated_size()),
+        Err(e) => Err(vec![
+            format!("{:#}", prepare_error(e))
+                .trim_start_matches("preflight failed:\n  ")
+                .to_string(),
+        ]),
+    }
+}
+
+/// Builds the package of `tree` into `out`'s `.part`, verifies it and publishes it, or, when
+/// `in_place` (an edit's rebuild: `out` is the source), renames it over the source once the
+/// source's `stamp` still holds and ShadowMount+ hasn't mounted it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn run(
+    req: &ConvertRequest,
+    ctx: &Ctx,
+    mut tree: Box<dyn SourceTree>,
+    info: &GameInfo,
+    mut findings: Vec<String>,
+    out: &Path,
+    stamp: &SourceStamp,
+    in_place: bool,
+) -> anyhow::Result<JobReport> {
+    ctx.log(CONSOLE);
+    let (more, notes, imports_ampr) = source_findings(tree.as_mut(), info);
+    findings.extend(more);
+    for note in notes {
+        ctx.log(note);
+    }
+    ctx.check()?;
+    if !findings.is_empty() {
+        bail!("preflight failed:\n  {}", findings.join("\n  "));
+    }
+    ctx.progress("preflight", 1, 1);
+
+    let dir = out.parent().expect("output_path gives a parent");
+    let request = build_request(req, dir, imports_ampr);
+    let stage = Cell::new(Stage::Check.id());
+    let sized = Cell::new(false);
+    let mut on_stage = |s: Stage| {
+        stage.set(s.id());
+        sized.set(false);
+        ctx.progress(s.id(), 0, 1);
+    };
+    let file_bytes = tree
+        .files()
+        .iter()
+        .fold(0u64, |sum, f| sum.saturating_add(f.size));
+    // `prepare` sizes the package, filled in below; each pass renews the estimate as it
+    // learns its own size.
+    let estimate = Cell::new(0u64);
+    let mut on_bytes = |done: u64, total: u64| {
+        if !sized.replace(true) {
+            // Compress reads the source, write and the builder's verify the package, our
+            // verify the files.
+            let rest = match stage.get() {
+                "compress" => total.saturating_add(estimate.get().saturating_mul(2)),
+                "write" => total.saturating_mul(2),
+                _ => total, // the builder's verify
+            };
+            ctx.expect_rest(rest.saturating_add(file_bytes));
+        }
+        ctx.progress(stage.get(), done, total)
+    };
+    // `prepare`'s per-file reads (a SELF header in check, 4 bytes in plan) move the bar too, each
+    // counted as `unit` bytes. The passes after them are not sized yet: compress reads the
+    // source, write and verify about as much again each (a package is at most a little over its
+    // files), so 4x the source until compress renews it, the source taken as at least 40 bytes
+    // a file (a package spends more than that on each). One read counts 1/40 of a file's share
+    // of that source, at most 64 KiB (about what streaming 64 KiB costs: a seek, an archive
+    // entry found), so the two passes take at most ~1% of the stand-in: a game of many tiny
+    // files would otherwise fill the bar before compress begins.
+    let files = (tree.files().len() as u64).max(1);
+    let source = file_bytes.max(files.saturating_mul(40));
+    let unit = (source / files.saturating_mul(40)).min(64 * 1024);
+    let mut on_files = |s: Stage, done: u64, total: u64| {
+        if !sized.replace(true) {
+            // Check's count stands in for plan's, which plan renews.
+            let reads = if s == Stage::Check { total * 2 } else { total };
+            let rest = source.saturating_mul(4);
+            ctx.expect_rest(reads.saturating_mul(unit).saturating_add(rest));
+        }
+        ctx.progress(
+            s.id(),
+            done.saturating_mul(unit),
+            total.saturating_mul(unit),
+        )
+    };
+    // What the package write watches instead of the job's cancel (`sync_beside`).
+    #[cfg(target_os = "freebsd")]
+    let abort = AtomicBool::new(false);
+    // Fast verification samples the builder's own sweep too, with the job's seed.
+    let mode = if req.full_verify {
+        Mode::Full
+    } else {
+        Mode::Fast {
+            seed: verify::fresh_seed()?,
+            seam: false,
+        }
+    };
+    let mut control = BuildControl {
+        bytes: Some(&mut on_bytes),
+        cancel: Some(ctx.cancel),
+        stage: Some(&mut on_stage),
+        files: Some(&mut on_files),
+        sample: match mode {
+            Mode::Fast { seed, .. } => Some(seed),
+            Mode::Full => None,
+        },
+    };
+    let prepared = build::prepare(tree.as_mut(), &request, &mut control).map_err(prepare_error)?;
+    for line in prepared.log() {
+        ctx.log(format!("fpkg: {line}"));
+    }
+    // The builder spools its compressed image inside the package itself (production requests
+    // read no spool dir), so the package is the only thing written.
+    let size = prepared.estimated_size();
+    estimate.set(size);
+    let need = room(size);
+    // A package on a paired device: written there through the peer's file calls.
+    let remote_out = crate::remote::is_remote(out);
+    // U7: so a probe that fails because the drive went away says so.
+    #[cfg(target_os = "freebsd")]
+    if !remote_out {
+        ctx.watch(dir);
+    }
+    let checked = if remote_out {
+        crate::remote::destination(dir, need)
+    } else {
+        preflight::destination(dir, need, size, ctx.cancel)
+    };
+    for note in checked.notes {
+        ctx.log(note);
+    }
+    if !checked.findings.is_empty() {
+        bail!("preflight failed:\n  {}", checked.findings.join("\n  "));
+    }
+    #[cfg(target_os = "freebsd")]
+    let dest = checked.dest;
+    #[cfg(target_os = "freebsd")]
+    if dest.is_none() && !remote_out {
+        bail!("the destination was not probed");
+    }
+    ctx.check()?;
+    ctx.log(format!(
+        "package: content id {}, about {} MiB",
+        prepared.content_id(),
+        size.div_ceil(MIB)
+    ));
+
+    // No shadowing: `file` must drop before `part`, which deletes the `.part` (U6).
+    #[cfg_attr(not(target_os = "freebsd"), allow(unused_mut))]
+    let (mut part, mut file) = if remote_out {
+        let (part, pkg) = crate::remote::RemotePkgOut::create(&part_path(out, ctx.job))?;
+        (Out::Peer(part), Handle::Peer(pkg))
+    } else {
+        let (part, file) = Part::create_file(&part_path(out, ctx.job))?;
+        (Out::Local(part), Handle::Local(file))
+    };
+    #[cfg(target_os = "freebsd")]
+    if let (Out::Local(part), Some(dest)) = (&mut part, &dest) {
+        part.set_dest(dest);
+    }
+    // As in `convert`: reads run one range ahead on their own thread, so the builder's producer
+    // hashes and lays out one range while the next is read (a `.pkg` source's Kraken blocks
+    // decoded); `HashingTree` sees exactly the calls and bytes it would without read-ahead.
+    // The builder asks 256 KiB at a time, and a `.pkg` source pays its decode threads per read:
+    // 4 MiB windows (about 12 MiB in memory, see `Prefetch`) keep the producer fed.
+    let mut ahead = Prefetch::with_window(tree, 4 << 20)
+        .map_err(|e| anyhow::Error::new(e).context("starting the read-ahead thread"))?;
+    let mut hashing = HashingTree::new(&mut ahead);
+    #[cfg(not(target_os = "freebsd"))]
+    let report = build::write_package(
+        &prepared,
+        &mut hashing,
+        file.pkg(),
+        part.path(),
+        &mut |line| ctx.log(format!("fpkg: {line}")),
+        &mut control,
+    )
+    .map_err(fpkg("writing the package"))?;
+    // ponytail: the builder's last `sync_all` (vendor `stream.rs:534`) has no U4 retries, so a
+    // transient fsync error there fails the job: safe, nothing is lost or published. Upgrade: a
+    // numbered vendor patch with a final-sync callback.
+    // A package on a peer is synced there (its `sync_out`), with no syncer beside it here.
+    #[cfg(target_os = "freebsd")]
+    let report = if let Handle::Peer(pkg) = &mut file {
+        build::write_package(
+            &prepared,
+            &mut hashing,
+            pkg,
+            part.path(),
+            &mut |line| ctx.log(format!("fpkg: {line}")),
+            &mut control,
+        )
+        .map_err(fpkg("writing the package"))?
+    } else {
+        let Handle::Local(file) = &mut file else {
+            unreachable!("a peer's package is written above")
+        };
+        use anyhow::Context;
+        control.cancel = Some(&abort);
+        let every = crate::durable::Cadence::new().n();
+        let handle = file.try_clone().context("cloning the package's handle")?;
+        // A retried sync fails the build, as it fails `SyncEvery`.
+        let sync = |f: &std::fs::File, cancel: &AtomicBool| match crate::durable::sync_retry(
+            f, false, cancel,
+        )? {
+            crate::durable::Synced::Retried => Err(crate::durable::retried_sync()),
+            _ => Ok(()),
+        };
+        let (built, synced) = sync_beside(handle, every, ctx.cancel, &abort, sync, || {
+            build::write_package(
+                &prepared,
+                &mut hashing,
+                &mut *file,
+                part.path(),
+                &mut |line| ctx.log(format!("fpkg: {line}")),
+                &mut control,
+            )
+        })
+        .context("starting the package syncer")?;
+        synced_build(built, synced)?
+    };
+    ctx.check()?;
+    let mut checks: Vec<String> = report
+        .verify
+        .checks
+        .iter()
+        .map(|c| {
+            format!("fpkg verify: {} {}", c.name, c.detail)
+                .trim_end()
+                .to_string()
+        })
+        .collect();
+    checks.push(format!(
+        "package: {} bytes, content id {}",
+        report.size, report.content_id
+    ));
+
+    // Verification: the expected manifest is what the package must carry, each file hashed as the
+    // builder serves it; files the build passed through keep the hash of the source read.
+    ctx.progress("verify", 0, 1);
+    let source_hashes = hashing.into_digests();
+    let mut packaged = Packaged::new(&prepared, &mut ahead);
+    let known: HashMap<String, verify::Digest> = packaged
+        .unchanged
+        .iter()
+        .filter_map(|p| source_hashes.get(p).map(|h| (p.clone(), h.clone())))
+        .collect();
+    let expected = verify::expected_from(&mut packaged, &known, ctx, mode)?;
+    checks.push(source_summary(&prepared));
+    // The source is read no more: its handles close before the package may replace it
+    // (Windows refuses to rename over an open file).
+    drop(packaged);
+    drop(ahead);
+    ctx.check()?;
+
+    // Through the handle the package was written with, whatever its name now names.
+    let len = file.len()?;
+    let label = part.path().display().to_string();
+    let mut back = FpkgSource::from_reader(file.reader()?, len, label, None)
+        .map_err(|e| anyhow::Error::new(e).context("reading the package back"))?;
+    checks.push(format!("reader: {}", back.describe()));
+    for line in back.conflicts() {
+        ctx.log(format!("package reader: {line}"));
+    }
+    checks.extend(verify::compare(&expected, &mut back, ctx, mode)?);
+    drop(back);
+    checks.push(CONSOLE.to_string());
+    for line in &checks {
+        ctx.log(format!("check: {line}"));
+    }
+    file.finish()?;
+
+    ctx.expect_rest(0);
+    ctx.progress("finalize", 0, 1);
+    ctx.check()?;
+    stamp.check()?;
+    if in_place {
+        if let Some(why) = crate::edit_job::smp_finding(out) {
+            bail!("{why}; the source was not replaced");
+        }
+        let Out::Local(part) = part else {
+            bail!("a package on another device is never replaced in place");
+        };
+        if let Some(backup) = part.replace(out)? {
+            ctx.log(format!(
+                "in place: the original package is still at {}; delete it once the new one works",
+                backup.display()
+            ));
+        }
+        checks.push(format!("replaced {} with the verified copy", out.display()));
+    } else {
+        part.publish(out)?;
+        checks.push(format!("published {}", out.display()));
+    }
+    ctx.progress("finalize", 1, 1);
+    Ok(JobReport {
+        output: out.to_path_buf(),
+        bytes: report.size,
+        files: expected.files.len() as u64,
+        checks,
+        verify: verify::summary(&expected.files, mode),
+    })
+}
+
+/// The package's `.part`: here, or on a paired device.
+enum Out {
+    Local(Part),
+    Peer(crate::remote::RemotePart),
+}
+
+impl Out {
+    fn path(&self) -> &Path {
+        match self {
+            Self::Local(part) => part.path(),
+            Self::Peer(part) => part.path(),
+        }
+    }
+
+    fn publish(self, output: &Path) -> anyhow::Result<()> {
+        match self {
+            Self::Local(part) => part.publish(output),
+            Self::Peer(part) => part.publish(output),
+        }
+    }
+}
+
+/// What the builder writes the package through: the local `.part`'s file, or the peer's.
+enum Handle {
+    Local(std::fs::File),
+    Peer(crate::remote::RemotePkgOut),
+}
+
+impl Handle {
+    #[cfg_attr(target_os = "freebsd", allow(dead_code))]
+    fn pkg(&mut self) -> &mut dyn ps5upload_fpkg::PkgOut {
+        match self {
+            Self::Local(file) => file,
+            Self::Peer(pkg) => pkg,
+        }
+    }
+
+    fn len(&self) -> anyhow::Result<u64> {
+        use ps5upload_fpkg::PkgOut;
+        Ok(match self {
+            Self::Local(file) => file.metadata()?.len(),
+            Self::Peer(pkg) => pkg.out_len()?,
+        })
+    }
+
+    /// A reader of its own (a local handle shares the cursor; every reader seeks first).
+    fn reader(&self) -> anyhow::Result<Box<dyn ps5upload_fpkg::ReadSeek>> {
+        use ps5upload_fpkg::PkgOut;
+        Ok(match self {
+            Self::Local(file) => Box::new(file.try_clone()?),
+            Self::Peer(pkg) => Box::new(pkg.try_clone_out()?),
+        })
+    }
+
+    /// Done with it: a local file is closed; a peer's part is sent, synced and closed there.
+    fn finish(self) -> anyhow::Result<()> {
+        if let Self::Peer(pkg) = self {
+            anyhow::Context::context(pkg.finish(), "syncing the package")?;
+        }
+        Ok(())
+    }
+}
+
+/// How the package's files relate to the source's, for the report.
+fn source_summary(prepared: &Prepared) -> String {
+    let unchanged = prepared
+        .manifest()
+        .iter()
+        .filter(|e| e.origin == Origin::Source)
+        .count()
+        + prepared.container_only().len();
+    let changed: Vec<String> = prepared
+        .manifest()
+        .iter()
+        .filter(|e| e.origin != Origin::Source)
+        .map(|e| {
+            let how = match e.origin {
+                Origin::Rewritten => "rewritten",
+                Origin::Repaired => "repaired",
+                _ => "generated",
+            };
+            format!("{} ({how})", e.path)
+        })
+        .collect();
+    let total = prepared.manifest().len() + prepared.container_only().len();
+    let mut line = format!(
+        "source hashes: {unchanged} of {total} packaged files are the source's bytes \
+         ({} as container entries)",
+        prepared.container_only().len()
+    );
+    if !changed.is_empty() {
+        const SHOWN: usize = 10;
+        line += &format!(
+            "; made by the build: {}",
+            changed[..changed.len().min(SHOWN)].join(", ")
+        );
+        if changed.len() > SHOWN {
+            line += &format!(" and {} more", changed.len() - SHOWN);
+        }
+    }
+    line
+}
+
+/// What the package must read back as: the effective manifest plus the container-only
+/// artwork, each served exactly as the builder packaged it.
+struct Packaged<'a> {
+    prepared: &'a Prepared,
+    tree: &'a mut dyn SourceTree,
+    files: Vec<SourceFile>,
+    /// Paths whose packaged bytes are the source's, unchanged.
+    unchanged: Vec<String>,
+}
+
+impl<'a> Packaged<'a> {
+    fn new(prepared: &'a Prepared, tree: &'a mut dyn SourceTree) -> Self {
+        let entries = prepared.manifest().iter().chain(prepared.container_only());
+        let mut files: Vec<SourceFile> = entries
+            .clone()
+            .map(|e| SourceFile {
+                path: e.path.clone(),
+                size: e.size,
+            })
+            .collect();
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        let unchanged = entries
+            .filter(|e| e.origin == Origin::Source)
+            .map(|e| e.path.clone())
+            .collect();
+        Self {
+            prepared,
+            tree,
+            files,
+            unchanged,
+        }
+    }
+}
+
+impl SourceTree for Packaged<'_> {
+    fn files(&self) -> &[SourceFile] {
+        &self.files
+    }
+
+    fn read(&mut self, path: &str) -> ps5upload_fpkg::Result<Vec<u8>> {
+        let size = self
+            .files
+            .iter()
+            .find(|f| f.path == path)
+            .map_or(0, |f| f.size);
+        self.read_range(path, 0, size as usize)
+    }
+
+    fn read_range(
+        &mut self,
+        path: &str,
+        offset: u64,
+        len: usize,
+    ) -> ps5upload_fpkg::Result<Vec<u8>> {
+        // Container-only artwork is the source's file; `Prepared::read_range` serves the image.
+        if self
+            .prepared
+            .container_only()
+            .iter()
+            .any(|e| e.path == path)
+        {
+            return self.tree.read_range(path, offset, len);
+        }
+        self.prepared.read_range(self.tree, path, offset, len)
+    }
+
+    fn empty_dirs(&self) -> &[String] {
+        self.prepared.empty_dirs()
+    }
+
+    fn describe(&self) -> String {
+        format!("package manifest of {}", self.tree.describe())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+
+    /// The builder stand-in: writes until `abort` is set (or 10 s pass); returns the bytes.
+    fn writing(file: &mut std::fs::File, abort: &AtomicBool) -> u64 {
+        let (started, mut wrote) = (Instant::now(), 0);
+        while !abort.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(10) {
+            file.write_all(&[7; 1024]).unwrap();
+            wrote += 1024;
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        wrote
+    }
+
+    #[test]
+    fn a_failed_background_sync_stops_the_build() {
+        let dir = crate::test_dir("pkg-sync-fails");
+        let mut file = std::fs::File::create(dir.join("p.part")).unwrap();
+        let handle = file.try_clone().unwrap();
+        let (cancel, abort) = (AtomicBool::new(false), AtomicBool::new(false));
+        let started = Instant::now();
+        let fail = |_: &std::fs::File, _: &AtomicBool| Err(io::Error::other("the drive is gone"));
+        let (wrote, synced) = sync_beside(handle, 1, &cancel, &abort, fail, || {
+            writing(&mut file, &abort)
+        })
+        .unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the build was not stopped"
+        );
+        assert!(wrote > 0 && abort.load(Ordering::Relaxed));
+        assert_eq!(synced.unwrap_err().to_string(), "the drive is gone");
+    }
+
+    #[test]
+    fn a_sync_failure_is_the_error_the_job_reports() {
+        let eio = || io::Error::other("Input/output error");
+        let msg = |r: anyhow::Result<()>| format!("{:#}", r.unwrap_err());
+        assert_eq!(
+            msg(synced_build(Err(Error::Cancelled), Err(eio()))),
+            "syncing the package while it was written: Input/output error"
+        );
+        let both = synced_build::<()>(Err(Error::Format("bad block".into())), Err(eio()));
+        let root = both.as_ref().unwrap_err().root_cause().to_string();
+        assert_eq!(root, "Input/output error");
+        assert_eq!(
+            msg(both),
+            "writing the package failed (bad block): syncing the package while it was written: \
+             Input/output error"
+        );
+        assert_eq!(
+            msg(synced_build(Err(Error::Format("bad block".into())), Ok(()))),
+            "writing the package: bad block"
+        );
+        assert_eq!(synced_build(Ok(3), Ok(())).unwrap(), 3);
+    }
+
+    /// A tree in memory: case-colliding names cannot be made on a case-insensitive disk.
+    struct Mem(Vec<SourceFile>, HashMap<String, Vec<u8>>);
+
+    impl Mem {
+        fn new(files: &[(&str, Vec<u8>)]) -> Self {
+            Self(
+                files
+                    .iter()
+                    .map(|(p, b)| SourceFile {
+                        path: p.to_string(),
+                        size: b.len() as u64,
+                    })
+                    .collect(),
+                files
+                    .iter()
+                    .map(|(p, b)| (p.to_string(), b.clone()))
+                    .collect(),
+            )
+        }
+    }
+
+    impl SourceTree for Mem {
+        fn files(&self) -> &[SourceFile] {
+            &self.0
+        }
+        fn read(&mut self, path: &str) -> ps5upload_fpkg::Result<Vec<u8>> {
+            self.1
+                .get(path)
+                .cloned()
+                .ok_or_else(|| Error::Format(format!("no {path}")))
+        }
+        fn describe(&self) -> String {
+            "mem".into()
+        }
+    }
+
+    const PARAM: &str =
+        r#"{"titleId":"PPSA01234","contentId":"UP0000-PPSA01234_00-TESTTESTTESTTEST"}"#;
+
+    fn ampr_eboot() -> Vec<u8> {
+        let mut eboot = vec![0u8; 4096];
+        eboot[..4].copy_from_slice(b"\x7fELF");
+        eboot[2048..2062].copy_from_slice(b"libSceAmpr.prx");
+        eboot
+    }
+
+    fn findings_of(tree: &mut Mem) -> (Vec<String>, Vec<String>, bool) {
+        let (info, _) = preflight::input(tree);
+        source_findings(tree, &info)
+    }
+
+    #[test]
+    fn ampr_case_collision_is_refused_before_and_by_prepare() {
+        let files = [
+            ("eboot.bin", ampr_eboot()),
+            ("sce_sys/param.json", PARAM.as_bytes().to_vec()),
+            ("data/Level.bin", vec![1; 10]),
+            ("data/level.bin", vec![2; 10]),
+        ];
+        let mut tree = Mem::new(&files);
+        let (findings, notes, ampr) = findings_of(&mut tree);
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("data/Level.bin = data/level.bin")),
+            "{findings:?}"
+        );
+        assert!(ampr);
+        assert!(
+            notes
+                .iter()
+                .any(|n| n.contains("ampr_emu.index for a libSceAmpr title")),
+            "{notes:?}"
+        );
+
+        // The backstop: prepare itself refuses the index, as a preflight finding too.
+        let request = BuildRequest::production("unused", "unused");
+        let Err(e) = build::prepare(&mut tree, &request, &mut BuildControl::default()) else {
+            panic!("prepare built an index for a case clash");
+        };
+        let text = prepare_error(e).to_string();
+        assert!(text.starts_with("preflight failed:"), "{text}");
+        assert!(text.contains("data/Level.bin"), "{text}");
+
+        // A source's own index is rebuilt too, so it does not help; without libSceAmpr or an
+        // index of its own the collision never mattered.
+        let mut plain = files.to_vec();
+        plain[0].1 = vec![0x7f; 4096];
+        let (findings, _, ampr) = findings_of(&mut Mem::new(&plain));
+        assert!(findings.is_empty() && !ampr, "{findings:?}");
+        let mut own = plain.clone();
+        own.push((AMPR_INDEX, vec![0; 8]));
+        let (findings, ..) = findings_of(&mut Mem::new(&own));
+        assert!(
+            findings
+                .iter()
+                .any(|f| f.contains("data/Level.bin = data/level.bin")),
+            "{findings:?}"
+        );
+    }
+}
