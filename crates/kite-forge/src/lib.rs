@@ -5,6 +5,7 @@ pub mod bundle;
 pub mod dlc_emu;
 mod inspect;
 mod packer;
+mod words;
 
 pub use bundle::{BundleItem, BundlePlan, Staged};
 pub use inspect::{DlcInfo, DlcPackage, GameInfo, SourceProblem, check_dlc, inspect_dlc, inspect_game};
