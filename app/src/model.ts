@@ -1,7 +1,18 @@
 // The screen's words and numbers, worked out from plain data so they can be tested.
 
 import { baseName, parentOf } from "./paths";
-import type { GameInfo, HistoryEntry, JobView, Measured, ProgressState, StepKind, StepView } from "./types";
+import type {
+  AheadState,
+  Format,
+  GameInfo,
+  HistoryEntry,
+  JobView,
+  Measured,
+  ProgressState,
+  Status,
+  StepKind,
+  StepView,
+} from "./types";
 
 export interface StepRow {
   label: string;
@@ -27,8 +38,14 @@ export interface Badge {
 }
 
 export type NoteInput =
-  | { kind: "ready"; outputDir: string; send?: boolean; bundled?: number }
+  /** `alongside`: each part goes to the PS5 as soon as it is packed (a folder, helper 0.4+). */
+  | { kind: "ready"; outputDir: string; send?: boolean; alongside?: boolean; bundled?: number }
   | { kind: "running" | "failed" | "done"; job: JobView };
+
+/** Parts of a packed folder go to the PS5 while the rest packs: helper 0.4.0 and later. */
+export function sendsAlongside(format: Format, status: Status | null): boolean {
+  return format === "folder" && status?.state === "running" && versionAtLeast(status.version, 0, 4);
+}
 
 /** Decimal sizes, as drives and Forge count them: "84.2 GB", "717 KB". */
 export function formatSize(bytes: number): string {
@@ -173,27 +190,74 @@ function stepRow(step: StepView, index: number, job: JobView, progress: Progress
       const [status, bar] = runningStatus(step, p, now);
       return { label, state: "active", status, bar };
     }
-    default: {
-      // Send while Pack runs: the parts that went ahead are what it has done so far.
-      const packing = progress && job.steps[progress.index]?.kind === "pack";
-      const ahead = step.kind === "send" && packing ? progress.ahead : undefined;
+    default:
       return {
         label,
         state: "pending",
-        status: ahead && (ahead.sent > 0 || ahead.sending)
-          ? aheadStatus(ahead)
-          : pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
+        status: pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
         bar: step.kind === "send" ? 0 : null,
       };
-    }
   }
 }
 
-/** Send's line while Pack runs, once parts of the packed copy go ahead. */
-export function aheadStatus({ sent, sending }: { sent: number; sending: boolean }): string {
-  const parts = `${sent} ${sent === 1 ? "part" : "parts"}`;
-  if (sent === 0) return "Sending the first part while it packs";
-  return sending ? `${parts} on the PS5, the next on its way` : `${parts} already on the PS5`;
+/** Packing and sending, which run together: how far each has come. */
+export interface PackSend {
+  /** 0 to 100. */
+  packed: number;
+  /** 0 to 100: what the PS5 has of the packed copy. */
+  onPs5: number;
+  onPs5Bytes: number;
+  /** What the packed copy comes to, or should (an estimate while packing); null while nothing says. */
+  totalBytes: number | null;
+  /** Parts are going (or went) to the PS5 while packing. */
+  alongside: boolean;
+  /** Until both are done: whichever ends last. Null while there is no rate. */
+  minutes: number | null;
+}
+
+/** Minutes until the PS5 has `total` bytes, at the rate parts have been arriving. */
+function sendMinutes(ahead: AheadState, total: number): number | null {
+  const first = ahead.recent[0];
+  const last = ahead.recent[ahead.recent.length - 1];
+  if (!first || !last || last.at - first.at < 1_000 || last.bytes <= first.bytes) return null;
+  const rate = (last.bytes - first.bytes) / (last.at - first.at);
+  return Math.max(1, Math.ceil((total - ahead.onPs5) / rate / 60_000));
+}
+
+/** Pack and send for a job that does both; null for one that only packs. */
+export function packSend(job: JobView, progress: ProgressState | null, now: number): PackSend | null {
+  const pi = job.steps.findIndex((st) => st.kind === "pack");
+  const si = job.steps.findIndex((st) => st.kind === "send");
+  if (pi < 0 || si < 0) return null;
+  const [pack, send] = [job.steps[pi], job.steps[si]];
+  const pp = progress && progress.index === pi ? progress : null;
+  const sp = progress && progress.index === si && progress.total > 0 ? progress : null;
+  const ahead = job.aheadBytes ?? 0;
+  const packed = pack.state === "done" ? 100 : pp && pp.total > 0 ? Math.min(100, Math.floor((pp.done / pp.total) * 100)) : 0;
+  let onPs5Bytes = 0;
+  let totalBytes: number | null = null;
+  let minutes: number | null = null;
+  if (send.state === "done") {
+    totalBytes = job.packedBytes;
+    onPs5Bytes = totalBytes ?? 0;
+  } else if (sp) {
+    // The last of it: what went while packing, and Send's own count of the rest.
+    onPs5Bytes = ahead + sp.done;
+    totalBytes = ahead + sp.total;
+    minutes = minutesLeft(sp, now);
+  } else if (pack.state === "done") {
+    onPs5Bytes = ahead;
+    totalBytes = job.packedBytes;
+  } else if (pp) {
+    onPs5Bytes = pp.ahead?.onPs5 ?? 0;
+    totalBytes = pp.ahead?.estimate || null;
+    const packing = minutesLeft(pp, now);
+    const sending = pp.ahead && totalBytes ? sendMinutes(pp.ahead, totalBytes) : null;
+    minutes = packing === null ? sending : sending === null ? packing : Math.max(packing, sending);
+  }
+  const onPs5 =
+    send.state === "done" ? 100 : totalBytes ? Math.min(99, Math.floor((Math.min(onPs5Bytes, totalBytes) / totalBytes) * 100)) : 0;
+  return { packed, onPs5, onPs5Bytes, totalBytes, alongside: ahead > 0 || !!pp?.ahead, minutes };
 }
 
 const ITEM_STATES: Record<StepView["state"], DlcItem["state"]> = {
@@ -323,9 +387,10 @@ export function footerNote(input: NoteInput): string {
   switch (input.kind) {
     case "ready": {
       const inside = input.bundled ? ` with ${input.bundled} ${input.bundled === 1 ? "add-on" : "add-ons"} inside` : "";
-      return input.send
-        ? `Packs into ${input.outputDir}${inside}, then sends to the PS5 by itself.`
-        : `Packs into ${input.outputDir}${inside}.`;
+      if (!input.send) return `Packs into ${input.outputDir}${inside}.`;
+      return input.alongside
+        ? `Packs into ${input.outputDir}${inside} and sends each part to the PS5 as soon as it's packed.`
+        : `Packs into ${input.outputDir}${inside}, then sends to the PS5 by itself.`;
     }
     case "running": {
       const steps = input.job.steps;
@@ -361,8 +426,11 @@ export interface BarPart {
   label: string;
   /** Its share of the bar: about how long the step takes, never too thin to read. */
   weight: number;
-  /** 0 to 100; null while it runs with nothing to count (a move to the Trash). */
+  /** 0 to 100; null while it runs with nothing to count (a move to the Trash). For Pack and
+   *  send: what the PS5 has. */
   fill: number | null;
+  /** Pack and send only: how much is packed, drawn lighter under `fill`. */
+  under?: number;
   state: StepRow["state"];
   /** The short line under the part. */
   note: string;
@@ -438,11 +506,26 @@ export function jobBar(
     return { kind, label: PART_LABELS[kind], weight: PART_WEIGHTS[kind], fill, state: row.state, note, items: row.items };
   });
 
+  // Packing and sending run together: one part for both, what is packed under what the PS5 has.
+  const both = packSend(job, progress, now);
+  if (both) {
+    const pi = parts.findIndex((part) => part.kind === "pack");
+    const si = parts.findIndex((part) => part.kind === "send");
+    const combined = combine(parts[pi], parts[si], both, job, progress);
+    parts.splice(si, 1);
+    parts.splice(pi, 1, combined);
+  }
+
   const total = parts.reduce((t, part) => t + part.weight, 0) || 1;
-  const filled = parts.reduce((t, part) => t + part.weight * (part.fill ?? 50), 0);
+  // Pack and send counts as halfway between what is packed and what the PS5 has.
+  const filled = parts.reduce((t, part) => t + part.weight * (part.under !== undefined ? ((part.fill ?? 0) + part.under) / 2 : (part.fill ?? 50)), 0);
   const overall = Math.round(filled / total);
 
-  const at = parts.findIndex((part) => part.state === "active" || part.state === "paused" || part.state === "failed");
+  // The head follows the step running now, which may not be the first part still going: the
+  // original goes to the Trash while Pack and send still has the rest to send.
+  const runningKind = job.steps.find((st) => st.state === "running" || st.state === "waiting" || st.state === "failed")?.kind;
+  const byStep = runningKind ? parts.findIndex((part) => part.kind === runningKind || (part.kind === "pack" && runningKind === "send" && both !== null)) : -1;
+  const at = byStep >= 0 ? byStep : parts.findIndex((part) => part.state === "active" || part.state === "paused" || part.state === "failed");
   if (job.state === "finished") {
     const sent = job.steps.some((st) => st.kind === "send" && st.state === "done");
     return {
@@ -455,12 +538,93 @@ export function jobBar(
   }
   if (at < 0) return { head: "Starting", detail: "", tone: "plain", overall, parts };
   const part = parts[at];
-  const row = rows[at];
-  if (part.state === "failed") return { head: `${part.label} failed`, detail: row.status, tone: "fail", overall, parts };
+  if (both && part.under !== undefined) return { ...packSendHead(job, both, progress, now), overall, parts };
+  const row = rows[kinds.indexOf(part.kind)];
+  if (part.state === "failed") {
+    const head = part.kind === "pack" ? "Packing failed" : `${part.label} failed`;
+    return { head, detail: row.status, tone: "fail", overall, parts };
+  }
   if (part.state === "paused") return { head: "Waiting for the PS5", detail: row.status, tone: "amber", overall, parts };
   // A move to the Trash has nothing to count: the head says it all.
   const detail = part.fill === null ? "" : row.status;
   return { head: DOING[part.kind], detail, tone: "plain", overall, parts };
+}
+
+/** The one part for packing and sending, from their two. */
+function combine(pack: BarPart, send: BarPart, both: PackSend, job: JobView, progress: ProgressState | null): BarPart {
+  const st = (kind: StepKind) => job.steps.find((s) => s.kind === kind)!.state;
+  const [ps, ss] = [st("pack"), st("send")];
+  const state: BarPart["state"] =
+    ps === "failed" || ss === "failed"
+      ? "failed"
+      : ss === "waiting"
+        ? "paused"
+        : ps === "done" && ss === "done"
+          ? "done"
+          : ps === "pending" && ss === "pending"
+            ? "pending"
+            : "active";
+  const onPs5 = (bytes: number) => `${formatSize(bytes)} on the PS5`;
+  let note: string;
+  if (state === "failed") note = ps === "failed" ? pack.note : send.note;
+  else if (state === "done") {
+    // "51.6 GB in Packed, sent and checked", and after it what the pack folded in, if anything.
+    const [base, ...extra] = pack.note.split(" · ");
+    const sent = base === "Packed and checked" ? "Packed, sent and checked" : `${base}, sent and checked`;
+    note = [sent, ...extra].join(" · ");
+  } else if (state === "paused") note = "Paused";
+  else if (state === "pending") note = "Waiting to start";
+  else if (ss === "running") {
+    note = both.totalBytes && both.onPs5Bytes > 0 ? `${formatSize(both.onPs5Bytes)} of ${onPs5(both.totalBytes)}` : "Packed, starting to send";
+  }
+  else if (ps === "done") note = both.onPs5Bytes > 0 ? `${onPs5(both.onPs5Bytes)}, the rest next` : "Packed, sending next";
+  else {
+    const packing = progress && progress.total > 0 ? `${both.packed}% packed` : "";
+    note = both.onPs5Bytes > 0 ? `${packing}, ${onPs5(both.onPs5Bytes)}` : packing;
+  }
+  return {
+    kind: "pack",
+    label: "Pack and send",
+    weight: pack.weight + send.weight,
+    // Done and failed fill the part whole (mint or red), as every other step's does.
+    fill: state === "done" || state === "failed" ? 100 : both.onPs5,
+    under: both.packed,
+    state,
+    note,
+  };
+}
+
+/** The line above the bar while packing and sending. */
+function packSendHead(job: JobView, both: PackSend, progress: ProgressState | null, now: number): Omit<JobBar, "overall" | "parts"> {
+  const pack = job.steps.find((s) => s.kind === "pack")!;
+  const send = job.steps.find((s) => s.kind === "send")!;
+  if (pack.state === "failed") return { head: "Packing failed", detail: pack.note ?? "Failed", tone: "fail" };
+  if (send.state === "failed") return { head: "Sending failed", detail: send.note ?? "Failed", tone: "fail" };
+  if (send.state === "waiting") return { head: "Waiting for the PS5", detail: `Paused at ${both.onPs5}% on the PS5`, tone: "amber" };
+  const left = both.minutes === null ? null : `about ${both.minutes} min left`;
+  if (send.state === "running") {
+    const index = job.steps.indexOf(send);
+    const rate = progress && progress.index === index ? speed(progress) : null;
+    const parts = [`${both.onPs5}% on the PS5`];
+    if (rate !== null) parts.push(formatSpeed(rate));
+    if (left) parts.push(left);
+    const ahead = (job.aheadBytes ?? 0) > 0;
+    return { head: ahead ? "Sending the rest" : "Sending to PS5", detail: parts.join(", "), tone: "plain" };
+  }
+  const index = job.steps.indexOf(pack);
+  const p = progress && progress.index === index && progress.total > 0 ? progress : null;
+  if (!p) return { head: "Packing", detail: "Starting", tone: "plain" };
+  if (both.alongside) {
+    const parts = [`${both.packed}% packed`];
+    if (both.onPs5Bytes > 0) parts.push(both.totalBytes ? `${both.onPs5}% on the PS5` : `${formatSize(both.onPs5Bytes)} on the PS5`);
+    if (left) parts.push(left);
+    return { head: "Packing and sending", detail: parts.join(", "), tone: "plain" };
+  }
+  // Nothing has gone yet: an image, an older helper, or the first part still packing.
+  const parts = [`${both.packed}% packed`];
+  if (both.minutes !== null) parts.push(`about ${both.minutes} min to pack`);
+  void now;
+  return { head: "Packing", detail: parts.join(", "), tone: "plain" };
 }
 
 /** What adding a folder of packages did: how many DLC went in, and what was left out. Null when all of it went in. */

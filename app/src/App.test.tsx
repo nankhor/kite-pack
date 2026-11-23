@@ -544,7 +544,10 @@ describe("PS5", () => {
     await screen.findByRole("button", { name: /Helper running/ });
     const send = screen.getByRole("switch", { name: "Send to PS5" });
     expect(send).toBeEnabled();
-    expect(screen.getByText("Starts by itself when packing ends, into /data/homebrew.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Starts when packing ends, into /data/homebrew. With the Kite helper 0.4.0, each part goes as soon as it's packed."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pack" })).toBeInTheDocument();
     await userEvent.click(send);
     const third = screen.getByRole("switch", { name: "Delete the packed folder" });
     // Same row style as Send, so both switches sit on the same left edge.
@@ -553,7 +556,7 @@ describe("PS5", () => {
     await userEvent.click(third);
     expect(screen.getByText("Only the copy on the PS5 will be left.")).toBeInTheDocument();
     expect(screen.getByText("Packs into /Games, then sends to the PS5 by itself.")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack and send" }));
     expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", {
       format: "folder",
       level: "fast",
@@ -563,6 +566,30 @@ describe("PS5", () => {
       deletePacked: true,
       dlc: [],
     });
+  });
+
+  it("says each part goes as soon as it's packed, with helper 0.4.0", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.helperVersion = "0.4.0";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    expect(screen.getByText("Sends each part as soon as it's packed, into /data/homebrew.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    expect(screen.getByText("Packs into /Games and sends each part to the PS5 as soon as it's packed.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pack and send" })).toBeInTheDocument();
+    // Send off again: it only packs, into the folder.
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    expect(screen.getByText("Packs into /Games.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pack" })).toBeInTheDocument();
+  });
+
+  it("sends an image when packing ends, whatever the helper", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.helperVersion = "0.4.0";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await userEvent.click(within(screen.getByRole("group", { name: "Save as" })).getByRole("button", { name: "exFAT" }));
+    expect(screen.getByText("Sends the image when packing ends, into /data/homebrew.")).toBeInTheDocument();
   });
 
   it("lets Send wait for a PS5 that isn't reachable", async () => {
@@ -589,19 +616,22 @@ describe("PS5", () => {
       });
     backend.emit({ type: "job", job: steps("running") });
     backend.emit({ type: "progress", id: "job-1", index: 1, done: 38, total: 100 });
-    expect(screen.getByText("Send to PS5")).toBeInTheDocument();
+    const list = screen.getByRole("list", { name: "Steps" });
+    // Packing and sending are one part of the bar.
+    expect(within(list).getByText("Pack and send")).toBeInTheDocument();
+    expect(within(list).queryByText("Send to PS5")).not.toBeInTheDocument();
     const progress = screen.getByRole("region", { name: "Progress" });
     expect(within(progress).getByText("Sending to PS5")).toBeInTheDocument();
-    expect(within(progress).getByText(/^38%/)).toBeInTheDocument();
-    expect(within(screen.getByRole("list", { name: "Steps" })).getByText("38 bytes of 100 bytes")).toBeInTheDocument();
+    expect(within(progress).getByText(/^38% on the PS5/)).toBeInTheDocument();
+    expect(within(list).getByText("38 bytes of 100 bytes on the PS5")).toBeInTheDocument();
     backend.emit({ type: "job", job: steps("waiting") });
     expect(screen.getByText("Waiting for the PS5")).toBeInTheDocument();
-    expect(screen.getByText("Paused at 38%")).toBeInTheDocument();
+    expect(screen.getByText("Paused at 38% on the PS5")).toBeInTheDocument();
     expect(
       screen.getByText("The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped."),
     ).toBeInTheDocument();
     backend.emit({ type: "job", job: steps("done") });
-    expect(await screen.findByText("Every file checked")).toBeInTheDocument();
+    expect(await screen.findByText(/, sent and checked$/)).toBeInTheDocument();
     expect(screen.getByText("On the PS5", { selector: "p" })).toBeInTheDocument();
   });
 });
@@ -1272,7 +1302,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     expect(screen.getByText("Installs on the PS5")).toBeInTheDocument();
 
 
-    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack and send" }));
     expect(backend.start).toHaveBeenLastCalledWith(
       "/Games/Ashen Tide",
       expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),
@@ -1288,7 +1318,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await screen.findByRole("button", { name: /1 add-on/ });
 
     await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
-    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack and send" }));
     expect(backend.start).toHaveBeenLastCalledWith(
       "/Games/Ashen Tide",
       expect.objectContaining({ dlc: [], bundle: { dlc: ["/DLC/suits.pkg"], backport: null } }),
@@ -1304,7 +1334,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await addPackages("/DLC/suits.pkg");
     await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
 
-    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack and send" }));
     expect(backend.start).toHaveBeenLastCalledWith(
       "/Games/Ashen Tide",
       expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),
@@ -1339,7 +1369,7 @@ describe("installing on the PS5 with ShadowMount+", () => {
     await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
     expect(await screen.findByText(/1 of these install on the PS5 through Sony's installer/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    await userEvent.click(screen.getByRole("button", { name: "Pack and send" }));
     expect(backend.start).toHaveBeenLastCalledWith(
       "/Games/Ashen Tide",
       expect.objectContaining({ dlc: ["/DLC/suits.pkg"], bundle: undefined }),

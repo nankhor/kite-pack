@@ -1,3 +1,4 @@
+import { sendsAlongside } from "../model";
 import type { Format, Level, PackOptions, Status } from "../types";
 
 interface Props {
@@ -64,10 +65,14 @@ export function Switch({ id, label, hint, on, disabled, onToggle }: { id: string
 
 /** Before Pack: how to pack, and what happens after. */
 /** Send's hint, and whether it can be switched on, for each PS5 state. */
-function sendState(status: Status | null, destination: string): [boolean, string] {
+function sendState(status: Status | null, destination: string, format: Format): [boolean, string] {
   switch (status?.state) {
     case "running":
-      return [true, `Starts by itself when packing ends, into ${destination}.`];
+      if (sendsAlongside(format, status)) return [true, `Sends each part as soon as it's packed, into ${destination}.`];
+      if (format === "folder") {
+        return [true, `Starts when packing ends, into ${destination}. With the Kite helper 0.4.0, each part goes as soon as it's packed.`];
+      }
+      return [true, `Sends the image when packing ends, into ${destination}.`];
     case "notReachable":
       return [true, "The PS5 isn't reachable right now. Sending waits for it."];
     case "refused":
@@ -79,7 +84,7 @@ function sendState(status: Status | null, destination: string): [boolean, string
 
 export function Options({ options, status, destination, onChange, onChangeFolder }: Props) {
   const levelHint = LEVELS.find(([l]) => l === options.level)?.[2] ?? "";
-  const [canSend, sendHint] = sendState(status, destination);
+  const [canSend, sendHint] = sendState(status, destination, options.format);
   const sending = canSend && options.send;
   return (
     <section className="options" aria-label="Options">
@@ -105,7 +110,7 @@ export function Options({ options, status, destination, onChange, onChangeFolder
         </div>
       </div>
       <div className="column">
-        <h2>After packing</h2>
+        <h2>Send and clean up</h2>
         <Switch
           id="delete-original"
           label="Delete the original"

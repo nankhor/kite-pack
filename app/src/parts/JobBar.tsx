@@ -76,6 +76,10 @@ export function JobBar({ bar }: { bar: Bar }) {
       >
         {bar.parts.map((p) => (
           <div key={p.label} className={`job-part ${p.state}`} style={{ flexGrow: p.weight }}>
+            {/* Pack and send: what is packed, lighter, under what the PS5 has. */}
+            {p.under !== undefined && p.state !== "done" && p.state !== "failed" && (
+              <div className="job-under" style={{ width: `${p.under}%` }} />
+            )}
             <div className={p.fill === null ? "job-fill moving" : "job-fill"} style={{ width: `${p.fill ?? 100}%` }} />
           </div>
         ))}

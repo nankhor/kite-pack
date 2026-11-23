@@ -9,6 +9,7 @@ import {
   jobBar,
   minutesLeft,
   packBadge,
+  sendsAlongside,
   speed,
   stepRows,
   updateLabel,
@@ -242,6 +243,17 @@ describe("sending", () => {
     );
   });
 
+  it("says each part goes as soon as it's packed when the helper can take it", () => {
+    expect(footerNote({ kind: "ready", outputDir: "/Games/Packed", send: true, alongside: true })).toBe(
+      "Packs into /Games/Packed and sends each part to the PS5 as soon as it's packed.",
+    );
+    expect(footerNote({ kind: "ready", outputDir: "/Games", send: true, alongside: true, bundled: 2 })).toBe(
+      "Packs into /Games with 2 add-ons inside and sends each part to the PS5 as soon as it's packed.",
+    );
+    // Not sending: packing alone, whatever the helper could do.
+    expect(footerNote({ kind: "ready", outputDir: "/Games/Packed", send: false, alongside: true })).toBe("Packs into /Games/Packed.");
+  });
+
   it("mentions the Trash when the packed folder went there", () => {
     const sent = job(
       [
@@ -430,7 +442,7 @@ describe("jobBar", () => {
   });
   const dlc = (state: StepView["state"], pkg: string) => st("installDlc", state, { pkg });
 
-  it("has one part per step the job has, the DLC as one part", () => {
+  it("has one part per step the job has, packing and sending as one, the DLC as one", () => {
     const bar = jobBar(
       job([
         st("pack", "done"),
@@ -445,63 +457,118 @@ describe("jobBar", () => {
       0,
       { names: { "/d/a.pkg": "Suit Pack", "/d/b.pkg": "Arena Map" } },
     );
-    expect(bar.parts.map((p) => p.label)).toEqual([
-      "Pack",
-      "Trash original",
-      "Send to PS5",
-      "Install DLC",
-      "Trash packed copy",
-    ]);
-    expect(bar.parts.map((p) => p.state)).toEqual(["done", "done", "done", "active", "pending"]);
-    expect(bar.parts[3]).toMatchObject({ note: "2 of 3: Arena Map", fill: 33 });
-    expect(bar.parts[3].items).toHaveLength(3);
-    expect(bar.parts[4].note).toBe("At the end");
+    expect(bar.parts.map((p) => p.label)).toEqual(["Pack and send", "Trash original", "Install DLC", "Trash packed copy"]);
+    expect(bar.parts.map((p) => p.state)).toEqual(["done", "done", "active", "pending"]);
+    expect(bar.parts[2]).toMatchObject({ note: "2 of 3: Arena Map", fill: 33 });
+    expect(bar.parts[2].items).toHaveLength(3);
+    expect(bar.parts[3].note).toBe("At the end");
     expect(bar).toMatchObject({ head: "Installing DLC", detail: "2 of 3: Arena Map", tone: "plain" });
   });
 
   it("leaves out what the job doesn't do", () => {
-    const bar = jobBar(job([st("pack", "done"), st("send", "running")]), null, 0);
-    expect(bar.parts.map((p) => p.label)).toEqual(["Pack", "Send to PS5"]);
+    expect(jobBar(job([st("pack", "done"), st("send", "running")]), null, 0).parts.map((p) => p.label)).toEqual([
+      "Pack and send",
+    ]);
+    expect(jobBar(job([st("pack", "running")]), null, 0).parts.map((p) => p.label)).toEqual(["Pack"]);
+    expect(jobBar(job([st("pack", "running"), st("deleteOriginal", "pending")]), null, 0).parts.map((p) => p.label)).toEqual([
+      "Pack",
+      "Trash original",
+    ]);
   });
 
-  it("fills the step running now and says how far it is", () => {
+  it("packs alone on one plain bar", () => {
+    const bar = jobBar(job([st("pack", "running")]), progress({ index: 0, done: 62, total: 100 }), 0);
+    expect(bar).toMatchObject({ head: "Packing", tone: "plain", overall: 62 });
+    expect(bar.detail).toMatch(/^62%/);
+    expect(bar.parts).toHaveLength(1);
+    expect(bar.parts[0]).toMatchObject({ label: "Pack", state: "active", fill: 62, note: "62% packed" });
+    expect(bar.parts[0].under).toBeUndefined();
+  });
+
+  it("packs under what the PS5 has, before any part has gone", () => {
     const packing = job([st("pack", "running"), st("send", "pending")]);
     const bar = jobBar(packing, progress({ index: 0, done: 62, total: 100 }), 0);
-    expect(bar).toMatchObject({ head: "Packing", detail: "62%", tone: "plain" });
-    expect(bar.parts[0]).toMatchObject({ state: "active", fill: 62, note: "62% packed" });
-    expect(bar.parts[1]).toMatchObject({ state: "pending", fill: 0, note: "Starts when packing ends" });
-    // Pack is 38 of the 72 the two parts weigh.
-    expect(bar.overall).toBe(33);
+    expect(bar).toMatchObject({ head: "Packing", detail: "62% packed", tone: "plain" });
+    expect(bar.parts[0]).toMatchObject({ label: "Pack and send", state: "active", fill: 0, under: 62, note: "62% packed" });
+    // Halfway between what is packed (62) and what the PS5 has (0).
+    expect(bar.overall).toBe(31);
   });
 
-  it("says what Send has while Pack still runs", () => {
+  it("says what the PS5 has while it still packs", () => {
     const packing = job([st("pack", "running"), st("deleteOriginal", "pending"), st("send", "pending")]);
-    const at = (ahead: ProgressState["ahead"]) =>
-      jobBar(packing, progress({ index: 0, done: 62, total: 100, ahead }), 0).parts[2].note;
-    expect(at(undefined)).toBe("Starts when packing ends");
-    expect(at({ sent: 0, sending: false })).toBe("Starts when packing ends");
-    expect(at({ sent: 0, sending: true })).toBe("Sending the first part while it packs");
-    expect(at({ sent: 1, sending: true })).toBe("1 part on the PS5, the next on its way");
-    expect(at({ sent: 3, sending: false })).toBe("3 parts already on the PS5");
+    const at = (ahead: ProgressState["ahead"]) => jobBar(packing, progress({ index: 0, done: 62, total: 100, ahead }), 0);
+    const first = at({ sent: 0, sending: true, onPs5: 0, estimate: 0, recent: [] });
+    expect(first).toMatchObject({ head: "Packing and sending", detail: "62% packed" });
+    expect(first.parts[0]).toMatchObject({ fill: 0, under: 62, note: "62% packed" });
+
+    const some = at({ sent: 1, sending: true, onPs5: 14_200_000_000, estimate: 71_000_000_000, recent: [] });
+    expect(some).toMatchObject({ head: "Packing and sending", detail: "62% packed, 20% on the PS5" });
+    expect(some.parts[0]).toMatchObject({ fill: 20, under: 62, note: "62% packed, 14.2 GB on the PS5" });
+    expect(some.parts.map((p) => p.label)).toEqual(["Pack and send", "Trash original"]);
+
+    // No size to go by yet: the bytes, not a share.
+    const unsized = at({ sent: 1, sending: false, onPs5: 4_000_000_000, estimate: 0, recent: [] });
+    expect(unsized.detail).toBe("62% packed, 4.0 GB on the PS5");
+    expect(unsized.parts[0].fill).toBe(0);
   });
 
-  it("counts the bytes sent under Send", () => {
-    const sending = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000 });
-    const bar = jobBar(sending, progress({ index: 1, done: 44_100_000_000, total: 71_200_000_000 }), 0);
-    expect(bar.head).toBe("Sending to PS5");
-    expect(bar.parts[1].note).toBe("44.1 GB of 71.2 GB");
+  it("gives the time left by whichever of packing and sending ends last", () => {
+    const packing = job([st("pack", "running"), st("send", "pending")]);
+    const ahead = {
+      sent: 3,
+      sending: true,
+      onPs5: 14_200_000_000,
+      estimate: 71_000_000_000,
+      // 10 GB a minute: 56.8 GB more to go takes 6 minutes.
+      recent: [
+        { at: 0, bytes: 4_200_000_000 },
+        { at: 60_000, bytes: 14_200_000_000 },
+      ],
+    };
+    // Packing: 50 of 100 in 10 minutes, so 10 more.
+    const slowPack = progress({ index: 0, done: 50, total: 100, startedAt: 0, startedDone: 0, ahead });
+    expect(jobBar(packing, slowPack, 600_000).detail).toBe("50% packed, 20% on the PS5, about 10 min left");
+    // Packing: 90 of 100 in 9 minutes, so 1 more; sending still needs 6.
+    const fastPack = progress({ index: 0, done: 90, total: 100, startedAt: 0, startedDone: 0, ahead });
+    expect(jobBar(packing, fastPack, 540_000).detail).toBe("90% packed, 20% on the PS5, about 6 min left");
+  });
+
+  it("counts what the PS5 has of the whole, the parts sent while packing included", () => {
+    const rest = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000, aheadBytes: 20_000_000_000 });
+    const bar = jobBar(rest, progress({ index: 1, done: 24_100_000_000, total: 51_200_000_000 }), 0);
+    expect(bar.head).toBe("Sending the rest");
+    expect(bar.detail).toMatch(/^61% on the PS5/);
+    expect(bar.parts[0]).toMatchObject({ state: "active", fill: 61, under: 100, note: "44.1 GB of 71.2 GB on the PS5" });
+
+    const all = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000 });
+    const sending = jobBar(all, progress({ index: 1, done: 44_100_000_000, total: 71_200_000_000 }), 0);
+    expect(sending.head).toBe("Sending to PS5");
+    expect(sending.parts[0].note).toBe("44.1 GB of 71.2 GB on the PS5");
+  });
+
+  it("says what is on the PS5 while the original goes to the Trash", () => {
+    const between = job([st("pack", "done"), st("deleteOriginal", "running"), st("send", "pending")], {
+      packedBytes: 71_200_000_000,
+      aheadBytes: 60_200_000_000,
+    });
+    const bar = jobBar(between, null, 0);
+    expect(bar.head).toBe("Moving the original to the Trash");
+    expect(bar.parts[0]).toMatchObject({ label: "Pack and send", state: "active", fill: 84, note: "60.2 GB on the PS5, the rest next" });
   });
 
   it("starts with nothing to count yet", () => {
     const bar = jobBar(job([st("pack", "running")]), null, 0);
     expect(bar).toMatchObject({ head: "Packing", detail: "Starting" });
     expect(bar.parts[0]).toMatchObject({ fill: 0, note: "" });
+    const both = jobBar(job([st("pack", "running"), st("send", "pending")]), null, 0);
+    expect(both).toMatchObject({ head: "Packing", detail: "Starting" });
+    expect(both.parts[0]).toMatchObject({ fill: 0, under: 0 });
   });
 
   it("turns amber while it waits for the PS5", () => {
     const bar = jobBar(job([st("pack", "done"), st("send", "waiting")]), progress({ index: 1, done: 38, total: 100 }), 0);
-    expect(bar).toMatchObject({ head: "Waiting for the PS5", detail: "Paused at 38%", tone: "amber" });
-    expect(bar.parts[1]).toMatchObject({ state: "paused", fill: 38, note: "Paused" });
+    expect(bar).toMatchObject({ head: "Waiting for the PS5", detail: "Paused at 38% on the PS5", tone: "amber" });
+    expect(bar.parts[0]).toMatchObject({ state: "paused", fill: 38, note: "Paused" });
   });
 
   it("runs a light through a move to the Trash, with nothing to count", () => {
@@ -512,24 +579,32 @@ describe("jobBar", () => {
   });
 
   it("says which step failed and why", () => {
-    const failed = job([st("pack", "done"), st("send", "failed", { note: "No room on the PS5" })], { state: "failed" });
-    const bar = jobBar(failed, null, 0);
-    expect(bar).toMatchObject({ head: "Send to PS5 failed", detail: "No room on the PS5", tone: "fail" });
-    expect(bar.parts[1]).toMatchObject({ state: "failed", fill: 100 });
+    const sent = job([st("pack", "done"), st("send", "failed", { note: "No room on the PS5" })], { state: "failed" });
+    const bar = jobBar(sent, null, 0);
+    expect(bar).toMatchObject({ head: "Sending failed", detail: "No room on the PS5", tone: "fail" });
+    expect(bar.parts[0]).toMatchObject({ state: "failed", fill: 100, note: "No room on the PS5" });
+
+    const packed = job([st("pack", "failed", { note: "Disk full" }), st("send", "pending")], { state: "failed" });
+    expect(jobBar(packed, null, 0)).toMatchObject({ head: "Packing failed", detail: "Disk full", tone: "fail" });
+    const alone = job([st("pack", "failed", { note: "Disk full" })], { state: "failed" });
+    expect(jobBar(alone, null, 0)).toMatchObject({ head: "Packing failed", detail: "Disk full", tone: "fail" });
   });
 
   it("ends mint, whole", () => {
     const sent = job([st("pack", "done"), st("send", "done")], { state: "finished", packedBytes: 51_600_000_000 });
     const bar = jobBar(sent, null, 0);
     expect(bar).toMatchObject({ head: "On the PS5", detail: "Sent and checked", tone: "mint", overall: 100 });
+    expect(bar.parts[0]).toMatchObject({ state: "done", fill: 100, note: "51.6 GB in Packed, sent and checked" });
     const kept = jobBar(job([st("pack", "done")], { state: "finished" }), null, 0);
     expect(kept).toMatchObject({ head: "Packed", detail: "Packed and checked", tone: "mint" });
   });
 
   it("says what was folded into the packed copy", () => {
-    const done = job([st("pack", "done"), st("send", "running")], { packedBytes: 71_200_000_000 });
-    expect(jobBar(done, null, 0, { inside: 21 }).parts[0].note).toBe("71.2 GB in Packed, 21 add-ons inside");
-    expect(jobBar(done, null, 0, { inside: 1 }).parts[0].note).toBe("71.2 GB in Packed, 1 add-on inside");
+    const packed = job([st("pack", "done"), st("deleteOriginal", "running")], { packedBytes: 71_200_000_000 });
+    expect(jobBar(packed, null, 0, { inside: 21 }).parts[0].note).toBe("71.2 GB in Packed, 21 add-ons inside");
+    expect(jobBar(packed, null, 0, { inside: 1 }).parts[0].note).toBe("71.2 GB in Packed, 1 add-on inside");
+    const sent = job([st("pack", "done"), st("send", "done")], { state: "finished", packedBytes: 71_200_000_000 });
+    expect(jobBar(sent, null, 0, { inside: 21 }).parts[0].note).toBe("71.2 GB in Packed, 21 add-ons inside, sent and checked");
   });
 });
 
@@ -559,7 +634,7 @@ describe("the pack row's add-on count", () => {
     const bar = jobBar(
       job([
         { kind: "pack", state: "done", note: "612 files, 80 GB, checked · bundled: 60 DLC inside, DLC emulator added" },
-        { kind: "send", state: "running", note: null },
+        { kind: "deleteOriginal", state: "running", note: null },
       ]),
       null,
       0,
@@ -567,5 +642,38 @@ describe("the pack row's add-on count", () => {
     );
     const pack = bar.parts.find((p) => p.kind === "pack")!;
     expect(pack.note).toBe("Packed and checked · 60 DLC inside, DLC emulator added");
+  });
+
+  it("stays after the send, once", () => {
+    const bar = jobBar(
+      job(
+        [
+          { kind: "pack", state: "done", note: "612 files, 80 GB, checked · bundled: 60 DLC inside, DLC emulator added" },
+          { kind: "send", state: "done", note: null },
+        ],
+        { state: "finished" },
+      ),
+      null,
+      0,
+      { inside: 60 },
+    );
+    expect(bar.parts[0].note).toBe("Packed, sent and checked · 60 DLC inside, DLC emulator added");
+  });
+});
+
+describe("sendsAlongside", () => {
+  const running = (version: string) => ({ state: "running" as const, version });
+  it("sends a packed folder part by part with helper 0.4.0 and later", () => {
+    expect(sendsAlongside("folder", running("0.4.0"))).toBe(true);
+    expect(sendsAlongside("folder", running("0.5.1"))).toBe(true);
+    expect(sendsAlongside("folder", running("1.0.0"))).toBe(true);
+  });
+
+  it("waits for the end of packing otherwise", () => {
+    expect(sendsAlongside("folder", running("0.3.0"))).toBe(false);
+    expect(sendsAlongside("exfat", running("0.4.0"))).toBe(false);
+    expect(sendsAlongside("ffpkg", running("0.4.0"))).toBe(false);
+    expect(sendsAlongside("folder", { state: "notReachable" })).toBe(false);
+    expect(sendsAlongside("folder", null)).toBe(false);
   });
 });

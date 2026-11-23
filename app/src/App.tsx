@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
-import { folderNote, footerNote, historyEntry, jobBar, packBadge, versionAtLeast } from "./model";
+import { folderNote, footerNote, historyEntry, jobBar, packBadge, sendsAlongside, versionAtLeast } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
@@ -788,7 +788,13 @@ export default function App({
     preparing
       ? "Reading the DLC you picked…"
       : s.phase === "ready" || !s.job
-      ? footerNote({ kind: "ready", outputDir: s.options.outputDir, send: sending, bundled: goingIn })
+      ? footerNote({
+          kind: "ready",
+          outputDir: s.options.outputDir,
+          send: sending,
+          alongside: sending && sendsAlongside(s.options.format, s.status),
+          bundled: goingIn,
+        })
       : footerNote({ kind: s.phase, job: s.job });
 
   const view = details.key === detailsKey ? details.view : { state: "loading" as const };
@@ -853,6 +859,7 @@ export default function App({
             note={note}
             canShow={packedKept}
             canPack={!preparing && !choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
+            send={sending}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}

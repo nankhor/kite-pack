@@ -13,9 +13,18 @@ pub enum UiEvent {
     Stage { id: String, index: usize, stage: String },
     /// Bytes done in the running step; at most every 100 ms.
     Progress { id: String, index: usize, done: u64, total: u64 },
-    /// While Pack runs: parts of the packed copy already on the PS5, and whether the next one
-    /// is on its way.
-    Ahead { id: String, index: usize, sent: usize, sending: bool },
+    /// While Pack runs: parts of the packed copy already on the PS5, whether the next one is
+    /// on its way, the bytes on the PS5, and what the packed copy should come to (0: not known
+    /// yet).
+    Ahead {
+        id: String,
+        index: usize,
+        sent: usize,
+        sending: bool,
+        #[serde(rename = "onPs5")]
+        on_ps5: u64,
+        estimate: u64,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -40,6 +49,9 @@ pub struct JobView {
     pub packed: Option<PathBuf>,
     /// The packed copy's size on disk, once the job has finished.
     pub packed_bytes: Option<u64>,
+    /// Bytes of the packed copy that went to the PS5 while it was packed: Send leaves them
+    /// out, so its own progress counts only the rest.
+    pub ahead_bytes: u64,
     pub steps: Vec<StepView>,
     pub state: JobState,
     /// Grows with every view the session hands out, so the screen keeps the newest when an
@@ -69,6 +81,7 @@ impl JobView {
             delete_original: job.options.delete_original,
             packed: job.packed.clone(),
             packed_bytes: None,
+            ahead_bytes: job.ahead.iter().map(|p| p.size).sum(),
             steps: job.steps.iter().map(|s| step_view(&s.kind, &s.state)).collect(),
             state,
             rev: 0,

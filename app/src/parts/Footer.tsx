@@ -6,6 +6,8 @@ interface Props {
   canShow: boolean;
   /** False while the picked DLC is still being read: packing then would leave them out. */
   canPack?: boolean;
+  /** Send to PS5 is on: the button says so. */
+  send?: boolean;
   onPack: () => void;
   onChangeGame: () => void;
   onCancel: () => void;
@@ -28,7 +30,7 @@ export function Footer(p: Props) {
               Change game
             </button>
             <button className="button primary big" onClick={p.onPack} disabled={p.canPack === false}>
-              Pack
+              {p.send ? "Pack and send" : "Pack"}
             </button>
           </>
         )}
