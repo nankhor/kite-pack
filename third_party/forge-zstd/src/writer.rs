@@ -3,11 +3,14 @@
 
 use std::cell::RefCell;
 use std::io::{Seek, SeekFrom, Write};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use ps5upload_fpkg::source::{SourceFile, SourceTree};
 use ps5upload_fpkg::{Error, Result};
 use rayon::prelude::*;
+
+use crate::hook::VolumeHook;
 use zstd::zstd_safe::{
     self, CCtx, CParameter, InBuffer, OutBuffer, ResetDirective, zstd_sys::ZSTD_EndDirective,
 };
@@ -278,7 +281,7 @@ fn compressed<S: SourceTree + ?Sized>(
     level: u8,
     pool: &rayon::ThreadPool,
     cancel: &AtomicBool,
-    mut consume: impl FnMut(Vec<(Codec, Vec<u8>)>, u64) -> Result<()>,
+    mut consume: impl FnMut(Vec<(Codec, Vec<u8>, u32, u32)>, u64) -> Result<()>,
 ) -> Result<()> {
     let width = pool.current_num_threads();
     cancelled(cancel)?;
@@ -293,7 +296,12 @@ fn compressed<S: SourceTree + ?Sized>(
             scope.spawn(move |_| {
                 *slot = Some(
                     raw.into_par_iter()
-                        .map(|data| encode_chunk(data, level))
+                        .map(|data| {
+                            // Kite Pack: the raw bytes' CRC-32 and length, for reading the volume
+                            // back once it closes (with a hook).
+                            let (crc, len) = (crc32fast::hash(&data), data.len() as u32);
+                            encode_chunk(data, level).map(|(codec, stored)| (codec, stored, crc, len))
+                        })
                         .collect::<Result<Vec<_>>>(),
                 );
             });
@@ -341,11 +349,23 @@ struct Volumes<'a, O: PackOutput> {
     open: Option<(String, O::W, u64)>,
     sizes: Vec<u64>,
     chunks: Vec<Chunk>,
+    /// Bytes a volume may reach: [`VOLUME_LIMIT`] (less in tests).
+    limit: u64,
+    /// Kite Pack: with a hook, each volume is read back as it closes and the hook is asked
+    /// before the next one opens ([`crate::hook`]).
+    hook: Option<Arc<dyn VolumeHook>>,
+    cancel: &'a AtomicBool,
+    /// The open volume's chunks: the CRC-32 and length of each one's raw bytes (with a hook).
+    raw: Vec<(u32, u32)>,
 }
 
-impl<O: PackOutput> Volumes<'_, O> {
-    /// One encoded chunk, `data` as stored.
-    fn put(&mut self, codec: Codec, data: &[u8]) -> Result<()> {
+impl<'a, O: PackOutput> Volumes<'a, O> {
+    fn new(output: &'a mut O, limit: u64, hook: Option<Arc<dyn VolumeHook>>, cancel: &'a AtomicBool) -> Self {
+        Volumes { output, open: None, sizes: Vec::new(), chunks: Vec::new(), limit, hook, cancel, raw: Vec::new() }
+    }
+
+    /// One encoded chunk, `data` as stored; `crc` and `len` are its raw bytes' CRC-32 and length.
+    fn put(&mut self, codec: Codec, data: &[u8], crc: u32, len: u32) -> Result<()> {
         let size = data.len() as u64;
         if size == 0 || size > CHUNK_SIZE {
             return Err(bad("invalid encoded chunk size"));
@@ -353,13 +373,19 @@ impl<O: PackOutput> Volumes<'_, O> {
         if self
             .open
             .as_ref()
-            .is_some_and(|(_, _, at)| at + size > VOLUME_LIMIT)
+            .is_some_and(|(_, _, at)| at + size > self.limit)
         {
             self.close()?;
         }
         if self.open.is_none() {
             if self.sizes.len() >= MAX_VOLUMES {
                 return Err(bad("too many zstd pack volumes"));
+            }
+            if let (Some(hook), next @ 1..) = (&self.hook, self.sizes.len() as u32) {
+                hook.before_next(next, self.cancel).map_err(|e| match e.kind() {
+                    std::io::ErrorKind::Interrupted => Error::Cancelled,
+                    _ => Error::Io(e),
+                })?;
             }
             let name = volume_name(self.sizes.len() as u32);
             let mut writer = self.output.create(&name)?;
@@ -377,6 +403,9 @@ impl<O: PackOutput> Volumes<'_, O> {
         writer.write_all(data)?;
         *at += size;
         self.chunks.push(chunk);
+        if self.hook.is_some() {
+            self.raw.push((crc, len));
+        }
         Ok(())
     }
 
@@ -384,6 +413,11 @@ impl<O: PackOutput> Volumes<'_, O> {
         if let Some((name, writer, size)) = self.open.take() {
             self.output.finish(&name, writer)?;
             self.sizes.push(size);
+            if let Some(hook) = self.hook.clone() {
+                let raw = std::mem::take(&mut self.raw);
+                let chunks = &self.chunks[self.chunks.len() - raw.len()..];
+                check_volume(&*hook, &name, chunks, &raw)?;
+            }
         }
         Ok(())
     }
@@ -408,6 +442,42 @@ impl<O: PackOutput> Volumes<'_, O> {
     }
 }
 
+/// Kite Pack: reads volume `name` back through `hook` and checks each of its `chunks` decodes to
+/// raw bytes with the CRC-32 and length in `raw`, a batch at a time, decoded in parallel.
+fn check_volume(hook: &dyn VolumeHook, name: &str, chunks: &[Chunk], raw: &[(u32, u32)]) -> Result<()> {
+    use std::io::Read;
+    let wrong = |why: String| bad(format!("{name} doesn't read back as written: {why}"));
+    let mut file = std::io::BufReader::with_capacity(1 << 20, hook.open(name).map_err(|e| wrong(e.to_string()))?);
+    let mut at = 0u64;
+    for (batch, sums) in chunks.chunks(32).zip(raw.chunks(32)) {
+        let mut stored = Vec::with_capacity(batch.len());
+        for chunk in batch {
+            let offset = u64::from(chunk.offset);
+            if offset < at {
+                return Err(wrong(format!("chunk at {offset} overlaps")));
+            }
+            std::io::copy(&mut (&mut file).take(offset - at), &mut std::io::sink())
+                .map_err(|e| wrong(e.to_string()))?;
+            let mut bytes = vec![0; chunk.stored_size as usize];
+            file.read_exact(&mut bytes).map_err(|e| wrong(e.to_string()))?;
+            at = offset + u64::from(chunk.stored_size);
+            stored.push(bytes);
+        }
+        let bad_one = batch
+            .par_iter()
+            .zip(stored.par_iter())
+            .zip(sums.par_iter())
+            .find_any(|((chunk, bytes), (crc, len))| {
+                crate::reader::decode_chunk(bytes, chunk.codec, *len as usize)
+                    .map_or(true, |plain| crc32fast::hash(&plain) != *crc)
+            });
+        if let Some(((chunk, _), _)) = bad_one {
+            return Err(wrong(format!("the chunk at {} doesn't match", chunk.offset)));
+        }
+    }
+    Ok(())
+}
+
 /// Packs one file in one pass: every chunk compressed, a chunk zstd doesn't shrink kept raw.
 /// No file is store-only (the old rule stored a file saving under 1% whole and raw; dropped
 /// on this branch: the chunk rule already keeps incompressible data raw).
@@ -427,8 +497,8 @@ fn pack_file<S: SourceTree + ?Sized, O: PackOutput>(
         pool,
         progress.cancel,
         |encoded, bytes| {
-            for (codec, data) in encoded {
-                volumes.put(codec, &data)?;
+            for (codec, data, crc, len) in encoded {
+                volumes.put(codec, &data, crc, len)?;
             }
             // Read and compressed once; progress still counts each file twice (core's estimate).
             progress.add(2 * bytes);
@@ -475,7 +545,8 @@ pub fn pack_with<S: SourceTree + ?Sized, O: PackOutput>(
     progress: &mut dyn FnMut(u64),
     cancel: &AtomicBool,
 ) -> Result<Index> {
-    pack_run(source, files, level, threads, output, progress, cancel)
+    // Kite Pack: a pack into a folder goes through the hook, when one is set.
+    pack_run(source, files, level, threads, output, progress, cancel, crate::hook::volume_hook(), VOLUME_LIMIT)
 }
 
 /// An output that keeps nothing, for [`measure`].
@@ -529,6 +600,8 @@ pub fn measure<S: SourceTree + ?Sized>(
         &mut Nowhere,
         progress,
         cancel,
+        None,
+        VOLUME_LIMIT,
     )
 }
 
@@ -541,6 +614,8 @@ fn pack_run<S: SourceTree + ?Sized, O: PackOutput>(
     output: &mut O,
     progress: &mut dyn FnMut(u64),
     cancel: &AtomicBool,
+    hook: Option<Arc<dyn VolumeHook>>,
+    limit: u64,
 ) -> Result<Index> {
     let mut progress = Progress {
         done: 0,
@@ -558,12 +633,7 @@ fn pack_run<S: SourceTree + ?Sized, O: PackOutput>(
     });
     let mut archive_id = [0; 16];
     getrandom::fill(&mut archive_id).map_err(|error| bad(format!("random archive ID: {error}")))?;
-    let mut volumes = Volumes {
-        output,
-        open: None,
-        sizes: Vec::new(),
-        chunks: Vec::new(),
-    };
+    let mut volumes = Volumes::new(output, limit, hook, cancel);
     let mut records = Vec::with_capacity(ordered.len());
     for file in ordered {
         records.push(pack_file(
@@ -888,17 +958,14 @@ mod tests {
         writer.write_all(&[0; VOLUME_HEADER_SIZE]).unwrap();
         let at = VOLUME_LIMIT - CHUNK_SIZE - 100;
         writer.seek(SeekFrom::Start(at)).unwrap();
-        let mut volumes = Volumes {
-            output: &mut output,
-            open: Some((name, writer, at)),
-            sizes: Vec::new(),
-            chunks: Vec::new(),
-        };
-        volumes.put(Codec::Raw, &[1; 100]).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut volumes = Volumes::new(&mut output, VOLUME_LIMIT, None, &cancel);
+        volumes.open = Some((name, writer, at));
+        volumes.put(Codec::Raw, &[1; 100], 0, 100).unwrap();
         // Ends exactly at VOLUME_LIMIT: still volume 0.
-        volumes.put(Codec::Raw, &[2; CHUNK]).unwrap();
+        volumes.put(Codec::Raw, &[2; CHUNK], 0, CHUNK as u32).unwrap();
         // One byte more doesn't fit: volume 1, right after its header.
-        volumes.put(Codec::Raw, &[3]).unwrap();
+        volumes.put(Codec::Raw, &[3], 0, 1).unwrap();
         let place = |c: &Chunk| (c.volume_id, u64::from(c.offset), c.stored_size);
         let places: Vec<_> = volumes.chunks.iter().map(place).collect();
         assert_eq!(
@@ -966,5 +1033,270 @@ mod tests {
             assert_eq!(last, 2 * total);
             assert!(!output.0.contains_key("ampr_zstd.index"));
         }
+    }
+}
+
+/// Kite Pack: a hook ([`crate::hook::VolumeHook`]) sees each volume read back as it closes and is
+/// asked before the next one opens.
+#[cfg(test)]
+mod hook_tests {
+    use super::*;
+    use crate::hook::VolumeHook;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    /// Volumes as files in a folder.
+    struct DirOutput(PathBuf);
+
+    impl PackOutput for DirOutput {
+        type W = std::fs::File;
+        fn create(&mut self, name: &str) -> Result<std::fs::File> {
+            Ok(std::fs::File::create(self.0.join(name))?)
+        }
+        fn reopen(&mut self, name: &str) -> Result<std::fs::File> {
+            Ok(std::fs::OpenOptions::new().write(true).open(self.0.join(name))?)
+        }
+        fn finish(&mut self, _: &str, _: std::fs::File) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Records what it is asked; `flip` hands back a copy with one stored byte changed.
+    struct Seen {
+        dir: PathBuf,
+        flip: bool,
+        calls: Mutex<Vec<String>>,
+    }
+
+    impl VolumeHook for Seen {
+        fn open(&self, name: &str) -> std::io::Result<std::fs::File> {
+            self.calls.lock().unwrap().push(format!("open {name}"));
+            let path = self.dir.join(name);
+            if !self.flip {
+                return std::fs::File::open(path);
+            }
+            let mut bytes = std::fs::read(&path)?;
+            bytes[VOLUME_HEADER_SIZE + 10] ^= 0xFF;
+            let copy = self.dir.join(format!("{name}.flipped"));
+            std::fs::write(&copy, bytes)?;
+            std::fs::File::open(copy)
+        }
+        fn before_next(&self, next: u32, _: &AtomicBool) -> std::io::Result<()> {
+            self.calls.lock().unwrap().push(format!("next {next}"));
+            Ok(())
+        }
+        fn cut(&self) -> Vec<u32> {
+            Vec::new()
+        }
+        fn most_held(&self) -> u32 {
+            4
+        }
+    }
+
+    fn seen(dir: &Path, flip: bool) -> Arc<Seen> {
+        Arc::new(Seen { dir: dir.to_path_buf(), flip, calls: Mutex::new(Vec::new()) })
+    }
+
+    /// Text that zstd shrinks, `len` bytes from `at`.
+    fn text(at: usize, len: usize) -> Vec<u8> {
+        (at..at + len).map(|i| b"kite pack volume hook "[i % 22] ^ (i / 1009) as u8).collect()
+    }
+
+    /// Puts `n` chunks of text, as the packer would, into `volumes`.
+    fn put_text<O: PackOutput>(volumes: &mut Volumes<O>, n: usize) {
+        for i in 0..n {
+            let raw = text(i * 1000, CHUNK_SIZE as usize);
+            let (crc, len) = (crc32fast::hash(&raw), raw.len() as u32);
+            let (codec, data) = encode_chunk(raw, 3).unwrap();
+            volumes.put(codec, &data, crc, len).unwrap_or_else(|e| panic!("chunk {i}: {e}"));
+        }
+    }
+
+    fn volumes<'a>(out: &'a mut DirOutput, hook: Option<Arc<dyn VolumeHook>>, cancel: &'a AtomicBool) -> Volumes<'a, DirOutput> {
+        // Room for about two text chunks (each packs to a few KiB) per volume.
+        let one = encode_chunk(text(0, CHUNK_SIZE as usize), 3).unwrap().1.len() as u64;
+        Volumes::new(out, VOLUME_HEADER_SIZE as u64 + 2 * one + one / 2, hook, cancel)
+    }
+
+    #[test]
+    fn checks_each_volume_and_asks_before_the_next() {
+        let tmp = tempfile::tempdir().unwrap();
+        let hook = seen(tmp.path(), false);
+        let cancel = AtomicBool::new(false);
+        let mut out = DirOutput(tmp.path().to_path_buf());
+        let mut v = volumes(&mut out, Some(hook.clone()), &cancel);
+        put_text(&mut v, 3);
+        assert_eq!(*hook.calls.lock().unwrap(), ["open ampr_zstd-000.pak", "next 1"]);
+        v.close().unwrap();
+        assert_eq!(*hook.calls.lock().unwrap(), ["open ampr_zstd-000.pak", "next 1", "open ampr_zstd-001.pak"]);
+        assert_eq!(v.sizes.len(), 2);
+    }
+
+    #[test]
+    fn a_volume_that_reads_back_wrong_fails_the_pack() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut out = DirOutput(tmp.path().to_path_buf());
+        let mut v = volumes(&mut out, Some(seen(tmp.path(), true)), &cancel);
+        put_text(&mut v, 2);
+        let raw = text(0, CHUNK_SIZE as usize);
+        let crc = crc32fast::hash(&raw);
+        let (codec, data) = encode_chunk(raw, 3).unwrap();
+        let error = v.put(codec, &data, crc, CHUNK_SIZE as u32).unwrap_err().to_string();
+        assert!(error.contains("ampr_zstd-000.pak"), "{error}");
+    }
+
+    #[test]
+    fn no_hook_no_calls() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut out = DirOutput(tmp.path().to_path_buf());
+        let mut v = volumes(&mut out, None, &cancel);
+        put_text(&mut v, 5);
+        v.close().unwrap();
+        assert_eq!(v.sizes.len(), 3);
+    }
+
+    #[test]
+    fn a_volume_that_cannot_be_read_back_fails_the_pack() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut out = DirOutput(tmp.path().to_path_buf());
+        // Asked for a folder that isn't there: nothing can be opened.
+        let mut v = volumes(&mut out, Some(seen(&tmp.path().join("nowhere"), false)), &cancel);
+        let raw = text(0, CHUNK_SIZE as usize);
+        let (codec, data) = encode_chunk(raw.clone(), 3).unwrap();
+        let crc = crc32fast::hash(&raw);
+        v.put(codec, &data, crc, CHUNK_SIZE as u32).unwrap();
+        v.put(codec, &data, crc, CHUNK_SIZE as u32).unwrap();
+        assert!(v.put(codec, &data, crc, CHUNK_SIZE as u32).is_err());
+    }
+
+    #[test]
+    fn a_hook_interrupted_before_the_next_volume_cancels_the_pack() {
+        struct Stop(Seen);
+        impl VolumeHook for Stop {
+            fn open(&self, name: &str) -> std::io::Result<std::fs::File> {
+                self.0.open(name)
+            }
+            fn before_next(&self, _: u32, _: &AtomicBool) -> std::io::Result<()> {
+                Err(std::io::ErrorKind::Interrupted.into())
+            }
+            fn cut(&self) -> Vec<u32> {
+                Vec::new()
+            }
+            fn most_held(&self) -> u32 {
+                4
+            }
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut out = DirOutput(tmp.path().to_path_buf());
+        let hook = Stop(Seen { dir: tmp.path().to_path_buf(), flip: false, calls: Mutex::new(Vec::new()) });
+        let mut v = volumes(&mut out, Some(Arc::new(hook)), &cancel);
+        let raw = text(0, CHUNK_SIZE as usize);
+        let (codec, data) = encode_chunk(raw.clone(), 3).unwrap();
+        let crc = crc32fast::hash(&raw);
+        v.put(codec, &data, crc, CHUNK_SIZE as u32).unwrap();
+        v.put(codec, &data, crc, CHUNK_SIZE as u32).unwrap();
+        assert!(matches!(v.put(codec, &data, crc, CHUNK_SIZE as u32), Err(Error::Cancelled)));
+    }
+
+    /// Files in memory: a game to pack, then the pack to read.
+    #[derive(Default)]
+    struct Files(Vec<SourceFile>, std::collections::HashMap<String, Vec<u8>>);
+
+    impl Files {
+        fn add(&mut self, path: &str, bytes: Vec<u8>) {
+            self.0.retain(|f| f.path != path);
+            self.0.push(SourceFile { path: path.into(), size: bytes.len() as u64 });
+            self.1.insert(path.into(), bytes);
+        }
+    }
+
+    impl SourceTree for Files {
+        fn files(&self) -> &[SourceFile] {
+            &self.0
+        }
+        fn read(&mut self, path: &str) -> Result<Vec<u8>> {
+            Ok(self.1[path].clone())
+        }
+        fn read_range(&mut self, path: &str, at: u64, len: usize) -> Result<Vec<u8>> {
+            let b = &self.1[path];
+            let at = (at as usize).min(b.len());
+            Ok(b[at..(at + len).min(b.len())].to_vec())
+        }
+        fn describe(&self) -> String {
+            "files".into()
+        }
+    }
+
+    impl PackOutput for Files {
+        type W = std::io::Cursor<Vec<u8>>;
+        fn create(&mut self, _: &str) -> Result<Self::W> {
+            Ok(std::io::Cursor::new(Vec::new()))
+        }
+        fn reopen(&mut self, name: &str) -> Result<Self::W> {
+            Ok(std::io::Cursor::new(self.1.remove(name).unwrap()))
+        }
+        fn finish(&mut self, name: &str, writer: Self::W) -> Result<()> {
+            let bytes = writer.into_inner();
+            self.add(name, bytes);
+            Ok(())
+        }
+    }
+
+    fn noise(len: usize, mut x: u64) -> Vec<u8> {
+        (0..len)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x as u8
+            })
+            .collect()
+    }
+
+    #[test]
+    fn reads_a_pack_with_a_volume_cut_to_its_header() {
+        // Two files of noise (stored raw), one volume each.
+        let mut game = Files::default();
+        game.add("a/one.bin", noise(CHUNK_SIZE as usize, 1));
+        game.add("b/two.bin", noise(CHUNK_SIZE as usize, 2));
+        let files = game.0.clone();
+        let mut pack = Files::default();
+        let cancel = AtomicBool::new(false);
+        let index = pack_run(&mut game, &files, 3, 1, &mut pack, &mut |_| {}, &cancel, None, VOLUME_HEADER_SIZE as u64 + CHUNK_SIZE)
+            .unwrap();
+        assert_eq!(index.volume_sizes.len(), 2);
+        let in_zero = |path: &str| {
+            let record = index.files.iter().find(|f| f.path == path).unwrap();
+            index.chunks[record.first_chunk as usize].volume_id == 0
+        };
+        let (gone, kept) = if in_zero("a/one.bin") { ("a/one.bin", "b/two.bin") } else { ("b/two.bin", "a/one.bin") };
+        // Volume 0 cut to its header, as Kite Pack leaves a part the PS5 has.
+        let zero = volume_name(0);
+        let head = pack.1[&zero][..VOLUME_HEADER_SIZE].to_vec();
+        pack.add(&zero, head.clone());
+
+        let whole = |pack: &Files| {
+            let mut copy = Files::default();
+            for f in &pack.0 {
+                copy.add(&f.path, pack.1[&f.path].clone());
+            }
+            copy
+        };
+        assert!(crate::reader::unpack(Box::new(whole(&pack))).is_err(), "a cut volume needs the cut list");
+        let mut tree = crate::reader::unpack_cut(Box::new(whole(&pack)), &[0]).unwrap();
+        let mut listed: Vec<_> = tree.files().iter().map(|f| f.path.clone()).collect();
+        listed.sort();
+        assert_eq!(listed, ["a/one.bin", "b/two.bin"]);
+        assert_eq!(tree.read_range(kept, 0, 64).unwrap(), game.1[kept][..64]);
+        let error = tree.read_range(gone, 0, 64).unwrap_err().to_string();
+        assert!(error.contains("let go"), "{error}");
+        // A volume in the list must really be cut to its header.
+        let mut uncut = whole(&pack);
+        uncut.add(&zero, [head, vec![0]].concat());
+        assert!(crate::reader::unpack_cut(Box::new(uncut), &[0]).is_err());
     }
 }

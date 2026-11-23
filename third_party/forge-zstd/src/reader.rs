@@ -56,6 +56,8 @@ pub struct Unpacked<T: SourceTree + ?Sized> {
     /// Packed files also on disk with other contents (the packed copy served).
     differing: Vec<String>,
     hidden: HashSet<String>,
+    /// Kite Pack: volumes cut down to their header.
+    cut: HashSet<u16>,
 }
 
 /// Validate the whole index and each volume header and advertised physical size. A packed
@@ -63,7 +65,13 @@ pub struct Unpacked<T: SourceTree + ?Sized> {
 /// (same name, same size, at most 16 MiB, same bytes, no other record folding to it) keeps the
 /// plain file; otherwise the packed copy is served under the index's name and every physical file folding to it leaves
 /// the tree.
-pub fn unpack<T: SourceTree + ?Sized>(mut inner: Box<T>) -> Result<Unpacked<T>> {
+pub fn unpack<T: SourceTree + ?Sized>(inner: Box<T>) -> Result<Unpacked<T>> {
+    unpack_cut(inner, &[])
+}
+
+/// Kite Pack: [`unpack`] for a pack whose volumes in `cut` were let go: each is cut down to its
+/// 64-byte header, which must still agree with the index. Reading a chunk from one fails.
+pub fn unpack_cut<T: SourceTree + ?Sized>(mut inner: Box<T>, cut: &[u32]) -> Result<Unpacked<T>> {
     let mut sizes = HashMap::with_capacity(inner.files().len());
     for file in inner.files() {
         if sizes.insert(file.path.clone(), file.size).is_some() {
@@ -85,8 +93,9 @@ pub fn unpack<T: SourceTree + ?Sized>(mut inner: Box<T>) -> Result<Unpacked<T>> 
         let actual = sizes
             .get(name.as_str())
             .ok_or_else(|| bad(format!("missing {name}")))?;
-        if *actual != expected {
-            return Err(bad(format!("{name}: size {actual}, expected {expected}")));
+        let expected_here = if cut.contains(&(id as u32)) { VOLUME_HEADER_SIZE as u64 } else { expected };
+        if *actual != expected_here {
+            return Err(bad(format!("{name}: size {actual}, expected {expected_here}")));
         }
         let bytes = exact(&mut *inner, &name, 0, VOLUME_HEADER_SIZE)?;
         let header =
@@ -143,6 +152,7 @@ pub fn unpack<T: SourceTree + ?Sized>(mut inner: Box<T>) -> Result<Unpacked<T>> 
         identical: Vec::new(),
         differing: Vec::new(),
         hidden,
+        cut: cut.iter().map(|&v| v as u16).collect(),
     };
     let mut gone = HashSet::new();
     for (record, physical, size, alone) in duplicates {
@@ -281,6 +291,9 @@ impl<T: SourceTree + ?Sized> Unpacked<T> {
                 local += 1;
             }
             let name = volume_name(u32::from(volume));
+            if self.cut.contains(&volume) {
+                return Err(bad(format!("{}: {name} was let go (cut down to its header)", file.path)));
+            }
             let stored = exact(
                 &mut *self.inner,
                 &name,

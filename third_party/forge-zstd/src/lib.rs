@@ -9,6 +9,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "std")]
+pub mod hook;
+#[cfg(feature = "std")]
 mod index;
 #[cfg(feature = "std")]
 pub mod reader;

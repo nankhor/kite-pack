@@ -48,3 +48,16 @@ Moving the Forge pin means taking that commit's crate again and reapplying the c
 "Kite Pack" in `src/writer.rs`: `PROBE`, `PROBE_LEVEL`, `PROBE_FROM`, `DENSE_BITS`, `PROBE_SAVES`, `dense`,
 `probe_saves`, the first lines of `encode_chunk`, and the test. If Forge takes the change itself, delete this
 folder and the `[patch]` entry.
+
+## Second change: letting parts go (Kite Pack)
+
+For **Delete the packed folder** with **Send to PS5**, Kite Pack cuts each part the PS5 already has
+down to its 64-byte header while the rest is still packing (`src/hook.rs`). With a hook set:
+
+- each chunk's raw bytes get a CRC-32 as they are compressed, and every volume is read back as it
+  closes and each chunk checked against it, so no part can leave the PC unchecked;
+- before a new volume opens, the hook is asked (it cuts confirmed parts and may wait);
+- `reader::unpack_cut` opens a pack whose listed volumes are cut to their header (the header must
+  still agree with the index; their chunks can't be read).
+
+Without a hook nothing changes: the same bytes, no read-back. Images (`measure`) never use it.
