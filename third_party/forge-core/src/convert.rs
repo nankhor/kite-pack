@@ -56,14 +56,14 @@ pub(crate) fn launch_order(path: &str) -> u8 {
 }
 
 /// The files and empty folders of a tree that `keep` takes, in the tree's order.
-struct Only<T> {
+pub(crate) struct Only<T> {
     inner: T,
     files: Vec<SourceFile>,
     empty_dirs: Vec<String>,
 }
 
 impl<'a, T: DerefMut<Target = dyn SourceTree + 'a>> Only<T> {
-    fn new(inner: T, keep: impl Fn(&str) -> bool) -> Self {
+    pub(crate) fn new(inner: T, keep: impl Fn(&str) -> bool) -> Self {
         let files: Vec<SourceFile> = inner
             .files()
             .iter()
@@ -950,7 +950,10 @@ pub(crate) fn convert(req: &ConvertRequest, ctx: &Ctx) -> anyhow::Result<JobRepo
                     .fold(0u64, |sum, f| sum.saturating_add(f.size));
                 // Kite Pack: from a folder, when asked and nothing has failed yet, the packed
                 // files count at what a sample of them compresses to.
-                let sampled = if req.sample_space && req.source.is_dir() && findings.is_empty() {
+                // Kite Pack: letting parts go, the folder holds only a few of them at once.
+                let sampled = if let Some(hook) = ps5_dump_forge_zstd::hook::volume_hook() {
+                    Some(zstd.held_bytes(hook.most_held()))
+                } else if req.sample_space && req.source.is_dir() && findings.is_empty() {
                     zstd.sampled_bytes(source.as_mut(), ctx)?
                 } else {
                     None
@@ -1362,7 +1365,8 @@ pub(crate) fn convert(req: &ConvertRequest, ctx: &Ctx) -> anyhow::Result<JobRepo
         }
         (Plan::Zstd(_), _) => {
             let tree = written_folder(&part, ctx).map_err(kept)?;
-            crate::zstd_pack::checks(&expected, tree, ctx, mode).map_err(kept)?
+            let hook = ps5_dump_forge_zstd::hook::volume_hook();
+            crate::zstd_pack::checks(&expected, tree, ctx, mode, hook.as_deref()).map_err(kept)?
         }
         (Plan::Folder, _) => {
             let mut tree = written_folder(&part, ctx).map_err(kept)?;
@@ -1781,7 +1785,7 @@ fn content(
         .collect();
     ctx.reserve(0);
     checks.extend(if zstd {
-        crate::zstd_pack::checks(expected, tree, ctx, mode)?
+        crate::zstd_pack::checks(expected, tree, ctx, mode, None)?
     } else {
         pack_checks(expected, tree, ctx, mode)?
     });

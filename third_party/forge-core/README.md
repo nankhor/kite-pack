@@ -36,3 +36,17 @@ or an image as the source, a small game) keeps the worst case.
 
 The only other edits are this README, `Cargo.toml` (written out, no workspace inheritance) and the
 tests in `src/zstd_pack.rs`.
+
+## Second change: letting parts go
+
+When Kite Pack sets a volume hook (`ps5_dump_forge_zstd::hook`, see `third_party/forge-zstd/README.md`)
+for a folder pack that sends and deletes the packed folder:
+
+- **The space check** counts the hook's most held parts (4 × 4 GiB) instead of the whole packed size
+  (`Plan::held_bytes`).
+- **The end check** (`zstd_pack::checks`) accepts the volumes the hook cut down to their header: their
+  header must still agree with the index. Files with a chunk in a cut volume are left out of the
+  content comparison, since each of their chunks was checked as its volume closed, before it could go.
+  A line says how many. Everything still on the PC is compared as before.
+
+Tests: `kite_let_go_tests` in `src/zstd_pack.rs`.
