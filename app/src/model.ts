@@ -406,8 +406,13 @@ export function footerNote(input: NoteInput): string {
       return "You can leave this running. If you close Kite Pack, it carries on next time.";
     }
     case "failed": {
+      // The reason is above the bar already: this line says what to do about it.
       const step = input.job.steps.find((s) => s.state === "failed");
-      return step ? `${LABELS[step.kind]} failed: ${step.note ?? "no reason given"}` : "Something stopped the job.";
+      if (!step) return "Something stopped the job.";
+      if (step.note?.startsWith("Not enough free space")) {
+        return `Free up space in ${input.job.outputDir} and Retry, or Cancel and pick another folder under Save to.`;
+      }
+      return step.note ? "Retry once that's fixed, or Cancel." : `${LABELS[step.kind]} failed with no reason given. Retry, or Cancel.`;
     }
     case "done": {
       if (input.job.steps.some((s) => s.kind === "deletePacked" && s.state === "done")) {
@@ -538,16 +543,24 @@ export function jobBar(
   }
   if (at < 0) return { head: "Starting", detail: "", tone: "plain", overall, parts };
   const part = parts[at];
-  if (both && part.under !== undefined) return { ...packSendHead(job, both, progress, now), overall, parts };
+  if (both && part.under !== undefined) {
+    const head = packSendHead(job, both, progress, now);
+    return { ...head, overall, parts: head.tone === "fail" ? saidOnce(parts, at) : parts };
+  }
   const row = rows[kinds.indexOf(part.kind)];
   if (part.state === "failed") {
     const head = part.kind === "pack" ? "Packing failed" : `${part.label} failed`;
-    return { head, detail: row.status, tone: "fail", overall, parts };
+    return { head, detail: row.status, tone: "fail", overall, parts: saidOnce(parts, at) };
   }
   if (part.state === "paused") return { head: "Waiting for the PS5", detail: row.status, tone: "amber", overall, parts };
   // A move to the Trash has nothing to count: the head says it all.
   const detail = part.fill === null ? "" : row.status;
   return { head: DOING[part.kind], detail, tone: "plain", overall, parts };
+}
+
+/** The failed part says only that it failed: why is in the line above the bar. */
+function saidOnce(parts: BarPart[], at: number): BarPart[] {
+  return parts.map((part, i) => (i === at && !part.items ? { ...part, note: "Failed" } : part));
 }
 
 /** The one part for packing and sending, from their two. */

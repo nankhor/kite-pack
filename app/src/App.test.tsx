@@ -451,7 +451,10 @@ describe("packing", () => {
       type: "job",
       job: job({ state: "failed", steps: [{ kind: "pack", state: "failed", note: "No space left on the drive" }] }),
     });
-    expect(await screen.findByText("Pack failed: No space left on the drive")).toBeInTheDocument();
+    // Why, once, above the bar; what to do, beside the buttons.
+    expect(await screen.findByText("No space left on the drive")).toBeInTheDocument();
+    expect(screen.getByText("Retry once that's fixed, or Cancel.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Progress" })).getByText("Packing failed")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(backend.carryOn).toHaveBeenCalledWith("job-1");
   });
@@ -477,7 +480,7 @@ describe("on launch", () => {
   it("shows a job that failed before it closed, without running it", async () => {
     backend.left = job({ state: "failed", steps: [{ kind: "pack", state: "failed", note: "Disk full" }] });
     render(<App backend={backend} />);
-    expect(await screen.findByText("Pack failed: Disk full")).toBeInTheDocument();
+    expect(await screen.findByText("Disk full")).toBeInTheDocument();
     expect(backend.carryOn).not.toHaveBeenCalled();
   });
 

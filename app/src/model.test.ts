@@ -170,7 +170,7 @@ describe("footerNote", () => {
     );
     expect(
       footerNote({ kind: "failed", job: job([{ kind: "pack", state: "failed", note: "No space left" }], { state: "failed" }) }),
-    ).toBe("Pack failed: No space left");
+    ).toBe("Retry once that's fixed, or Cancel.");
     expect(footerNote({ kind: "done", job: job([], { deleteOriginal: true, state: "finished" }) })).toBe(
       "The original is in the Trash until you empty it. Play the game once first.",
     );
@@ -235,6 +235,18 @@ describe("sending", () => {
     expect(footerNote({ kind: "running", job: waiting })).toBe(
       "The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped.",
     );
+  });
+
+  it("says what to do when the drive is too full", () => {
+    const full = job(
+      [{ kind: "pack", state: "failed", note: "Not enough free space in Games: needs up to 592.4 GB, 322.1 GB free" }],
+      { state: "failed", outputDir: "C:\\Users\\parwe\\Documents\\Games" },
+    );
+    expect(footerNote({ kind: "failed", job: full })).toBe(
+      "Free up space in C:\\Users\\parwe\\Documents\\Games and Retry, or Cancel and pick another folder under Save to.",
+    );
+    const silent = job([{ kind: "send", state: "failed", note: null }], { state: "failed" });
+    expect(footerNote({ kind: "failed", job: silent })).toBe("Send to PS5 failed with no reason given. Retry, or Cancel.");
   });
 
   it("says when sending starts by itself", () => {
@@ -582,12 +594,15 @@ describe("jobBar", () => {
     const sent = job([st("pack", "done"), st("send", "failed", { note: "No room on the PS5" })], { state: "failed" });
     const bar = jobBar(sent, null, 0);
     expect(bar).toMatchObject({ head: "Sending failed", detail: "No room on the PS5", tone: "fail" });
-    expect(bar.parts[0]).toMatchObject({ state: "failed", fill: 100, note: "No room on the PS5" });
+    // Why is said once, above the bar.
+    expect(bar.parts[0]).toMatchObject({ state: "failed", fill: 100, note: "Failed" });
 
     const packed = job([st("pack", "failed", { note: "Disk full" }), st("send", "pending")], { state: "failed" });
     expect(jobBar(packed, null, 0)).toMatchObject({ head: "Packing failed", detail: "Disk full", tone: "fail" });
     const alone = job([st("pack", "failed", { note: "Disk full" })], { state: "failed" });
-    expect(jobBar(alone, null, 0)).toMatchObject({ head: "Packing failed", detail: "Disk full", tone: "fail" });
+    const bar2 = jobBar(alone, null, 0);
+    expect(bar2).toMatchObject({ head: "Packing failed", detail: "Disk full", tone: "fail" });
+    expect(bar2.parts[0].note).toBe("Failed");
   });
 
   it("ends mint, whole", () => {

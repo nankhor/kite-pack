@@ -254,7 +254,7 @@ impl Packer for ForgePacker {
                             })
                         }
                         Err(why) if why.starts_with("cancelled") => Err(PackError::Cancelled),
-                        Err(why) => Err(PackError::Failed(why)),
+                        Err(why) => Err(PackError::Failed(crate::words::plain(&why))),
                     };
                 }
                 Ok(_) | Err(RecvTimeoutError::Timeout) => {}
