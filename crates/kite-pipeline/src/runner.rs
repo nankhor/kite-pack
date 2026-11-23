@@ -87,7 +87,19 @@ struct Ahead {
     left: AtomicU64,
     /// Where copies of parts are made, once one is: removed when the step ends.
     copies: Mutex<Option<PathBuf>>,
+    /// Bytes of the parts the PS5 has whole, and of the one on its way so far.
+    sent_bytes: AtomicU64,
+    in_flight: AtomicU64,
+    /// Bytes of every part announced so far, and the pack's progress when the last one was.
+    announced: AtomicU64,
+    pack_done: AtomicU64,
+    pack_total: AtomicU64,
+    /// What the whole packed copy should come to: 0 until a part is announced.
+    estimate: AtomicU64,
 }
+
+/// How often the bytes on the PS5 are told while they move.
+const AHEAD_EVERY: Duration = Duration::from_millis(250);
 
 /// Copies `ready`'s part out of the packer's folder to send the copy instead, `COPY_STEP` at a
 /// time, so the original is never held open for long. `None`, and nothing left behind, when the
@@ -142,10 +154,16 @@ fn send_parts_ahead(sender: &dyn Sender, target: &SendTarget, parts: mpsc::Recei
                 taking = false;
             } else {
                 let file = copy.as_deref().unwrap_or(&ready.file);
-                match sender.send_ahead(&ready.packed, file, &ready.part, target, &ahead.stop) {
-                    Ok(true) => ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone()),
+                ahead.in_flight.store(0, Ordering::SeqCst);
+                let moved = |bytes: u64| ahead.in_flight.store(bytes.min(ready.part.size), Ordering::SeqCst);
+                match sender.send_ahead(&ready.packed, file, &ready.part, target, &moved, &ahead.stop) {
+                    Ok(true) => {
+                        ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone());
+                        ahead.sent_bytes.fetch_add(ready.part.size, Ordering::SeqCst);
+                    }
                     Ok(false) | Err(_) => taking = false,
                 }
+                ahead.in_flight.store(0, Ordering::SeqCst);
             }
             if let Some(copy) = copy {
                 let _ = std::fs::remove_file(copy);
@@ -408,24 +426,46 @@ impl Runner<'_> {
                 let ahead = &ahead;
                 scope.spawn(move || send_parts_ahead(sender, t, rx, ahead))
             });
-            // How many parts the PS5 has, and whether one is on its way, each time that changes.
-            let shown = Cell::new((0usize, false));
-            let show_ahead = || {
-                let now = (ahead.sent.lock().map(|s| s.len()).unwrap_or(0), ahead.busy.load(Ordering::SeqCst));
-                if now != shown.get() {
+            // What the PS5 has: whenever a part arrives or one sets off, and every quarter of a
+            // second while bytes move (or always, with `force`).
+            let shown = Cell::new((0usize, false, 0u64, 0u64));
+            let told_at = Cell::new(None::<std::time::Instant>);
+            let show_ahead_at = |force: bool| {
+                let parts = (ahead.sent.lock().map(|s| s.len()).unwrap_or(0), ahead.busy.load(Ordering::SeqCst));
+                let on_ps5 = ahead.sent_bytes.load(Ordering::SeqCst) + ahead.in_flight.load(Ordering::SeqCst);
+                let estimate = ahead.estimate.load(Ordering::SeqCst);
+                let now = (parts.0, parts.1, on_ps5, estimate);
+                let last = shown.get();
+                if now == last {
+                    return;
+                }
+                let due = told_at.get().is_none_or(|t| t.elapsed() >= AHEAD_EVERY);
+                if force || (parts.0, parts.1) != (last.0, last.1) || due {
                     shown.set(now);
-                    events(RunEvent::Progress { index, progress: Progress::PartsAhead { sent: now.0, sending: now.1 } });
+                    told_at.set(Some(std::time::Instant::now()));
+                    let progress = Progress::PartsAhead { sent: now.0, sending: now.1, on_ps5, estimate };
+                    events(RunEvent::Progress { index, progress });
                 }
             };
+            let show_ahead = || show_ahead_at(false);
             let progress = |progress: Progress| {
                 match progress {
                     // No part sender (not sending, or not a folder): nothing waits for it.
                     Progress::PartReady { packed, file, part, copy_first } => {
+                        // The parts so far over how far the pack is: what the whole should come to.
+                        let announced = ahead.announced.fetch_add(part.size, Ordering::SeqCst) + part.size;
+                        let (done, total) = (ahead.pack_done.load(Ordering::SeqCst), ahead.pack_total.load(Ordering::SeqCst));
+                        if done > 0 && total >= done {
+                            let estimate = (u128::from(announced) * u128::from(total) / u128::from(done)) as u64;
+                            ahead.estimate.store(estimate.max(announced), Ordering::SeqCst);
+                        }
                         let _ = tx.send(Ready { packed, file, part, copy_first });
                     }
                     Progress::PartsClosing => ahead.sealed.store(true, Ordering::SeqCst),
                     Progress::Bytes { done, total } => {
                         ahead.left.store(total.saturating_sub(done), Ordering::SeqCst);
+                        ahead.pack_done.store(done, Ordering::SeqCst);
+                        ahead.pack_total.store(total, Ordering::SeqCst);
                         events(RunEvent::Progress { index, progress: Progress::Bytes { done, total } });
                     }
                     other => events(RunEvent::Progress { index, progress: other }),
@@ -448,7 +488,7 @@ impl Runner<'_> {
                     std::thread::sleep(Duration::from_millis(50));
                 }
                 let _ = worker.join();
-                show_ahead();
+                show_ahead_at(true);
             }
             if let Some(dir) = ahead.copies.lock().unwrap_or_else(|e| e.into_inner()).take() {
                 let _ = std::fs::remove_dir_all(dir);

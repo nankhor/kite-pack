@@ -51,12 +51,32 @@ describe("progress", () => {
       job: { ...sendJob("pending", 1), steps: [{ kind: "pack", state: "running", note: null }, { kind: "send", state: "pending", note: null }] },
     };
     let s = on(packing, { type: "progress", id: "j1", index: 0, done: 10, total: 100 }, 0);
-    s = on(s, { type: "ahead", id: "j1", index: 0, sent: 1, sending: true }, 500);
+    s = on(s, { type: "ahead", id: "j1", index: 0, sent: 1, sending: true, onPs5: 4_000, estimate: 40_000 }, 500);
     s = on(s, { type: "progress", id: "j1", index: 0, done: 20, total: 100 }, 1_000);
-    expect(s.progress).toMatchObject({ index: 0, done: 20, ahead: { sent: 1, sending: true } });
+    const ahead = { sent: 1, sending: true, onPs5: 4_000, estimate: 40_000, recent: [{ at: 500, bytes: 4_000 }] };
+    expect(s.progress).toMatchObject({ index: 0, done: 20, ahead });
     // Another job's count is not this one's.
-    s = on(s, { type: "ahead", id: "other", index: 0, sent: 5, sending: false }, 1_500);
-    expect(s.progress?.ahead).toEqual({ sent: 1, sending: true });
+    s = on(s, { type: "ahead", id: "other", index: 0, sent: 5, sending: false, onPs5: 9_000, estimate: 9_000 }, 1_500);
+    expect(s.progress?.ahead).toEqual(ahead);
+  });
+
+  it("keeps the last few seconds of what the PS5 has, for its speed", () => {
+    const packing: State = {
+      ...initial,
+      phase: "running",
+      job: { ...sendJob("pending", 1), steps: [{ kind: "pack", state: "running", note: null }, { kind: "send", state: "pending", note: null }] },
+    };
+    let s = on(packing, { type: "progress", id: "j1", index: 0, done: 10, total: 100 }, 0);
+    const at = (onPs5: number, when: number) =>
+      (s = on(s, { type: "ahead", id: "j1", index: 0, sent: 1, sending: true, onPs5, estimate: 100_000 }, when));
+    at(1_000, 0);
+    at(2_000, 5_000);
+    at(3_000, 12_000);
+    // The first one is older than ten seconds by now.
+    expect(s.progress?.ahead?.recent).toEqual([
+      { at: 5_000, bytes: 2_000 },
+      { at: 12_000, bytes: 3_000 },
+    ]);
   });
 
   it("keeps the estimate going while the send keeps running", () => {

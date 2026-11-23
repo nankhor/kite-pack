@@ -295,6 +295,7 @@ impl Sender for Ps5Sender {
         file: &Path,
         part: &Part,
         target: &SendTarget,
+        progress: &(dyn Fn(u64) + Sync),
         cancel: &AtomicBool,
     ) -> Result<bool, SendError> {
         if cancel.load(Ordering::SeqCst) {
@@ -326,7 +327,9 @@ impl Sender for Ps5Sender {
                 .map_err(|e| SendError::Failed(format!("Couldn't read the packed copy: {e}")))?;
             let id = job_id(Path::new(&format!("{root}/{}", part.rel)), target);
             let stop = Arc::new(AtomicBool::new(false));
+            let counters = Arc::new(Ava1Progress::default());
             let mut opts = SendOptions::upload(&root);
+            opts.progress = counters.clone();
             opts.cancel = stop.clone();
             opts.bandwidth_cap = self.bandwidth_cap;
             opts.persist = Some(self.outboards.join(hex(&id)));
@@ -339,6 +342,7 @@ impl Sender for Ps5Sender {
                     tokio::select! {
                         result = &mut send => break result,
                         _ = tick.tick() => {
+                            progress(counters.bytes_durable.load(Ordering::Relaxed));
                             if cancel.load(Ordering::SeqCst) {
                                 stop.store(true, Ordering::SeqCst);
                             }
@@ -349,7 +353,10 @@ impl Sender for Ps5Sender {
             drop(job);
             session.close().await;
             match result {
-                Ok(done) if done.status == ava1::r#gen::STATUS_OK => Ok(true),
+                Ok(done) if done.status == ava1::r#gen::STATUS_OK => {
+                    progress(part.size);
+                    Ok(true)
+                }
                 Ok(done) => Err(SendError::Failed(
                     done.message.unwrap_or_else(|| format!("The PS5 ended the send ({})", done.status)),
                 )),

@@ -234,7 +234,7 @@ fn a_part_sent_ahead_is_left_out_and_its_header_put_right() {
     let t = target(&helper);
     let landed = helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]");
 
-    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    assert!(s.send_ahead(&packed, &early, &part, &t, &|_| {}, &AtomicBool::new(false)).unwrap());
     let there = std::fs::read(landed.join("ampr_zstd-000.pak")).unwrap();
     assert_eq!(&there[..64], &[0u8; 64][..], "it went with the header it had then");
 
@@ -260,7 +260,7 @@ fn a_part_gone_from_the_console_goes_again() {
     let t = target(&helper);
     let landed = helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]");
 
-    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    assert!(s.send_ahead(&packed, &early, &part, &t, &|_| {}, &AtomicBool::new(false)).unwrap());
     std::fs::remove_file(landed.join("ampr_zstd-000.pak")).unwrap();
     s.send_rest(&packed, &t, &[part], &|_| {}, &AtomicBool::new(false)).unwrap();
     same_tree(&packed, &landed);
@@ -273,7 +273,7 @@ fn a_part_that_changed_size_goes_again() {
     let (packed, early, part) = packed_with_a_part_ahead(tmp.path());
     let s = sender(tmp.path(), helper.port);
     let t = target(&helper);
-    assert!(s.send_ahead(&packed, &early, &part, &t, &AtomicBool::new(false)).unwrap());
+    assert!(s.send_ahead(&packed, &early, &part, &t, &|_| {}, &AtomicBool::new(false)).unwrap());
     // The finished volume isn't the one announced: never trust what went ahead then.
     std::fs::write(packed.join("ampr_zstd-000.pak"), noise(2_000_000, 9)).unwrap();
     s.send_rest(&packed, &t, &[part], &|_| {}, &AtomicBool::new(false)).unwrap();

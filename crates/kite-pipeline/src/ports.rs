@@ -43,9 +43,11 @@ pub enum Progress {
     /// The packer is about to publish its folder: nothing may read a part where it is any more.
     /// The runner keeps it.
     PartsClosing,
-    /// From the runner, during Pack: how many parts of the packed copy the PS5 has, and
-    /// whether the next one is on its way.
-    PartsAhead { sent: usize, sending: bool },
+    /// From the runner, during Pack: how many parts of the packed copy the PS5 has, whether
+    /// the next one is on its way, the bytes on the PS5 (the part on its way included), and what
+    /// the whole packed copy should come to (0 until a first part says: the parts so far over
+    /// how far the pack is).
+    PartsAhead { sent: usize, sending: bool, on_ps5: u64, estimate: u64 },
 }
 
 /// A finished part of a packed folder, such as a pack volume.
@@ -100,14 +102,16 @@ pub trait Sender: Send + Sync {
     ) -> Result<(), SendError>;
 
     /// Sends one finished part of the folder `packed` ahead of the rest, to where it sits once
-    /// `packed` is sent to `target`; `file` is where to read it now. `Ok(false)`: the PS5 can't
-    /// take parts ahead (an older helper), so it goes with the rest.
+    /// `packed` is sent to `target`; `file` is where to read it now. `progress` hears the part's
+    /// bytes the PS5 has so far. `Ok(false)`: the PS5 can't take parts ahead (an older helper),
+    /// so it goes with the rest.
     fn send_ahead(
         &self,
         _packed: &Path,
         _file: &Path,
         _part: &Part,
         _target: &SendTarget,
+        _progress: &(dyn Fn(u64) + Sync),
         _cancel: &AtomicBool,
     ) -> Result<bool, SendError> {
         Ok(false)

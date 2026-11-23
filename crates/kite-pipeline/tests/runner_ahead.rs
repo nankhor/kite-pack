@@ -45,6 +45,8 @@ impl Packer for PartsPacker {
             let file = self.links.join(&p.rel);
             std::fs::create_dir_all(&self.links).unwrap();
             std::fs::write(&file, vec![i as u8 + 1; p.size as usize]).unwrap();
+            // Part i is out once i + 1 of the pack's parts' worth is read.
+            progress(Progress::Bytes { done: u64::from(i + 1), total: self.left.unwrap_or(u64::from(self.parts)) });
             progress(Progress::PartReady { packed: self.output.clone(), file, part: p, copy_first: self.copy_first });
             if self.close_after == Some(i) {
                 progress(Progress::PartsClosing);
@@ -52,7 +54,7 @@ impl Packer for PartsPacker {
             let since = Instant::now();
             while self.taken.load(Ordering::SeqCst) <= i as usize && since.elapsed() < Duration::from_secs(1) {
                 std::thread::sleep(Duration::from_millis(5));
-                progress(Progress::Bytes { done: u64::from(i), total: u64::from(self.parts) });
+                progress(Progress::Bytes { done: u64::from(i + 1), total: self.left.unwrap_or(u64::from(self.parts)) });
             }
         }
         self.end.clone()?;
@@ -78,7 +80,8 @@ impl Sender for AheadSender {
         Ok(())
     }
 
-    fn send_ahead(&self, packed: &Path, file: &Path, part: &Part, _: &SendTarget, cancel: &AtomicBool) -> Result<bool, SendError> {
+    fn send_ahead(&self, packed: &Path, file: &Path, part: &Part, _: &SendTarget, progress: &(dyn Fn(u64) + Sync), cancel: &AtomicBool) -> Result<bool, SendError> {
+        progress(part.size / 2);
         assert!(file.is_file(), "a part is read from a file that is there");
         assert_eq!(packed.file_name().unwrap(), "PPSA01234");
         let i: u8 = part.rel[10..13].parse().unwrap();
@@ -166,6 +169,7 @@ fn the_screen_hears_how_many_parts_the_ps5_has() {
     let s = setup(2, Ok(()), vec![], None);
     let mut job = s.w.job(false, true, false, 0);
     let seen = Mutex::new(Vec::new());
+    let bytes = Mutex::new(Vec::new());
     let (trash, installer) = (s.w.trash(None), s.w.installer(&[], vec![]));
     let runner = Runner {
         packer: &s.packer,
@@ -177,12 +181,20 @@ fn the_screen_hears_how_many_parts_the_ps5_has() {
         retry_every: Duration::from_secs(5),
     };
     runner.run(&mut job, &AtomicBool::new(false), &|e| match e {
-        RunEvent::Progress { index: 0, progress: Progress::PartsAhead { sent, sending } } => seen.lock().unwrap().push((sent, sending)),
+        RunEvent::Progress { index: 0, progress: Progress::PartsAhead { sent, sending, on_ps5, estimate } } => {
+            seen.lock().unwrap().push((sent, sending));
+            bytes.lock().unwrap().push((on_ps5, estimate));
+        }
         RunEvent::Progress { index: 0, progress: Progress::Stage(stage) } => assert_eq!(stage, "Packing", "the packer's stage goes through as it is"),
         _ => {}
     });
     let seen = seen.into_inner().unwrap();
-    assert!(seen.windows(2).all(|w| w[0] != w[1]), "only changes are told: {seen:?}");
+    let bytes = bytes.into_inner().unwrap();
+    // The estimate is the parts so far over how far the pack is: 1000 at half way (2000), then
+    // 2001 at the end, what the two parts come to. The last word has both parts whole.
+    assert!(bytes.iter().any(|&(_, e)| e == 2000), "{bytes:?}");
+    assert_eq!(bytes.last(), Some(&(2001, 2001)), "{bytes:?}");
+    assert!(bytes.windows(2).all(|w| w[0].0 <= w[1].0), "bytes on the PS5 only grow: {bytes:?}");
     assert!(seen.iter().any(|&(sent, _)| sent == 1), "{seen:?}");
     assert_eq!(seen.last(), Some(&(2, false)), "{seen:?}");
 }

@@ -53,6 +53,8 @@ export interface JobView {
   deleteOriginal: boolean;
   packed: string | null;
   packedBytes: number | null;
+  /** Bytes of the packed copy that went to the PS5 while it was packed (Send leaves them out). */
+  aheadBytes?: number;
   steps: StepView[];
   state: JobState;
   /** Grows with every view the app sends: the larger one is the newer. */
@@ -63,8 +65,9 @@ export type UiEvent =
   | { type: "job"; job: JobView }
   | { type: "stage"; id: string; index: number; stage: string }
   | { type: "progress"; id: string; index: number; done: number; total: number }
-  /** While Pack runs: parts of the packed copy already on the PS5, and one on its way. */
-  | { type: "ahead"; id: string; index: number; sent: number; sending: boolean };
+  /** While Pack runs: parts of the packed copy already on the PS5, one on its way, the bytes
+   *  on the PS5, and what the packed copy should come to (0 until a first part says). */
+  | { type: "ahead"; id: string; index: number; sent: number; sending: boolean; onPs5: number; estimate: number };
 
 export type Format = "folder" | "exfat" | "ffpkg" | "ffpfs";
 export type Level = "fast" | "medium" | "max";
@@ -82,6 +85,19 @@ export interface PackOptions {
   bundle?: BundleSelection;
 }
 
+/** Parts of the packed copy that went to the PS5 while it was packed. */
+export interface AheadState {
+  /** Parts the PS5 has whole, and whether the next is on its way. */
+  sent: number;
+  sending: boolean;
+  /** Bytes on the PS5, the part on its way included. */
+  onPs5: number;
+  /** What the packed copy should come to; 0 while nothing says. */
+  estimate: number;
+  /** The last few seconds of `onPs5` (ms since epoch), for the sending speed. */
+  recent: { at: number; bytes: number }[];
+}
+
 /** The running step's progress, as the screen tracks it. */
 export interface ProgressState {
   index: number;
@@ -93,8 +109,8 @@ export interface ProgressState {
   startedDone: number;
   /** The last few seconds of progress (ms since epoch, bytes done), for the speed. */
   recent: { at: number; done: number }[];
-  /** While packing: parts already sent to the PS5, and whether the next is on its way. */
-  ahead?: { sent: number; sending: boolean };
+  /** While packing: what has gone to the PS5 alongside. */
+  ahead?: AheadState;
 }
 
 /** ShadowMount+'s answer about this console, and the game's base (kite-ps5's SmpStatus). */
