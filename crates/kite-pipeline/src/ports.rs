@@ -161,6 +161,13 @@ pub trait Sender: Send + Sync {
         cancel: &AtomicBool,
     ) -> Result<(), SendError>;
 
+    /// Whether parts sent ahead to `target` can leave the PC before the pack ends: the PS5 is
+    /// there and its helper can put each part's header right afterwards. Asked once, before a
+    /// pack that would let parts go.
+    fn lets_parts_go(&self, _target: &SendTarget) -> bool {
+        false
+    }
+
     /// Sends one finished part of the folder `packed` ahead of the rest, to where it sits once
     /// `packed` is sent to `target`; `file` is where to read it now. `progress` hears the part's
     /// bytes the PS5 has so far. `Ok(false)`: the PS5 can't take parts ahead (an older helper),

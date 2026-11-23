@@ -79,6 +79,8 @@ impl Packer for PartsPacker {
 /// keeps one send_ahead going that long, or until it is told to stop.
 struct AheadSender {
     log: CallLog,
+    /// What it answers when asked whether parts can be let go (the helper can put headers right).
+    can_let_go: bool,
     /// Where each part was read from.
     files: Mutex<Vec<PathBuf>>,
     ahead: Mutex<Vec<Result<bool, SendError>>>,
@@ -87,6 +89,10 @@ struct AheadSender {
 }
 
 impl Sender for AheadSender {
+    fn lets_parts_go(&self, _: &SendTarget) -> bool {
+        self.can_let_go
+    }
+
     fn send(&self, _: &Path, _: &SendTarget, _: &dyn Fn(Progress), _: &AtomicBool) -> Result<(), SendError> {
         self.log.lock().unwrap().push("send".into());
         Ok(())
@@ -144,7 +150,7 @@ fn setup(parts: u32, end: Result<(), PackError>, ahead: Vec<Result<bool, SendErr
         saw_end: AtomicBool::new(false),
         taken: taken.clone(),
     };
-    let sender = AheadSender { log: w.log.clone(), files: Mutex::new(vec![]), ahead: Mutex::new(ahead), hold, taken };
+    let sender = AheadSender { log: w.log.clone(), can_let_go: true, files: Mutex::new(vec![]), ahead: Mutex::new(ahead), hold, taken };
     Setup { w, packer, sender }
 }
 
@@ -423,4 +429,17 @@ fn ends_letting_go_when_parts_stop_going() {
     assert_eq!(outcome, RunOutcome::Finished);
     assert!(s.packer.saw_end.load(Ordering::SeqCst), "the packer hears it while still packing");
     assert!(s.packer.let_go.lock().unwrap().clone().unwrap().confirmed().is_empty());
+}
+
+#[test]
+fn lets_nothing_go_when_the_helper_cannot_take_parts() {
+    // An older helper, or no PS5 at the start: the whole packed folder stays until the end, and
+    // the space check counts all of it.
+    let mut s = setup(2, Ok(()), vec![], None);
+    s.sender.can_let_go = false;
+    let mut job = s.w.job(false, true, true, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert!(s.packer.let_go.lock().unwrap().is_none());
+    assert_eq!(*s.packer.asked.lock().unwrap(), Some(true), "parts still go ahead");
 }

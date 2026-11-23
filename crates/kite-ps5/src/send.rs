@@ -274,6 +274,17 @@ fn job_id_skipping(local: &Path, target: &SendTarget, skip: &[String]) -> [u8; 1
 }
 
 impl Sender for Ps5Sender {
+    /// The helper is reachable now and takes `fs.patch` (0.4.0 and later).
+    fn lets_parts_go(&self, target: &SendTarget) -> bool {
+        let console = Console::parse(&target.console, self.port);
+        runtime().block_on(async {
+            let Ok(session) = open(&console, &self.keys.identity, &self.keys).await else { return false };
+            let can = matches!(meta::can_patch(&session).await, Ok(true));
+            session.close().await;
+            can
+        })
+    }
+
     fn send(&self, local: &Path, target: &SendTarget, progress: &dyn Fn(Progress), cancel: &AtomicBool) -> Result<(), SendError> {
         self.send_files(local, target, &[], progress, cancel)
     }

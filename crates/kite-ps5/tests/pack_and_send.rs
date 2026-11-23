@@ -121,3 +121,105 @@ fn two_volumes(packer: ForgePacker, copied: bool) {
     let names: Vec<_> = std::fs::read_dir(&out).unwrap().map(|e| e.unwrap().file_name()).collect();
     assert_eq!(names, vec![packed.file_name().unwrap().to_os_string()], "{names:?}");
 }
+
+/// Leaves the packed folder where it is: what is checked is what landed on the "PS5".
+struct Keep;
+
+impl Trash for Keep {
+    fn trash(&self, _: &Path) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// Sending and deleting the packed folder: each part the PS5 has is cut down to its header on
+/// the PC while the rest packs, so the PC never holds more than four full parts. What landed reads
+/// back, through Forge's reader, as the game itself. Needs a game of many volumes: build with
+/// `VOLUME_LIMIT` lowered (say to 128 MiB) and `KITE_E2E_MB` set to a few of them.
+#[test]
+#[ignore]
+fn a_pack_that_lets_parts_go_keeps_few_on_the_pc() {
+    lets_parts_go(ForgePacker::default());
+}
+
+/// As Windows does it: each part is copied out of Forge's folder and the copy sent.
+#[test]
+#[ignore]
+fn a_pack_that_lets_copied_parts_go_keeps_few_on_the_pc() {
+    lets_parts_go(ForgePacker { full_verify: false, copy_parts: true });
+}
+
+fn lets_parts_go(packer: ForgePacker) {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let game = big_game(tmp.path());
+    let out = tmp.path().join("out");
+    let options = Options {
+        format: OutputFormat::Folder,
+        level: Level::Fast,
+        output_dir: out.clone(),
+        delete_original: false,
+        send: Some(SendTarget { console: "127.0.0.1".into(), destination: helper.share.join("homebrew").display().to_string() }),
+        delete_packed: true,
+        dlc: vec![],
+        bundle: Default::default(),
+    };
+    let mut job = Job::new(game.clone(), options).unwrap();
+    let store = JobStore::open(tmp.path().join("jobs")).unwrap();
+    let sender = Ps5Sender::new(Keys::open(&tmp.path().join("pc")).unwrap(), helper.port, tmp.path().join("outboards"));
+    let runner = Runner {
+        packer: &packer,
+        trash: &Keep,
+        sender: &sender,
+        installer: &Unavailable,
+        sleeper: &ThreadSleeper,
+        store: &store,
+        retry_every: Duration::from_secs(1),
+    };
+    // Full parts on the PC, looked at every 50 ms while the job runs.
+    let most = std::sync::atomic::AtomicUsize::new(0);
+    let done = AtomicBool::new(false);
+    let full = (ps5_dump_forge_zstd::VOLUME_HEADER_SIZE as u64) + 1;
+    let outcome = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                let count = std::fs::read_dir(&out).into_iter().flatten().flatten().flat_map(|d| std::fs::read_dir(d.path()).into_iter().flatten().flatten())
+                    .filter(|f| f.file_name().to_string_lossy().starts_with("ampr_zstd-") && f.metadata().is_ok_and(|m| m.len() >= full))
+                    .count();
+                most.fetch_max(count, std::sync::atomic::Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
+        let outcome = runner.run(&mut job, &AtomicBool::new(false), &|e| {
+            if let RunEvent::StepDone { index, note } | RunEvent::StepFailed { index, reason: note } = e {
+                println!("step {index}: {note}");
+            }
+        });
+        done.store(true, std::sync::atomic::Ordering::SeqCst);
+        outcome
+    });
+    assert_eq!(outcome, RunOutcome::Finished);
+    let packed = job.packed.clone().unwrap();
+    let volumes = std::fs::read_dir(&packed).unwrap().flatten().filter(|f| f.file_name().to_string_lossy().ends_with(".pak")).count();
+    let most = most.into_inner();
+    println!("{volumes} volumes; at most {most} full on the PC; {} went while packing", job.ahead.len());
+    assert!(volumes >= 6, "a game of several volumes ({volumes})");
+    assert!(most <= 4, "the PC held {most} full parts");
+    assert!(job.ahead.len() >= volumes - 2, "most parts went while packing ({})", job.ahead.len());
+
+    // What landed reads back, through Forge's reader, as the game.
+    let landed = helper.share.join("homebrew").join(packed.file_name().unwrap());
+    let tree = ps5upload_fpkg::source::FolderSource::open(&landed).unwrap();
+    let mut tree = ps5_dump_forge_zstd::reader::unpack(Box::new(tree)).unwrap();
+    use ps5upload_fpkg::source::SourceTree;
+    let world = game.join("data/world.bin");
+    let size = std::fs::metadata(&world).unwrap().len();
+    let mut original = std::fs::File::open(&world).unwrap();
+    let mut at = 0u64;
+    while at < size {
+        let len = (size - at).min(64 << 20) as usize;
+        let mut want = vec![0; len];
+        std::io::Read::read_exact(&mut original, &mut want).unwrap();
+        assert!(tree.read_range("data/world.bin", at, len).unwrap() == want, "data/world.bin differs at {at}");
+        at += len as u64;
+    }
+}

@@ -66,6 +66,8 @@ struct Ready {
 
 /// Spare room a copy leaves on the disk, beyond what the pack may still write.
 const COPY_SPARE: u64 = 1 << 30;
+/// What a copy leaves free while parts are let go (the space check's own 2% covers it).
+const LET_GO_SPARE: u64 = 256 << 20;
 /// A copy reads and writes this much at a time, and looks for [`Progress::PartsClosing`] between.
 const COPY_STEP: usize = 8 << 20;
 
@@ -108,10 +110,13 @@ const AHEAD_EVERY: Duration = Duration::from_millis(250);
 fn copy_out(ready: &Ready, ahead: &Ahead, letting_go: bool) -> Option<PathBuf> {
     let name = ready.packed.file_name()?.to_string_lossy().into_owned();
     let dir = ready.packed.parent()?.join(format!(".{name}.kite-copy"));
-    // Letting parts go, the rest of the pack is never on disk at once: the copy and the part
-    // being written are what has to fit.
-    let rest = if letting_go { ready.part.size } else { ahead.left.load(Ordering::SeqCst) };
-    let need = rest.saturating_add(ready.part.size).saturating_add(COPY_SPARE);
+    // Letting parts go, the pack holds while parts wait and its space check counted the copy
+    // among the parts it may hold: only the copy has to fit, with a little to spare.
+    let need = if letting_go {
+        ready.part.size.saturating_add(LET_GO_SPARE)
+    } else {
+        ahead.left.load(Ordering::SeqCst).saturating_add(ready.part.size).saturating_add(COPY_SPARE)
+    };
     if fs4::available_space(ready.packed.parent()?).ok()? < need {
         return None;
     }
@@ -461,8 +466,13 @@ impl Runner<'_> {
             level: job.options.level,
             bundle: job.options.bundle.clone(),
             ahead: target.is_some(),
-            // Sent and then deleted: each part may leave the PC once the PS5 has it.
-            let_go: (target.is_some() && job.options.delete_packed).then(|| Arc::new(LetGo::default())),
+            // Sent and then deleted: each part may leave the PC once the PS5 has it, if the PS5
+            // can put the parts' headers right (else the whole folder waits, and the space check
+            // counts all of it).
+            let_go: target
+                .as_ref()
+                .filter(|t| job.options.delete_packed && self.sender.lets_parts_go(t))
+                .map(|_| Arc::new(LetGo::default())),
         };
         job.ahead.clear();
         let ahead = Ahead::default();

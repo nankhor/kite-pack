@@ -309,6 +309,16 @@ fn a_part_cut_to_its_header_is_patched_not_sent() {
     assert!(total < part.size, "the part wasn't sent again ({total} bytes went)");
 }
 
+#[test]
+fn says_whether_parts_can_leave_the_pc() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let s = sender(tmp.path(), helper.port);
+    assert!(s.lets_parts_go(&target(&helper)), "this helper puts headers right");
+    let away = sender(tmp.path(), 1);
+    assert!(!away.lets_parts_go(&target(&helper)), "no PS5, nothing let go");
+}
+
 // ---- the helper's one write ------------------------------------------------------------------
 
 fn keys(dir: &Path) -> Keys {
