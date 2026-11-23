@@ -42,6 +42,9 @@ ps5-dump-forge-lz4 = { path = "third_party/forge-lz4" }
 # Forge's zstd packer, which stores a chunk that can't shrink without compressing it first
 # (third_party/forge-zstd/README.md).
 ps5-dump-forge-zstd = { path = "third_party/forge-zstd" }
+# Forge's job runner, whose free-space check for a folder pack can go by a sample of the game
+# instead of assuming nothing compresses (third_party/forge-core/README.md).
+ps5-dump-forge-core = { path = "third_party/forge-core" }
 
 # Forge's hashing and pack writers are slow unoptimised; tests pack real (tiny) games.
 [profile.dev.package."*"]

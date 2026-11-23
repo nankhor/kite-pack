@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Needs only the room the pack takes.** Before packing into a folder, Kite Pack compresses a
+  sample of the game (1,024 pieces spread through it, 256 MB) and checks the free space against
+  what that predicts, plus a margin, instead of the whole game's size. A 580 GB game that packs
+  to about 300 GB now starts with 320 GB free. If the game shrinks less than predicted and the
+  drive fills up, the pack stops cleanly, removes its half-made folder and says so. Images were
+  already measured exactly.
+- **Clearer failures.** A pack that can't start says why in plain words and in GB ("Not enough
+  free space in Games: needs about 312.4 GB, 307.1 GB free"), once, with what to do beside the
+  buttons.
+- **One bar for packing and sending.** While a game packs and sends, one **Pack and send** bar
+  shows what is packed under what the PS5 already has, with one time left for both. The button
+  reads **Pack and send** when sending is on.
 - **Sends while it packs.** With **Send to PS5** on and **Save as: Folder**, each finished part
   of the pack (up to 4 GB) goes to the PS5 while the next is still being compressed, instead of
   everything waiting for the pack to end. The bar shows how many parts the PS5 already has. On

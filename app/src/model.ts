@@ -409,7 +409,7 @@ export function footerNote(input: NoteInput): string {
       // The reason is above the bar already: this line says what to do about it.
       const step = input.job.steps.find((s) => s.state === "failed");
       if (!step) return "Something stopped the job.";
-      if (step.note?.startsWith("Not enough free space")) {
+      if (step.note?.startsWith("Not enough free space") || step.note?.startsWith("The drive filled up")) {
         return `Free up space in ${input.job.outputDir} and Retry, or Cancel and pick another folder under Save to.`;
       }
       return step.note ? "Retry once that's fixed, or Cancel." : `${LABELS[step.kind]} failed with no reason given. Retry, or Cancel.`;

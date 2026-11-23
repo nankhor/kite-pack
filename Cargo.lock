@@ -3606,7 +3606,6 @@ dependencies = [
 [[package]]
 name = "ps5-dump-forge-core"
 version = "0.5.6"
-source = "git+https://github.com/quer3q/ps5-dump-forge?rev=9e3c9c1a38157b2d560345bee0acff1865bfb6f5#9e3c9c1a38157b2d560345bee0acff1865bfb6f5"
 dependencies = [
  "anyhow",
  "blake3",

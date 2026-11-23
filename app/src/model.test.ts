@@ -239,11 +239,18 @@ describe("sending", () => {
 
   it("says what to do when the drive is too full", () => {
     const full = job(
-      [{ kind: "pack", state: "failed", note: "Not enough free space in Games: needs up to 592.4 GB, 322.1 GB free" }],
+      [{ kind: "pack", state: "failed", note: "Not enough free space in Games: needs about 312.4 GB, 307.1 GB free" }],
       { state: "failed", outputDir: "C:\\Users\\parwe\\Documents\\Games" },
     );
     expect(footerNote({ kind: "failed", job: full })).toBe(
       "Free up space in C:\\Users\\parwe\\Documents\\Games and Retry, or Cancel and pick another folder under Save to.",
+    );
+    const filled = job([{ kind: "pack", state: "failed", note: "The drive filled up while packing: the game shrank less than expected" }], {
+      state: "failed",
+      outputDir: "/Games",
+    });
+    expect(footerNote({ kind: "failed", job: filled })).toBe(
+      "Free up space in /Games and Retry, or Cancel and pick another folder under Save to.",
     );
     const silent = job([{ kind: "send", state: "failed", note: null }], { state: "failed" });
     expect(footerNote({ kind: "failed", job: silent })).toBe("Send to PS5 failed with no reason given. Retry, or Cancel.");
