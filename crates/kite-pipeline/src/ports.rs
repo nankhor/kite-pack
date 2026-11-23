@@ -5,6 +5,7 @@ use crate::options::{Level, OutputFormat, SendTarget};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -18,7 +19,66 @@ pub struct PackRequest {
     /// Say when a part of a packed folder is finished ([`Progress::PartReady`]), so it can go
     /// to the PS5 while the rest is still being packed.
     pub ahead: bool,
+    /// Parts may leave the PC once the PS5 has them: the packed folder is sent and then deleted.
+    /// Says which parts the PS5 confirmed.
+    pub let_go: Option<Arc<LetGo>>,
 }
+
+/// The parts of a packed folder the PS5 has confirmed while it is still being packed, for a
+/// packer that lets them go ([`PackRequest::let_go`]); and whether more may still come.
+#[derive(Debug, Default)]
+pub struct LetGo {
+    state: Mutex<LetGoState>,
+    changed: Condvar,
+}
+
+#[derive(Debug, Default)]
+struct LetGoState {
+    confirmed: Vec<Part>,
+    ended: bool,
+}
+
+impl LetGo {
+    fn state(&self) -> std::sync::MutexGuard<'_, LetGoState> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The PS5 has `part`, whole and checked.
+    pub fn confirm(&self, part: &Part) {
+        self.state().confirmed.push(part.clone());
+        self.changed.notify_all();
+    }
+
+    /// No more parts will be confirmed: the pack is over, or parts stopped going.
+    pub fn end(&self) {
+        self.state().ended = true;
+        self.changed.notify_all();
+    }
+
+    /// The parts confirmed so far, in the order they were.
+    pub fn confirmed(&self) -> Vec<Part> {
+        self.state().confirmed.clone()
+    }
+
+    pub fn ended(&self) -> bool {
+        self.state().ended
+    }
+
+    /// Waits until a part is confirmed or letting go ends, at most `timeout`.
+    pub fn wait_change(&self, timeout: Duration) {
+        let state = self.state();
+        let _ = self.changed.wait_timeout(state, timeout);
+    }
+}
+
+/// Two requests are the same whether or not they share one [`LetGo`].
+impl PartialEq for LetGo {
+    fn eq(&self, _: &LetGo) -> bool {
+        true
+    }
+}
+
+impl Eq for LetGo {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackOutcome {
