@@ -280,6 +280,45 @@ fn a_part_that_changed_size_goes_again() {
     same_tree(&packed, &helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]"));
 }
 
+#[test]
+fn a_part_cut_to_its_header_is_patched_not_sent() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let (packed, early, part) = packed_with_a_part_ahead(tmp.path());
+    let s = sender(tmp.path(), helper.port);
+    let t = target(&helper);
+    let landed = helper.share.join("homebrew/[Ashen Tide]-[PPSA01234]");
+    assert!(s.send_ahead(&packed, &early, &part, &t, &|_| {}, &AtomicBool::new(false)).unwrap());
+
+    // The PC let the part go once the PS5 had it: only its final header is left there.
+    let finished = std::fs::read(packed.join("ampr_zstd-000.pak")).unwrap();
+    std::fs::write(packed.join("ampr_zstd-000.pak"), &finished[..64]).unwrap();
+    let totals = Mutex::new(Vec::new());
+    s.send_rest(&packed, &t, &[part.clone()], &|p| {
+        if let Progress::Bytes { total, .. } = p {
+            totals.lock().unwrap().push(total);
+        }
+    }, &AtomicBool::new(false))
+    .unwrap();
+
+    let there = std::fs::read(landed.join("ampr_zstd-000.pak")).unwrap();
+    assert_eq!(there.len() as u64, part.size, "the PS5 keeps the whole part");
+    assert!(there == finished, "with the final header on it");
+    assert!(landed.join("ampr_zstd.index").is_file(), "the rest went");
+    let total = *totals.lock().unwrap().last().unwrap();
+    assert!(total < part.size, "the part wasn't sent again ({total} bytes went)");
+}
+
+#[test]
+fn says_whether_parts_can_leave_the_pc() {
+    let tmp = tempfile::tempdir().unwrap();
+    let helper = Helper::start(&tmp.path().join("console"), &[]);
+    let s = sender(tmp.path(), helper.port);
+    assert!(s.lets_parts_go(&target(&helper)), "this helper puts headers right");
+    let away = sender(tmp.path(), 1);
+    assert!(!away.lets_parts_go(&target(&helper)), "no PS5, nothing let go");
+}
+
 // ---- the helper's one write ------------------------------------------------------------------
 
 fn keys(dir: &Path) -> Keys {

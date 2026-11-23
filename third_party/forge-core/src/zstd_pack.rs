@@ -168,6 +168,15 @@ impl Plan {
         ))
     }
 
+    /// Kite Pack: the bytes the pack folder holds at most while parts are let go: `most_held`
+    /// full volumes (or all of them, if fewer), every volume's header and the index.
+    pub(crate) fn held_bytes(&self, most_held: u32) -> u64 {
+        self.packed_bytes()
+            .min(u64::from(most_held).saturating_mul(VOLUME_LIMIT))
+            .saturating_add(self.max_volumes() * VOLUME_HEADER_SIZE as u64)
+            .saturating_add(self.index_bytes())
+    }
+
     /// The biggest file the packer writes, for the destination's file size limit: a volume
     /// (4 GiB less 64 KiB at most) or the index.
     pub(crate) fn largest_file(&self) -> u64 {
@@ -422,26 +431,56 @@ pub(crate) fn measure(
 
 /// Every check the runtime makes on the packs `tree` holds (the index and each volume header),
 /// then the logical files read back through the packs against `expected`.
+///
+/// Kite Pack: with a `hook` that let volumes go, those are cut down to their header; their header
+/// must still agree with the index, and the files with a chunk in one are left out of the
+/// comparison (each chunk was checked as its volume closed, before it could go).
 pub(crate) fn checks(
     expected: &crate::verify::Expected,
     tree: Box<dyn SourceTree>,
     ctx: &Ctx,
     mode: crate::verify::Mode,
+    hook: Option<&dyn ps5_dump_forge_zstd::hook::VolumeHook>,
 ) -> anyhow::Result<Vec<String>> {
-    let mut tree = ps5_dump_forge_zstd::reader::unpack(tree)
+    let cut = hook.map(|h| h.cut()).unwrap_or_default();
+    let mut tree = ps5_dump_forge_zstd::reader::unpack_cut(tree, &cut)
         .map_err(|e| anyhow::Error::new(e).context("reading the zstd packs back"))?;
     let mut checks = vec![format!(
         "zstd packs: {PACK_INDEX} ({} packed files) and {} volume headers pass the reader's checks",
         tree.index().files.len(),
         tree.index().volume_sizes.len()
     )];
-    checks.extend(crate::verify::compare(expected, &mut tree, ctx, mode)?);
+    if cut.is_empty() {
+        checks.extend(crate::verify::compare(expected, &mut tree, ctx, mode)?);
+        return Ok(checks);
+    }
+    let index = tree.index();
+    let gone: HashSet<String> = (index.files.iter())
+        .filter(|f| {
+            let first = f.first_chunk as usize;
+            let n = f.logical_size.div_ceil(CHUNK_SIZE) as usize;
+            (index.chunks[first..first + n].iter()).any(|c| cut.contains(&u32::from(c.volume_id)))
+        })
+        .map(|f| f.path.clone())
+        .collect();
+    let (files, digests) = (expected.files.iter().zip(&expected.digests))
+        .filter(|(f, _)| !gone.contains(&f.path))
+        .map(|(f, d)| (f.clone(), d.clone()))
+        .unzip();
+    let kept = crate::verify::Expected { files, digests, empty_dirs: expected.empty_dirs.clone() };
+    let inner: &mut dyn SourceTree = &mut tree;
+    let mut left = crate::convert::Only::new(inner, |p| !gone.contains(p));
+    checks.extend(crate::verify::compare(&kept, &mut left, ctx, mode)?);
+    checks.push(format!(
+        "{} packed files were checked as their part was written, before it left this computer",
+        gone.len()
+    ));
     Ok(checks)
 }
 
 /// Kite Pack: the size guess from a sample ([`Plan::sampled_bytes`]).
 #[cfg(test)]
-mod sample_tests {
+mod kite_sample_tests {
     use super::*;
     use crate::Event;
     use std::sync::atomic::AtomicBool;
@@ -529,5 +568,138 @@ mod sample_tests {
         let (plan, mut tree) = plan(&[("x/script.txt", GIB)], 5);
         assert_eq!(sampled(&plan, &mut tree), None);
         assert_eq!(tree.reads, 0);
+    }
+}
+
+/// Kite Pack: letting parts go ([`Plan::held_bytes`], [`checks`] with a hook).
+#[cfg(test)]
+mod kite_let_go_tests {
+    use super::*;
+    use crate::Event;
+    use crate::verify::Mode;
+    use ps5_dump_forge_zstd::hook::VolumeHook;
+    use std::sync::atomic::AtomicBool;
+
+    const GIB: u64 = 1 << 30;
+
+    fn plan(size: u64) -> Plan {
+        Plan { files: vec![SourceFile { path: "data/world.bin".into(), size }], level: 5, threads: 1 }
+    }
+
+    #[test]
+    fn holds_at_most_four_parts() {
+        let big = plan(20 * GIB);
+        let rest = big.max_volumes() * VOLUME_HEADER_SIZE as u64 + big.index_bytes();
+        assert_eq!(big.held_bytes(4), 4 * VOLUME_LIMIT + rest);
+        let small = plan(GIB);
+        assert_eq!(small.held_bytes(4), small.worst_case_bytes());
+    }
+
+    /// Files in memory: a game, and the folder a pack of it makes.
+    #[derive(Default, Clone)]
+    struct Files(Vec<SourceFile>, HashMap<String, Vec<u8>>);
+
+    impl Files {
+        fn add(&mut self, path: &str, bytes: Vec<u8>) {
+            self.0.retain(|f| f.path != path);
+            self.0.push(SourceFile { path: path.into(), size: bytes.len() as u64 });
+            self.1.insert(path.into(), bytes);
+        }
+    }
+
+    impl SourceTree for Files {
+        fn files(&self) -> &[SourceFile] {
+            &self.0
+        }
+        fn read(&mut self, path: &str) -> ps5upload_fpkg::Result<Vec<u8>> {
+            Ok(self.1[path].clone())
+        }
+        fn read_range(&mut self, path: &str, at: u64, len: usize) -> ps5upload_fpkg::Result<Vec<u8>> {
+            let b = &self.1[path];
+            let at = (at as usize).min(b.len());
+            Ok(b[at..(at + len).min(b.len())].to_vec())
+        }
+        fn describe(&self) -> String {
+            "files".into()
+        }
+    }
+
+    impl ps5_dump_forge_zstd::writer::PackOutput for Files {
+        type W = std::io::Cursor<Vec<u8>>;
+        fn create(&mut self, _: &str) -> ps5upload_fpkg::Result<Self::W> {
+            Ok(std::io::Cursor::new(Vec::new()))
+        }
+        fn reopen(&mut self, name: &str) -> ps5upload_fpkg::Result<Self::W> {
+            Ok(std::io::Cursor::new(self.1.remove(name).unwrap()))
+        }
+        fn finish(&mut self, name: &str, w: Self::W) -> ps5upload_fpkg::Result<()> {
+            self.add(name, w.into_inner());
+            Ok(())
+        }
+    }
+
+    struct Cut(Vec<u32>);
+
+    impl VolumeHook for Cut {
+        fn open(&self, _: &str) -> std::io::Result<std::fs::File> {
+            unreachable!("the end check reads nothing back through the hook")
+        }
+        fn before_next(&self, _: u32, _: &AtomicBool) -> std::io::Result<()> {
+            Ok(())
+        }
+        fn cut(&self) -> Vec<u32> {
+            self.0.clone()
+        }
+        fn most_held(&self) -> u32 {
+            4
+        }
+    }
+
+    /// A game with one loose file and two packed ones, its expected listing, and its pack with
+    /// volume 0 cut down to its header.
+    fn packed_and_cut(ctx: &Ctx) -> (crate::verify::Expected, Files) {
+        let mut game = Files::default();
+        game.add("eboot.bin", b"\x7fELF loose".repeat(10));
+        game.add("data/a.bin", (0..300_000u32).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect());
+        game.add("data/b.bin", b"text that packs well ".repeat(10_000));
+        let packed: Vec<SourceFile> = game.0.iter().filter(|f| f.path.starts_with("data/")).cloned().collect();
+        let mut out = Files::default();
+        ps5_dump_forge_zstd::writer::pack(&mut game, &packed, 3, &mut out).unwrap();
+        out.add("eboot.bin", game.1["eboot.bin"].clone());
+        let expected = crate::verify::expected_from(&mut game, &HashMap::new(), ctx, Mode::Full).unwrap();
+        let zero = ps5_dump_forge_zstd::volume_name(0);
+        let head = out.1[&zero][..VOLUME_HEADER_SIZE].to_vec();
+        out.add(&zero, head);
+        (expected, out)
+    }
+
+    fn with_ctx<T>(f: impl FnOnce(&Ctx) -> T) -> T {
+        let emit: Box<dyn Fn(Event) + Send + Sync> = Box::new(|_| {});
+        let cancel = AtomicBool::new(false);
+        f(&Ctx::new(1, &emit, &cancel))
+    }
+
+    #[test]
+    fn the_end_check_skips_files_in_cut_volumes() {
+        with_ctx(|ctx| {
+            let (expected, out) = packed_and_cut(ctx);
+            let found = checks(&expected, Box::new(out.clone()), ctx, Mode::Full, Some(&Cut(vec![0]))).unwrap();
+            assert!(
+                found.iter().any(|c| c == "2 packed files were checked as their part was written, before it left this computer"),
+                "{found:?}"
+            );
+            assert!(checks(&expected, Box::new(out), ctx, Mode::Full, None).is_err());
+        });
+    }
+
+    #[test]
+    fn the_end_check_still_compares_what_stays() {
+        with_ctx(|ctx| {
+            let (expected, mut out) = packed_and_cut(ctx);
+            let mut eboot = out.1["eboot.bin"].clone();
+            eboot[3] ^= 1;
+            out.add("eboot.bin", eboot);
+            assert!(checks(&expected, Box::new(out), ctx, Mode::Full, Some(&Cut(vec![0]))).is_err());
+        });
     }
 }

@@ -24,3 +24,6 @@ zstd = { version = "0.13.3", default-features = false, optional = true }
 [[test]]
 name = "roundtrip"
 required-features = ["std"]
+
+[dev-dependencies]
+tempfile = "3"

@@ -223,13 +223,16 @@ impl Source for HeldFile {
 }
 
 /// Whether `part`, sent ahead, is on the console whole at `<root>/<rel>`, with its first bytes
-/// now matching `local`'s: any doubt, and it goes again with the rest.
+/// now matching `local`'s: any doubt, and it goes again with the rest. Locally the part is
+/// either whole or, once the PS5 had it, cut down to its first bytes (letting parts go).
 async fn fixed_up(session: &ava1::session::Session, local: &Path, root: &str, part: &Part) -> bool {
     if part.rel.is_empty() || part.rel.contains('/') || part.settled_from as usize > meta::PATCH_MAX {
         return false;
     }
     let file = local.join(&part.rel);
-    if std::fs::metadata(&file).map(|m| m.len()).ok() != Some(part.size) {
+    let here = std::fs::metadata(&file).map(|m| m.len()).ok();
+    let cut = part.settled_from > 0 && part.size > part.settled_from && here == Some(part.settled_from);
+    if here != Some(part.size) && !cut {
         return false;
     }
     let remote = format!("{root}/{}", part.rel);
@@ -271,6 +274,17 @@ fn job_id_skipping(local: &Path, target: &SendTarget, skip: &[String]) -> [u8; 1
 }
 
 impl Sender for Ps5Sender {
+    /// The helper is reachable now and takes `fs.patch` (0.4.0 and later).
+    fn lets_parts_go(&self, target: &SendTarget) -> bool {
+        let console = Console::parse(&target.console, self.port);
+        runtime().block_on(async {
+            let Ok(session) = open(&console, &self.keys.identity, &self.keys).await else { return false };
+            let can = matches!(meta::can_patch(&session).await, Ok(true));
+            session.close().await;
+            can
+        })
+    }
+
     fn send(&self, local: &Path, target: &SendTarget, progress: &dyn Fn(Progress), cancel: &AtomicBool) -> Result<(), SendError> {
         self.send_files(local, target, &[], progress, cancel)
     }

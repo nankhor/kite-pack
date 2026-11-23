@@ -15,6 +15,7 @@ fn pack(source: &Path, out: &Path, bundle: Bundle) -> PathBuf {
         level: Level::Fast,
         bundle,
         ahead: false,
+        let_go: None,
     };
     ForgePacker::default()
         .pack(&req, &|_| {}, &AtomicBool::new(false))
@@ -99,6 +100,7 @@ fn a_bundle_that_cannot_go_in_fails_before_writing_anything() {
         level: Level::Fast,
         bundle: Bundle { dlc: vec![dlc], backport: None, emulator: Some(empty_dir(tmp.path())) },
         ahead: false,
+        let_go: None,
     };
     let err = ForgePacker::default()
         .pack(&req, &|_| {}, &AtomicBool::new(false))

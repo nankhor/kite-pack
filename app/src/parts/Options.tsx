@@ -130,7 +130,12 @@ export function Options({ options, status, destination, onChange, onChangeFolder
           <Switch
             id="delete-packed"
             label="Delete the packed folder"
-            hint="It goes to the Trash once the PS5 confirms every file."
+            hint={
+              // Parts going as they are packed (helper 0.4.0, a folder) leave the PC one by one.
+              sendsAlongside(options.format, status)
+                ? "Each part leaves this computer once the PS5 has it, so packing needs about 16 GB free."
+                : "It goes to the Trash once the PS5 confirms every file."
+            }
             on={options.deletePacked}
             onToggle={() => onChange({ deletePacked: !options.deletePacked })}
           />

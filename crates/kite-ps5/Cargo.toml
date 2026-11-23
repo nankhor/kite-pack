@@ -18,3 +18,6 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "net", "time", "sy
 
 [dev-dependencies]
 tempfile.workspace = true
+# The end-to-end letting-go test reads what landed back through Forge's reader.
+ps5-dump-forge-zstd.workspace = true
+ps5upload-fpkg = { git = "https://github.com/quer3q/ps5-dump-forge", rev = "9e3c9c1a38157b2d560345bee0acff1865bfb6f5" }

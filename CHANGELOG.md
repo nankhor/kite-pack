@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Big games without the room for them.** With **Save as: Folder**, **Send to PS5** and **Delete
+  the packed folder** on (and the Kite helper 0.4.0), each part leaves the PC once the PS5 has it:
+  the PC holds about 16 GB at most, whatever the game's size. Every part is unpacked and checked
+  right after it's written, before it can go; packing waits when two parts are waiting for the
+  PS5 (on Wi-Fi it often does), and waits for a PS5 that drops off instead of filling the drive.
+  With an older helper, or no PS5 when packing starts, the whole packed folder stays until the
+  end, as before.
 - **Needs only the room the pack takes.** Before packing into a folder, Kite Pack compresses a
   sample of the game (1,024 pieces spread through it, 256 MB) and checks the free space against
   what that predicts, plus a margin, instead of the whole game's size. A 580 GB game that packs

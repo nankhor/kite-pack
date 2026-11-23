@@ -28,6 +28,9 @@ struct PartsPacker {
     left: Option<u64>,
     /// The request's `ahead`, as the runner set it.
     asked: Mutex<Option<bool>>,
+    /// The request's `let_go`, as the runner set it, and whether letting go ended while packing.
+    let_go: Mutex<Option<Arc<LetGo>>>,
+    saw_end: AtomicBool,
     taken: Arc<AtomicUsize>,
 }
 
@@ -35,6 +38,7 @@ impl Packer for PartsPacker {
     fn pack(&self, req: &PackRequest, progress: &dyn Fn(Progress), _cancel: &AtomicBool) -> Result<PackOutcome, PackError> {
         self.log.lock().unwrap().push("pack".into());
         *self.asked.lock().unwrap() = Some(req.ahead);
+        *self.let_go.lock().unwrap() = req.let_go.clone();
         std::fs::create_dir_all(&self.links).unwrap();
         progress(Progress::Stage("Packing".into()));
         if let Some(left) = self.left {
@@ -57,6 +61,14 @@ impl Packer for PartsPacker {
                 progress(Progress::Bytes { done: u64::from(i + 1), total: self.left.unwrap_or(u64::from(self.parts)) });
             }
         }
+        // Letting go: what the PS5 confirms reaches the packer before it ends (or letting go ends).
+        if let Some(let_go) = &req.let_go {
+            let since = Instant::now();
+            while let_go.confirmed().len() < self.parts as usize && !let_go.ended() && since.elapsed() < Duration::from_secs(2) {
+                let_go.wait_change(Duration::from_millis(20));
+            }
+            self.saw_end.store(let_go.ended(), Ordering::SeqCst);
+        }
         self.end.clone()?;
         std::fs::create_dir_all(&self.output).unwrap();
         Ok(PackOutcome { output: self.output.clone(), bytes: 100, files: 3, checks: vec![] })
@@ -67,6 +79,8 @@ impl Packer for PartsPacker {
 /// keeps one send_ahead going that long, or until it is told to stop.
 struct AheadSender {
     log: CallLog,
+    /// What it answers when asked whether parts can be let go (the helper can put headers right).
+    can_let_go: bool,
     /// Where each part was read from.
     files: Mutex<Vec<PathBuf>>,
     ahead: Mutex<Vec<Result<bool, SendError>>>,
@@ -75,6 +89,10 @@ struct AheadSender {
 }
 
 impl Sender for AheadSender {
+    fn lets_parts_go(&self, _: &SendTarget) -> bool {
+        self.can_let_go
+    }
+
     fn send(&self, _: &Path, _: &SendTarget, _: &dyn Fn(Progress), _: &AtomicBool) -> Result<(), SendError> {
         self.log.lock().unwrap().push("send".into());
         Ok(())
@@ -128,9 +146,11 @@ fn setup(parts: u32, end: Result<(), PackError>, ahead: Vec<Result<bool, SendErr
         close_after: None,
         left: None,
         asked: Mutex::new(None),
+        let_go: Mutex::new(None),
+        saw_end: AtomicBool::new(false),
         taken: taken.clone(),
     };
-    let sender = AheadSender { log: w.log.clone(), files: Mutex::new(vec![]), ahead: Mutex::new(ahead), hold, taken };
+    let sender = AheadSender { log: w.log.clone(), can_let_go: true, files: Mutex::new(vec![]), ahead: Mutex::new(ahead), hold, taken };
     Setup { w, packer, sender }
 }
 
@@ -361,4 +381,65 @@ fn closing_doesnt_stop_parts_read_in_place() {
     let mut job = s.w.job(false, true, false, 0);
     go(&s, &mut job, &AtomicBool::new(false));
     assert_eq!(job.ahead, vec![part(0), part(1)], "part 1 still goes ahead, read where it is");
+}
+
+#[test]
+fn tells_the_packer_each_part_the_ps5_has() {
+    let s = setup(2, Ok(()), vec![], None);
+    // Sending and deleting the packed folder: parts may leave the PC once the PS5 has them.
+    let mut job = s.w.job(false, true, true, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(outcome, RunOutcome::Finished);
+    let let_go = s.packer.let_go.lock().unwrap().clone().expect("letting go");
+    assert_eq!(let_go.confirmed(), vec![part(0), part(1)]);
+    assert!(!s.packer.saw_end.load(Ordering::SeqCst), "nothing ended while packing");
+    assert!(let_go.ended(), "ended once the pack is over");
+
+    // Keeping the packed folder: nothing is let go.
+    let s = setup(2, Ok(()), vec![], None);
+    let mut job = s.w.job(false, true, false, 0);
+    go(&s, &mut job, &AtomicBool::new(false));
+    assert!(s.packer.let_go.lock().unwrap().is_none());
+}
+
+#[test]
+fn waits_for_a_ps5_that_is_away_while_letting_go() {
+    let away = || Err(SendError::Unreachable("away".into()));
+    let s = setup(1, Ok(()), vec![away(), away(), Ok(true)], None);
+    let mut job = s.w.job(false, true, true, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(outcome, RunOutcome::Finished);
+    // The same part, tried until the PS5 is back: nothing left for the send to do.
+    let log = calls(&s.w.log);
+    assert_eq!(
+        log[..5],
+        ["pack", "ahead ampr_zstd-000.pak", "ahead ampr_zstd-000.pak", "ahead ampr_zstd-000.pak", "send rest without ampr_zstd-000.pak"]
+    );
+    assert!(log[5].starts_with("trash "), "{log:?}");
+    let let_go = s.packer.let_go.lock().unwrap().clone().unwrap();
+    assert_eq!(let_go.confirmed(), vec![part(0)]);
+    assert!(!s.packer.saw_end.load(Ordering::SeqCst));
+}
+
+#[test]
+fn ends_letting_go_when_parts_stop_going() {
+    let s = setup(2, Ok(()), vec![Ok(false)], None);
+    let mut job = s.w.job(false, true, true, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert!(s.packer.saw_end.load(Ordering::SeqCst), "the packer hears it while still packing");
+    assert!(s.packer.let_go.lock().unwrap().clone().unwrap().confirmed().is_empty());
+}
+
+#[test]
+fn lets_nothing_go_when_the_helper_cannot_take_parts() {
+    // An older helper, or no PS5 at the start: the whole packed folder stays until the end, and
+    // the space check counts all of it.
+    let mut s = setup(2, Ok(()), vec![], None);
+    s.sender.can_let_go = false;
+    let mut job = s.w.job(false, true, true, 0);
+    let (outcome, _) = go(&s, &mut job, &AtomicBool::new(false));
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert!(s.packer.let_go.lock().unwrap().is_none());
+    assert_eq!(*s.packer.asked.lock().unwrap(), Some(true), "parts still go ahead");
 }

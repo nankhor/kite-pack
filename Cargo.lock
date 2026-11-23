@@ -2597,6 +2597,8 @@ dependencies = [
  "kite-forge",
  "kite-pipeline",
  "kite-smp",
+ "ps5-dump-forge-zstd",
+ "ps5upload-fpkg",
  "serde",
  "serde_json",
  "tempfile",
@@ -3723,6 +3725,7 @@ dependencies = [
  "getrandom 0.4.3",
  "ps5upload-fpkg",
  "rayon",
+ "tempfile",
  "zstd",
 ]
 

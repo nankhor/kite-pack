@@ -33,7 +33,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked --no-fail-fast
       # Kite Pack's own changes to the Forge crates it carries (third_party/).
-      - run: cargo test --locked -p ps5-dump-forge-core --lib sample_tests
+      - run: cargo test --locked -p ps5-dump-forge-core --lib kite_
 
   worker:
     runs-on: ubuntu-latest

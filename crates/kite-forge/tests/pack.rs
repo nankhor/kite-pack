@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 fn request(source: &Path, out: &Path, format: OutputFormat) -> PackRequest {
-    PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast, bundle: Default::default(), ahead: false }
+    PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast, bundle: Default::default(), ahead: false, let_go: None }
 }
 
 fn pack(req: &PackRequest) -> Result<kite_pipeline::PackOutcome, PackError> {

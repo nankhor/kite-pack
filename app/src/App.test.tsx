@@ -586,6 +586,27 @@ describe("PS5", () => {
     expect(screen.getByRole("button", { name: "Pack" })).toBeInTheDocument();
   });
 
+  it("says parts leave this computer as they go when the packed folder is deleted", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.helperVersion = "0.4.0";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    expect(
+      screen.getByText("Each part leaves this computer once the PS5 has it, so packing needs about 16 GB free."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("It goes to the Trash once the PS5 confirms every file.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the whole packed folder until the end with an older helper", async () => {
+    backend.cfg.address = ADDRESS;
+    backend.helperVersion = "0.3.0";
+    await showGame();
+    await screen.findByRole("button", { name: /Helper running/ });
+    await userEvent.click(screen.getByRole("switch", { name: "Send to PS5" }));
+    expect(screen.getByText("It goes to the Trash once the PS5 confirms every file.")).toBeInTheDocument();
+  });
+
   it("sends an image when packing ends, whatever the helper", async () => {
     backend.cfg.address = ADDRESS;
     backend.helperVersion = "0.4.0";

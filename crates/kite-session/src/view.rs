@@ -119,6 +119,16 @@ fn step_view(kind: &StepKind, state: &StepState) -> StepView {
 
 /// The size on disk of a packed copy: a file's length, or the sum of a folder's files.
 /// Zero when it can't be read.
+/// [`packed_size`], counting each of `parts` (sent while packing) at its full size where the
+/// packed folder holds it cut down to its header (letting parts go).
+pub fn packed_size_with(path: &Path, parts: &[kite_pipeline::Part]) -> u64 {
+    let cut: u64 = parts
+        .iter()
+        .filter_map(|p| std::fs::metadata(path.join(&p.rel)).ok().map(|m| p.size.saturating_sub(m.len())))
+        .sum();
+    packed_size(path) + cut
+}
+
 pub fn packed_size(path: &Path) -> u64 {
     let Ok(meta) = std::fs::symlink_metadata(path) else { return 0 };
     if !meta.is_dir() {

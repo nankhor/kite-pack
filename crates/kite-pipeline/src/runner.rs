@@ -2,7 +2,7 @@
 
 use crate::job::{Job, JobStore, now_unix};
 use crate::options::{OutputFormat, SendTarget};
-use crate::ports::{
+use crate::ports::{LetGo, 
     InstallError, Installer, PackError, PackRequest, Packer, Part, Progress, SendError, Sender,
     Sleeper, Trash,
 };
@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use crate::snapshot::Snapshot;
 use crate::steps::{StepKind, StepState};
 use std::io::{Read, Write};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -66,6 +66,8 @@ struct Ready {
 
 /// Spare room a copy leaves on the disk, beyond what the pack may still write.
 const COPY_SPARE: u64 = 1 << 30;
+/// What a copy leaves free while parts are let go (the space check's own 2% covers it).
+const LET_GO_SPARE: u64 = 256 << 20;
 /// A copy reads and writes this much at a time, and looks for [`Progress::PartsClosing`] between.
 const COPY_STEP: usize = 8 << 20;
 
@@ -105,10 +107,16 @@ const AHEAD_EVERY: Duration = Duration::from_millis(250);
 /// time, so the original is never held open for long. `None`, and nothing left behind, when the
 /// disk hasn't room for the copy and the rest of the pack, when the packer starts publishing its
 /// folder (the copy stops at once: its rename must not meet an open file), or on any failure.
-fn copy_out(ready: &Ready, ahead: &Ahead) -> Option<PathBuf> {
+fn copy_out(ready: &Ready, ahead: &Ahead, letting_go: bool) -> Option<PathBuf> {
     let name = ready.packed.file_name()?.to_string_lossy().into_owned();
     let dir = ready.packed.parent()?.join(format!(".{name}.kite-copy"));
-    let need = ahead.left.load(Ordering::SeqCst).saturating_add(ready.part.size).saturating_add(COPY_SPARE);
+    // Letting parts go, the pack holds while parts wait and its space check counted the copy
+    // among the parts it may hold: only the copy has to fit, with a little to spare.
+    let need = if letting_go {
+        ready.part.size.saturating_add(LET_GO_SPARE)
+    } else {
+        ahead.left.load(Ordering::SeqCst).saturating_add(ready.part.size).saturating_add(COPY_SPARE)
+    };
     if fs4::available_space(ready.packed.parent()?).ok()? < need {
         return None;
     }
@@ -143,27 +151,69 @@ fn copy_out(ready: &Ready, ahead: &Ahead) -> Option<PathBuf> {
 
 /// Sends parts ahead one at a time, as the packer finishes them, until the PS5 can't take one
 /// (an older helper, the PS5 away, a failure: whatever is left then goes with the rest).
-fn send_parts_ahead(sender: &dyn Sender, target: &SendTarget, parts: mpsc::Receiver<Ready>, ahead: &Ahead) {
+/// How the worker sending parts ahead waits for a PS5 that can't be reached while parts are let
+/// go: `every` between tries, in `STEP`s, so a stop is seen at once.
+struct Retry<'a> {
+    sleeper: &'a dyn Sleeper,
+    every: Duration,
+}
+
+const STEP: Duration = Duration::from_millis(50);
+
+fn send_parts_ahead(
+    sender: &dyn Sender,
+    target: &SendTarget,
+    parts: mpsc::Receiver<Ready>,
+    ahead: &Ahead,
+    let_go: Option<&LetGo>,
+    retry: Retry,
+) {
     let mut taking = true;
+    let over = || ahead.closing.load(Ordering::SeqCst) || ahead.stop.load(Ordering::SeqCst);
     for ready in parts {
-        if taking && !ahead.closing.load(Ordering::SeqCst) && !ahead.stop.load(Ordering::SeqCst) {
+        if taking && !over() {
             ahead.busy.store(true, Ordering::SeqCst);
             // A part that can't stay open where it is goes as a copy, or not at all.
-            let copy = if ready.copy_first { copy_out(&ready, ahead) } else { None };
+            let copy = if ready.copy_first { copy_out(&ready, ahead, let_go.is_some()) } else { None };
             if ready.copy_first && copy.is_none() {
                 taking = false;
             } else {
                 let file = copy.as_deref().unwrap_or(&ready.file);
-                ahead.in_flight.store(0, Ordering::SeqCst);
-                let moved = |bytes: u64| ahead.in_flight.store(bytes.min(ready.part.size), Ordering::SeqCst);
-                match sender.send_ahead(&ready.packed, file, &ready.part, target, &moved, &ahead.stop) {
+                let result = loop {
+                    ahead.in_flight.store(0, Ordering::SeqCst);
+                    let moved = |bytes: u64| ahead.in_flight.store(bytes.min(ready.part.size), Ordering::SeqCst);
+                    let result = sender.send_ahead(&ready.packed, file, &ready.part, target, &moved, &ahead.stop);
+                    // Letting parts go, a PS5 that is away is waited for: the packer holds until
+                    // it takes this part, rather than filling the disk.
+                    if !(matches!(result, Err(SendError::Unreachable(_))) && let_go.is_some()) {
+                        break result;
+                    }
+                    let mut waited = Duration::ZERO;
+                    while waited < retry.every && !over() {
+                        retry.sleeper.sleep(STEP);
+                        waited += STEP;
+                    }
+                    if over() {
+                        break result;
+                    }
+                };
+                match result {
                     Ok(true) => {
                         ahead.sent.lock().unwrap_or_else(|e| e.into_inner()).push(ready.part.clone());
                         ahead.sent_bytes.fetch_add(ready.part.size, Ordering::SeqCst);
+                        if let Some(let_go) = let_go {
+                            let_go.confirm(&ready.part);
+                        }
                     }
                     Ok(false) | Err(_) => taking = false,
                 }
                 ahead.in_flight.store(0, Ordering::SeqCst);
+            }
+            if !taking {
+                // No more parts will be confirmed: the packer stops holding for them.
+                if let Some(let_go) = let_go {
+                    let_go.end();
+                }
             }
             if let Some(copy) = copy {
                 let _ = std::fs::remove_file(copy);
@@ -416,15 +466,25 @@ impl Runner<'_> {
             level: job.options.level,
             bundle: job.options.bundle.clone(),
             ahead: target.is_some(),
+            // Sent and then deleted: each part may leave the PC once the PS5 has it, if the PS5
+            // can put the parts' headers right (else the whole folder waits, and the space check
+            // counts all of it).
+            let_go: target
+                .as_ref()
+                .filter(|t| job.options.delete_packed && self.sender.lets_parts_go(t))
+                .map(|_| Arc::new(LetGo::default())),
         };
         job.ahead.clear();
         let ahead = Ahead::default();
+        let let_go = req.let_go.clone();
         let result = std::thread::scope(|scope| {
             let (tx, rx) = mpsc::channel::<Ready>();
             let sender = self.sender;
             let worker = target.as_ref().map(|t| {
                 let ahead = &ahead;
-                scope.spawn(move || send_parts_ahead(sender, t, rx, ahead))
+                let let_go = let_go.as_deref();
+                let retry = Retry { sleeper: self.sleeper, every: self.retry_every };
+                scope.spawn(move || send_parts_ahead(sender, t, rx, ahead, let_go, retry))
             });
             // What the PS5 has: whenever a part arrives or one sets off, and every quarter of a
             // second while bytes move (or always, with `force`).
@@ -473,6 +533,9 @@ impl Runner<'_> {
                 show_ahead();
             };
             let out = self.packer.pack(&req, &progress, cancel);
+            if let Some(let_go) = &let_go {
+                let_go.end();
+            }
             drop(tx);
             ahead.closing.store(true, Ordering::SeqCst);
             if out.is_err() {
