@@ -38,6 +38,18 @@ pub(crate) struct Parts {
 /// Forge's stages once every volume is written: its check, then publishing the folder.
 const AFTER_WRITING: [&str; 2] = ["verify", "finalize"];
 
+/// Forge's `.part` folder for `output` (`<output>.<job>-<pid>.part`), made by this process.
+pub(crate) fn part_dir_of(output: &Path) -> Option<PathBuf> {
+    let name = output.file_name()?.to_string_lossy().into_owned();
+    let suffix = format!("-{}.part", std::process::id());
+    let parent = output.parent()?;
+    std::fs::read_dir(parent).ok()?.flatten().find_map(|e| {
+        let n = e.file_name().to_string_lossy().into_owned();
+        let job = n.strip_prefix(&name)?.strip_prefix('.')?.strip_suffix(&suffix)?;
+        (job.bytes().all(|b| b.is_ascii_digit()) && e.path().is_dir()).then(|| e.path())
+    })
+}
+
 impl Parts {
     pub(crate) fn new(output: &Path, copy_first: bool) -> Parts {
         Parts { output: output.to_path_buf(), copy_first, part_dir: None, next: 0, last_look: None, closed: false }
@@ -53,14 +65,7 @@ impl Parts {
 
     /// Forge's `.part` folder for this output, made by this process.
     fn find_part_dir(&self) -> Option<PathBuf> {
-        let name = self.output.file_name()?.to_string_lossy().into_owned();
-        let suffix = format!("-{}.part", std::process::id());
-        let parent = self.output.parent()?;
-        std::fs::read_dir(parent).ok()?.flatten().find_map(|e| {
-            let n = e.file_name().to_string_lossy().into_owned();
-            let job = n.strip_prefix(&name)?.strip_prefix('.')?.strip_suffix(&suffix)?;
-            (job.bytes().all(|b| b.is_ascii_digit()) && e.path().is_dir()).then(|| e.path())
-        })
+        part_dir_of(&self.output)
     }
 
     /// Announces every volume finished since the last look (at most every [`LOOK_EVERY`]).
@@ -119,6 +124,22 @@ fn bundle_note(s: &crate::bundle::Staged) -> String {
         parts.push("nothing to bundle".into());
     }
     format!("bundled: {}", parts.join(", "))
+}
+
+/// The volume hook set for one pack, cleared when this goes.
+struct HookGuard;
+
+impl HookGuard {
+    fn set(hook: std::sync::Arc<dyn ps5_dump_forge_zstd::hook::VolumeHook>) -> HookGuard {
+        ps5_dump_forge_zstd::hook::set_volume_hook(Some(hook));
+        HookGuard
+    }
+}
+
+impl Drop for HookGuard {
+    fn drop(&mut self) {
+        ps5_dump_forge_zstd::hook::set_volume_hook(None);
+    }
 }
 
 pub fn to_forge_format(format: OutputFormat) -> Format {
@@ -197,6 +218,13 @@ impl Packer for ForgePacker {
         }))
         .map_err(failed)?;
 
+        // Letting parts go: Forge's packer goes through the hook for this pack only (one pack runs
+        // at a time; the guard clears it however the pack ends).
+        let _hook = req
+            .let_go
+            .as_ref()
+            .filter(|_| req.ahead && req.format == OutputFormat::Folder)
+            .map(|let_go| HookGuard::set(std::sync::Arc::new(crate::let_go::Shrink::new(&output, let_go.clone()))));
         let (tx, rx) = mpsc::channel();
         let jobs = Jobs::new(move |event| {
             let _ = tx.send(event);
