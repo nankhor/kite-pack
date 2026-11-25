@@ -1695,7 +1695,7 @@ describe("Convert", () => {
     expect(nav("Convert")).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("region", { name: "Fake package" })).toBeInTheDocument();
     const levels = within(screen.getByRole("group", { name: "Compression" })).getAllByRole("button");
-    expect(levels.map((b) => b.textContent)).toEqual(["Off", "Fast", "Balanced", "Smallest"]);
+    expect(levels.map((b) => b.textContent)).toEqual(["Fast", "Balanced", "Smallest"]);
     expect(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "Fast" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("Quickest to make, and nearly as small as the others")).toBeInTheDocument();
     expect(screen.getByText("Needs kstuff with fake-package support running on the PS5.")).toBeInTheDocument();
@@ -1831,16 +1831,15 @@ describe("Convert in History and Settings", () => {
 });
 
 describe("Convert's compression", () => {
-  it("says what each level costs, and Off is there for a PS5 that refuses a compressed package", async () => {
+  it("says what each level costs, and never offers to leave it uncompressed", async () => {
     render(<App backend={backend} />);
     await userEvent.click(await screen.findByRole("link", { name: /^Convert/ }));
     await backend.drop("/Games/Ashen Tide");
     const group = await screen.findByRole("group", { name: "Compression" });
     await userEvent.click(within(group).getByRole("button", { name: "Balanced" }));
     expect(screen.getByText("A little smaller, takes about 6 times longer than Fast")).toBeInTheDocument();
-    await userEvent.click(within(group).getByRole("button", { name: "Off" }));
-    expect(screen.getByText("The biggest file: for a PS5 that refuses a compressed one")).toBeInTheDocument();
+    expect(within(group).queryByRole("button", { name: "Off" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Convert" }));
-    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", expect.objectContaining({ compression: "off" }));
+    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", expect.objectContaining({ compression: "balanced" }));
   });
 });

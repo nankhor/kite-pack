@@ -50,7 +50,7 @@ and the game page stays.
    My games, a game's page and Settings move to the new design, and Settings gets Appearance
    (System / Light / Dark).
 2. **Convert.** A dump becomes a fake package (.fpkg) through Forge's package writer
-   (`Format::Pkg`), compression picked from Off, Fast, Balanced and Smallest (Forge's levels), Fast by default; Off stays for a PS5 that refuses a compressed package, saved to a
+   (`Format::Pkg`), always compressed, at Fast, Balanced or Smallest (Forge's levels), Fast by default (never uncompressed), saved to a
    Packages folder (Settings). Then optionally Install on PS5 (streamed), and optionally delete the
    .fpkg once the PS5 confirms it. Needs kstuff with fake-package support on the PS5.
 3. **Files.** Browse the PS5's folders (internal /data, games /user/app, USB /mnt/ext*) and

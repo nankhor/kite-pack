@@ -35,12 +35,11 @@ impl Level {
 }
 
 /// How hard Convert compresses a package's blocks: Forge's levels, by its own numbers on a
-/// package's blocks with 14 cores. The PS5 reads every compressed level the same way.
+/// package's blocks with 14 cores. The PS5 reads every compressed level the same way. A
+/// package is always compressed: there is no raw (stored) level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Compression {
-    /// Stored as they are: the biggest file, for a console that refuses a compressed one.
-    Off,
     /// 331 MB/s, 36.8% of the bytes: the quickest, nearly as small as the others.
     #[default]
     Fast,

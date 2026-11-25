@@ -145,25 +145,34 @@ fn converts_to_a_fake_package_sony_s_installer_takes() {
     assert!(before.matches(&game).unwrap(), "the dump must not change");
 }
 
+/// The bytes of every file under `dir`.
+fn tree_bytes(dir: &Path) -> u64 {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .map(|p| if p.is_dir() { tree_bytes(&p) } else { std::fs::metadata(&p).unwrap().len() })
+        .sum()
+}
+
 #[test]
-fn every_compression_level_makes_a_package_and_off_is_the_biggest() {
+fn every_level_compresses_the_package() {
     let tmp = tempfile::tempdir().unwrap();
     let game = make_game(tmp.path(), "Ashen Tide");
     let out = tmp.path().join("Packages");
-    let size = |p: &Path| std::fs::metadata(p).unwrap().len();
+    let dump = tree_bytes(&game);
 
-    let off = size(&convert(&game, &out, Compression::Off).output);
     for level in [Compression::Fast, Compression::Balanced, Compression::Smallest] {
         let done = convert(&game, &out, level);
         assert_eq!(inspect_package(&done.output).unwrap().content_id, "UP0000-PPSA01234_00-ASHENTIDE0000000", "{level:?}");
-        assert!(size(&done.output) < off, "{level:?}: {} vs {off}", size(&done.output));
+        let size = std::fs::metadata(&done.output).unwrap().len();
+        assert!(size < dump, "{level:?}: a {size}-byte package from a {dump}-byte dump");
     }
 }
 
 #[test]
-fn each_level_is_forge_s_own() {
+fn each_level_is_forge_s_own_and_none_stores_raw() {
     assert_eq!(
-        [Compression::Off, Compression::Fast, Compression::Balanced, Compression::Smallest].map(kraken_level),
-        ["stored", "fast", "balanced", "smallest"]
+        [Compression::Fast, Compression::Balanced, Compression::Smallest].map(kraken_level),
+        ["fast", "balanced", "smallest"]
     );
 }
