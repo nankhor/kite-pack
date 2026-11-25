@@ -79,3 +79,15 @@ fn a_fake_ps5_package_can_be_installed_or_packed() {
     // A folder is no package.
     assert!(inspect_source(&make_game(tmp.path(), "Ashen Tide")).unwrap().package.is_none());
 }
+
+#[test]
+fn a_package_shows_its_own_size_not_the_files_inside_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg = make_fake_pkg(tmp.path());
+    let file = std::fs::metadata(&pkg).unwrap().len();
+    let inside = inspect_game(&pkg).unwrap().total_bytes;
+    assert_ne!(file, inside, "the fixture must tell the two apart");
+    // What the screen shows as Size: the package as it sits on the drive (an 85 GB .fpkg is
+    // 85 GB, not the 200 GB of game files it holds), and what it takes on the PS5.
+    assert_eq!(inspect_source(&pkg).unwrap().total_bytes, file);
+}

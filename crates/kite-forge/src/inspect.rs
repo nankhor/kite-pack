@@ -171,6 +171,11 @@ pub fn inspect_source(path: &Path) -> Result<GameInfo, SourceProblem> {
     match inspect_game(path) {
         Ok(mut game) => {
             game.package = crate::package::inspect_package(path).ok();
+            // A package's size is the file's, as on the drive and on the PS5 once installed: the
+            // game files inside it add up to far more (an 85 GB .fpkg can hold 200 GB of them).
+            if let Some(p) = &game.package {
+                game.total_bytes = p.bytes;
+            }
             Ok(game)
         }
         Err(problem) => match crate::package::inspect_package(path) {
