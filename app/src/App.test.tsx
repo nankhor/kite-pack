@@ -695,7 +695,7 @@ describe("sidebar", () => {
     expect(nav("My games")).toHaveAttribute("aria-current", "page");
     expect(nav("Pack")).not.toHaveAttribute("aria-current");
     await userEvent.click(nav("History"));
-    expect(await screen.findByText("Nothing here yet. Each game you install or pack shows up here once it's done.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing here yet. Each game you install, convert or pack shows up here once it's done.")).toBeInTheDocument();
     await userEvent.click(nav("Pack"));
     expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
   });
@@ -1201,7 +1201,7 @@ describe("History", () => {
     expect(await screen.findByText("With 2 DLC, installed on the PS5")).toBeInTheDocument();
     expect(screen.getByText("On the PS5")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
-    expect(await screen.findByText("Nothing here yet. Each game you install or pack shows up here once it's done.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing here yet. Each game you install, convert or pack shows up here once it's done.")).toBeInTheDocument();
     expect(backend.clearHistory).toHaveBeenCalled();
   });
 });
@@ -1660,5 +1660,169 @@ describe("a package", () => {
     backend.emit({ type: "closeAsked" });
     await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Close anyway" }));
     expect(backend.quit).toHaveBeenCalled();
+  });
+});
+
+describe("Convert", () => {
+  const convertJob = (over: Partial<JobView> = {}) =>
+    job({
+      format: "pkg",
+      outputDir: "/Games",
+      steps: [
+        { kind: "pack", state: "pending", note: null },
+        { kind: "installPackage", state: "pending", note: null },
+      ],
+      ...over,
+    });
+
+  async function onConvert() {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: /^Convert/ }));
+    await screen.findByText("Drop a dump here");
+    await backend.drop("/Games/Ashen Tide");
+    await screen.findByRole("heading", { name: "Ashen Tide" });
+  }
+
+  it("says what Convert is for", async () => {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    expect(nav("Convert")).toHaveAccessibleName(/Turn a dump into a \.fpkg/);
+  });
+
+  it("keeps a dropped dump on Convert when Convert is open", async () => {
+    backend.cfg.address = "192.168.1.42";
+    await onConvert();
+    expect(nav("Convert")).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("region", { name: "Fake package" })).toBeInTheDocument();
+    expect(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Off installs on every firmware")).toBeInTheDocument();
+    expect(screen.getByText("Needs kstuff with fake-package support running on the PS5.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Add DLC/ })).not.toBeInTheDocument();
+  });
+
+  it("converts with compression off and installs on the PS5", async () => {
+    backend.cfg.address = "192.168.1.42";
+    await onConvert();
+    expect(screen.getByRole("switch", { name: "Install on PS5" })).toHaveAttribute("aria-checked", "true");
+    expect(await screen.findByText("Writes the .fpkg to /Games, then installs it on the PS5 straight from this computer.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("switch", { name: "Delete the .fpkg after" }));
+    await userEvent.click(screen.getByRole("button", { name: "Convert and install" }));
+    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", {
+      format: "pkg",
+      level: "fast",
+      outputDir: "/Games",
+      deleteOriginal: false,
+      send: true,
+      deletePacked: true,
+      compress: false,
+      install: true,
+      dlc: [],
+    });
+  });
+
+  it("only converts when Install is off, and offers no delete", async () => {
+    backend.cfg.address = "192.168.1.42";
+    await onConvert();
+    await userEvent.click(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "On" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Install on PS5" }));
+    expect(screen.queryByRole("switch", { name: "Delete the .fpkg after" })).not.toBeInTheDocument();
+    expect(screen.getByText("Writes the .fpkg to /Games.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Convert" }));
+    expect(backend.start).toHaveBeenCalledWith(
+      "/Games/Ashen Tide",
+      expect.objectContaining({ format: "pkg", compress: true, install: false, send: false, deletePacked: false }),
+    );
+  });
+
+  it("keeps Install off until a PS5 is set up", async () => {
+    await onConvert();
+    const install = screen.getByRole("switch", { name: "Install on PS5" });
+    expect(install).toBeDisabled();
+    expect(install).toHaveAttribute("aria-checked", "false");
+    expect(install).toHaveAccessibleDescription("Set up your PS5 in Settings first.");
+    expect(screen.getByRole("button", { name: "Convert" })).toBeInTheDocument();
+  });
+
+  it("saves to the Packages folder, and keeps a changed one for next time", async () => {
+    backend.cfg.packagesFolder = "/Packages";
+    backend.pickFolder = vi.fn(async () => "/More Packages");
+    await onConvert();
+    expect(await screen.findByText("Writes the .fpkg to /Packages.")).toBeInTheDocument();
+    await userEvent.click(within(screen.getByRole("region", { name: "Fake package" })).getByRole("button", { name: "Change" }));
+    expect(await screen.findByText("Writes the .fpkg to /More Packages.")).toBeInTheDocument();
+    expect(backend.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ packagesFolder: "/More Packages" }));
+  });
+
+  it("shows a convert on Convert, in its own words", async () => {
+    backend.cfg.address = "192.168.1.42";
+    backend.start = vi.fn(async () => convertJob());
+    await onConvert();
+    await userEvent.click(screen.getByRole("button", { name: "Convert and install" }));
+    backend.emit({ type: "job", job: convertJob({ steps: [{ kind: "pack", state: "running", note: null }, { kind: "installPackage", state: "pending", note: null }] }) });
+    backend.emit({ type: "progress", id: "job-1", index: 0, done: 40, total: 100 });
+    expect(await screen.findByRole("progressbar", { name: "Converting" })).toBeInTheDocument();
+    expect(screen.getByText("40% converted")).toBeInTheDocument();
+    expect(screen.getByText("Starts when converting ends")).toBeInTheDocument();
+    await userEvent.click(nav("History"));
+    expect(nav("Convert")).toHaveAccessibleName(/40%$/);
+    expect(nav("Pack")).not.toHaveAccessibleName(/40%$/);
+    await userEvent.click(nav("Pack"));
+    expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
+  });
+
+  it("records a finished convert in History as converted", async () => {
+    backend.cfg.address = "192.168.1.42";
+    backend.start = vi.fn(async () => convertJob());
+    await onConvert();
+    await userEvent.click(screen.getByRole("button", { name: "Convert and install" }));
+    backend.emit({
+      type: "job",
+      job: convertJob({
+        state: "finished",
+        packed: "/Games/Ashen Tide.pkg",
+        packedBytes: 84_000_000_000,
+        steps: [
+          { kind: "pack", state: "done", note: null },
+          { kind: "installPackage", state: "done", note: "Installed and confirmed" },
+        ],
+      }),
+    });
+    expect(await screen.findByRole("button", { name: "Convert another game" })).toBeInTheDocument();
+    await waitFor(() => expect(backend.addHistory).toHaveBeenCalledWith(expect.objectContaining({ kind: "convert", sent: true })));
+  });
+
+  it("carries on a convert left by a closed app, on Convert", async () => {
+    backend.left = convertJob({ state: "paused" });
+    backend.carryOn = vi.fn(async (id: string) => convertJob({ id }));
+    render(<App backend={backend} />);
+    await screen.findByRole("heading", { name: "Ashen Tide" });
+    expect(nav("Convert")).toHaveAttribute("aria-current", "page");
+  });
+});
+
+describe("Convert in History and Settings", () => {
+  it("lists converts on their own", async () => {
+    const at = Date.now();
+    backend.past = [
+      { id: "c1", title: "Ashen Tide", titleId: "PPSA01234", finishedAt: at, sourceBytes: 84_300_000_000, packedBytes: 84_500_000_000, sent: true, packed: null, dlc: 0, kind: "convert" },
+      { id: "p1", title: "Iron Lantern", titleId: "PPSA03905", finishedAt: at, sourceBytes: 96_100_000_000, packedBytes: 58_300_000_000, sent: false, packed: null, dlc: 0 },
+    ];
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: /^History/ }));
+    await screen.findByText("Iron Lantern");
+    expect(screen.getByRole("cell", { name: "Converted and installed" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Convert" }));
+    const rows = screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
+    expect(rows).toEqual(["Ashen Tide"]);
+  });
+
+  it("sets where converted packages go", async () => {
+    backend.pickFolder = vi.fn(async () => "/Packages");
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    const field = (await screen.findByText("Packages go to")).closest(".field") as HTMLElement;
+    expect(within(field).getByText("Next to each game")).toBeInTheDocument();
+    await userEvent.click(within(field).getByRole("button", { name: "Change" }));
+    expect(backend.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ packagesFolder: "/Packages" }));
   });
 });

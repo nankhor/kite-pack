@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
 import { CloseQuestion } from "./parts/CloseQuestion";
-import { folderNote, footerNote, historyEntry, jobBar, packBadge, sendsAlongside, versionAtLeast } from "./model";
+import { folderNote, footerNote, historyEntry, jobBar, packBadge, pageOf, sendsAlongside, versionAtLeast } from "./model";
+import { ConvertOptions, installState } from "./parts/Convert";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
@@ -25,6 +26,7 @@ import type {
   GameInfo,
   InstalledGame,
   Measured,
+  PackOptions,
   Settings,
   SmpStatus,
   Status,
@@ -324,9 +326,18 @@ function Screens({
     }
     try {
       const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
-      dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
-      // A package opens on Install (a PS5 game package can still be packed from Pack); the rest on Pack.
-      dispatch({ type: "view", view: game.package ? "install" : "pack" });
+      const where = parentOf(path);
+      dispatch({
+        type: "game",
+        game,
+        source: path,
+        outputDir: settings.packedFolder ?? where,
+        packagesDir: settings.packagesFolder ?? where,
+      });
+      // A package opens on Install (a PS5 game package can still be packed from Pack); a dump
+      // stays on Convert when Convert is open; the rest opens on Pack.
+      const onConvert = current.current.view === "convert";
+      dispatch({ type: "view", view: game.package ? "install" : onConvert ? "convert" : "pack" });
       void loadOnPs5(game.titleId);
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
@@ -518,6 +529,33 @@ function Screens({
     }
   }
 
+  /** The dump turned into a .fpkg, then installed on the PS5 when asked. */
+  async function convert() {
+    if (!s.source || preparingRef.current) return;
+    preparingRef.current = true;
+    const c = s.convert;
+    const installing = c.install && installState(s.status)[0];
+    try {
+      dispatch({ type: "starting" });
+      const options: PackOptions = {
+        format: "pkg",
+        level: "fast",
+        outputDir: c.outputDir,
+        deleteOriginal: false,
+        send: installing,
+        deletePacked: installing && c.deleteAfter,
+        compress: c.compress,
+        install: installing,
+        dlc: [],
+      };
+      dispatch({ type: "started", job: await backend.start(s.source, options) });
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+    } finally {
+      preparingRef.current = false;
+    }
+  }
+
   /** A package, installed as it is: the PS5 downloads it from this computer. */
   async function install() {
     if (!s.source || preparingRef.current) return;
@@ -584,6 +622,13 @@ function Screens({
     if (!dir) return;
     dispatch({ type: "options", patch: { outputDir: dir } });
     await saveSettings({ packedFolder: dir });
+  }
+
+  async function changePackages() {
+    const dir = await backend.pickFolder();
+    if (!dir) return;
+    dispatch({ type: "convert", patch: { outputDir: dir } });
+    await saveSettings({ packagesFolder: dir });
   }
 
   /** Appends what was picked to the packed-copy selection, without duplicates. */
@@ -671,8 +716,8 @@ function Screens({
   );
   const loadHistory = useCallback(() => backend.history(), [backend]);
 
-  // The page the job belongs to: an install on Install, anything else on Pack.
-  const jobView: View | null = s.job ? (s.job.steps.some((st) => st.kind === "installPackage") ? "install" : "pack") : null;
+  // The page the job belongs to: a convert on Convert, an install on Install, the rest on Pack.
+  const jobView: View | null = s.job ? pageOf(s.job) : null;
   /** The sidebar, the update bar and a page. */
   const frame = (content: ReactNode, screenClass = "") => (
     <div className={s.dragging ? "shell dragging" : "shell"}>
@@ -784,17 +829,22 @@ function Screens({
     );
   }
 
-  // The game in front belongs to Install when it's a package, to Pack when it's a game Pack can
-  // take; a page also shows it only when the running job, if any, is its own.
-  const here = s.view === "install" ? "install" : "pack";
+  // The game in front belongs to Install when it's a package, to Convert when it's a dump, to
+  // Pack when it's a game Pack can take; a page also shows it only when the running job, if
+  // any, is its own.
+  const here = s.view === "install" ? "install" : s.view === "convert" ? "convert" : "pack";
   const belongs =
     !!s.game &&
-    (here === "install" ? !!s.game.package : !s.game.package || s.game.package.packable) &&
+    (here === "install"
+      ? !!s.game.package
+      : here === "convert"
+        ? !s.game.package
+        : !s.game.package || s.game.package.packable) &&
     (jobView === null || jobView === here);
   if (s.phase === "empty" || !s.game || !belongs) {
     return frame(
       <Empty
-        kind={here === "install" ? "package" : "game"}
+        kind={here === "install" ? "package" : here === "convert" ? "dump" : "game"}
         message={s.message}
         onChooseFolder={() => void choose(backend.pickFolder)}
         onChooseFile={() => void choose(backend.pickFile)}
@@ -807,6 +857,7 @@ function Screens({
   const sent = !!s.job?.steps.some((st) => (st.kind === "send" || st.kind === "installPackage") && st.state === "done");
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
+  const converting = s.convert.install && installState(s.status)[0];
   const picksEmpty = s.bundle.dlc.length === 0 && !s.bundle.backport;
   const nativeDlc = sending && canInstallNative ? installable(s.bundlePlan?.items ?? []) : [];
   const goingIn = (s.bundlePlan?.items ?? []).filter(
@@ -817,6 +868,8 @@ function Screens({
       ? "Reading the DLC you picked…"
       : (s.phase === "ready" || !s.job) && here === "install"
       ? footerNote({ kind: "install" })
+      : (s.phase === "ready" || !s.job) && here === "convert"
+      ? footerNote({ kind: "convert", outputDir: s.convert.outputDir, install: converting })
       : s.phase === "ready" || !s.job
       ? footerNote({
           kind: "ready",
@@ -837,7 +890,7 @@ function Screens({
             source={s.source ?? ""}
             done={done}
             onPs5={s.onPs5}
-            headline={sent ? "On the PS5" : "Packed"}
+            headline={sent ? "On the PS5" : here === "convert" ? "Converted" : "Packed"}
             view={view}
             onSearch={(q) => backend.searchGames(q)}
             onPick={(id) => void pickGame(id)}
@@ -849,10 +902,17 @@ function Screens({
             </p>
           )}
         </div>
-        <aside className="pack-panel" aria-label="Pack and send">
+        <aside className="pack-panel" aria-label={here === "convert" ? "Convert" : "Pack and send"}>
           <div className="panel-body">
             <Facts game={s.game} job={s.job} done={done} onPs5={s.onPs5} />
-            {s.phase === "ready" && here === "pack" ? (
+            {s.phase === "ready" && here === "convert" ? (
+              <ConvertOptions
+                choice={s.convert}
+                status={s.status}
+                onChange={(patch) => dispatch({ type: "convert", patch })}
+                onChangeFolder={() => void changePackages()}
+              />
+            ) : s.phase === "ready" && here === "pack" ? (
               <Options
                 options={s.options}
                 status={s.status}
@@ -887,11 +947,12 @@ function Screens({
             note={note}
             canShow={packedKept}
             canPack={!preparing && !choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
-            send={sending}
+            send={here === "convert" ? converting : sending}
             install={here === "install"}
+            convert={here === "convert"}
             packable={false}
             onInstall={() => void install()}
-            onPack={() => void pack()}
+            onPack={() => void (here === "convert" ? convert() : pack())}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}
             onRetry={() => void retry()}

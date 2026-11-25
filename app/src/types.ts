@@ -68,6 +68,8 @@ export interface JobView {
   id: string;
   source: string;
   outputDir: string;
+  /** What it packs to: `pkg` is a convert, shown on Convert. */
+  format?: Format;
   deleteOriginal: boolean;
   packed: string | null;
   packedBytes: number | null;
@@ -89,7 +91,8 @@ export type UiEvent =
   /** The window was asked to close while an install runs: ask first. */
   | { type: "closeAsked" };
 
-export type Format = "folder" | "exfat" | "ffpkg" | "ffpfs";
+/** `pkg` is Convert's fake package (.fpkg); the rest are Pack's. */
+export type Format = "folder" | "exfat" | "ffpkg" | "ffpfs" | "pkg";
 export type Level = "fast" | "medium" | "max";
 
 export interface PackOptions {
@@ -103,6 +106,18 @@ export interface PackOptions {
   dlc?: string[];
   /** DLC and a backport folded into the packed copy, before it is written. */
   bundle?: BundleSelection;
+  /** Convert: compress the package's blocks (off installs on every firmware). */
+  compress?: boolean;
+  /** Convert: install the package on the PS5 once it's written. */
+  install?: boolean;
+}
+/** Convert's choices, before it starts. */
+export interface ConvertChoice {
+  compress: boolean;
+  outputDir: string;
+  install: boolean;
+  /** Delete the .fpkg once the PS5 confirms the install. */
+  deleteAfter: boolean;
 }
 
 /** Parts of the packed copy that went to the PS5 while it was packed. */
@@ -155,6 +170,8 @@ export interface Settings {
   destination: string;
   /** Where packed copies go on this computer; null for next to each game. */
   packedFolder: string | null;
+  /** Where converted packages go on this computer; null for next to each game. */
+  packagesFolder?: string | null;
   /** ShadowMount+'s HTTP API port; 10101 unless its config says otherwise. */
   smpPort?: number;
 }
@@ -268,8 +285,10 @@ export interface HistoryEntry {
   /** The packed copy, when it was kept on this computer. */
   packed: string | null;
   dlc: number;
+  /** `convert` for a game turned into a .fpkg; none for a pack or an install. */
+  kind?: "convert" | null;
   iconDataUrl?: string | null;
 }
 
 /** The app's tabs, and Settings behind the gear. */
-export type View = "install" | "pack" | "history" | "games" | "settings";
+export type View = "install" | "convert" | "pack" | "history" | "games" | "settings";

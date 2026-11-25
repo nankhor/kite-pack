@@ -104,6 +104,10 @@
   font-size: 12px;
   font-weight: 400;
   color: var(--muted);
+  /* One line, even beside a badge: the item keeps its height while a job runs. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .side-badge {
@@ -208,6 +212,16 @@
 
   .side-group {
     margin-top: 0;
+  }
+
+  /* The dot says how the PS5 is; the words stay for screen readers, so one row still fits. */
+  .side-status {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .screen {
@@ -767,9 +781,31 @@
   border-top: 1px solid var(--line);
 }
 
-.options h2 + .toggle {
+.options h2 + .toggle,
+.column-head + .toggle {
   padding-top: 0;
   border-top: 0;
+}
+
+/* Convert's cards: a title with a line under it. */
+.column-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.column-sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.convert-note {
+  margin: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .toggle.disabled {

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
@@ -171,11 +171,12 @@ describe("Settings", () => {
   it("changes where packed copies go, and back to next to each game", async () => {
     render(<App backend={backend} />);
     await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
-    expect(await screen.findByText("Next to each game")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Change" }));
+    const field = (await screen.findByText("Packed copies go to")).closest(".field") as HTMLElement;
+    expect(within(field).getByText("Next to each game")).toBeInTheDocument();
+    await userEvent.click(within(field).getByRole("button", { name: "Change" }));
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ packedFolder: "/Packed" }));
-    expect(await screen.findByText("/Packed")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Next to each game" }));
+    expect(await within(field).findByText("/Packed")).toBeInTheDocument();
+    await userEvent.click(within(field).getByRole("button", { name: "Next to each game" }));
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ packedFolder: null }));
   });
 

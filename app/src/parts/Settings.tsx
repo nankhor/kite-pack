@@ -47,9 +47,9 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
     setCheckNote(await onCheckUpdate());
   }
 
-  async function pickFolder() {
+  async function pickFolder(key: "packedFolder" | "packagesFolder") {
     const dir = await onPickFolder();
-    if (dir) await onSave({ packedFolder: dir });
+    if (dir) await onSave({ [key]: dir });
   }
 
   return (
@@ -81,11 +81,27 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
               <span className="path" title={settings.packedFolder ?? undefined}>
                 {settings.packedFolder ?? "Next to each game"}
               </span>
-              <button className="small-button" onClick={() => void pickFolder()}>
+              <button className="small-button" onClick={() => void pickFolder("packedFolder")}>
                 Change
               </button>
               {settings.packedFolder && (
                 <button className="small-button" onClick={() => void onSave({ packedFolder: null })}>
+                  Next to each game
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="field">
+            <span className="field-label">Packages go to</span>
+            <div className="option-row">
+              <span className="path" title={settings.packagesFolder ?? undefined}>
+                {settings.packagesFolder ?? "Next to each game"}
+              </span>
+              <button className="small-button" onClick={() => void pickFolder("packagesFolder")}>
+                Change
+              </button>
+              {settings.packagesFolder && (
+                <button className="small-button" onClick={() => void onSave({ packagesFolder: null })}>
                   Next to each game
                 </button>
               )}

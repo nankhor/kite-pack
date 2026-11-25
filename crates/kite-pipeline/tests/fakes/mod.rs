@@ -181,6 +181,7 @@ impl World {
             dlc: (0..dlc).map(|i| self.tmp.path().join(format!("{i}.pkg"))).collect(),
             bundle: Default::default(),
             install: false,
+            compress: false,
         }
     }
 

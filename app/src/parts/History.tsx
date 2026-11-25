@@ -10,7 +10,7 @@ interface Props {
   now: () => number;
 }
 
-type Filter = "all" | "install" | "pack";
+type Filter = "all" | "install" | "convert" | "pack";
 
 /** A game's icon, or a tile with its first letter (drawn by CSS, so it isn't read as text). */
 function Tile({ entry }: { entry: HistoryEntry }) {
@@ -18,19 +18,23 @@ function Tile({ entry }: { entry: HistoryEntry }) {
   return <span className="history-icon placeholder" aria-hidden="true" data-letter={entry.title.slice(0, 1).toUpperCase()} />;
 }
 
-/** An install keeps no packed copy, so it has no packed size. */
-const kindOf = (e: HistoryEntry): "install" | "pack" => (e.packedBytes === null ? "install" : "pack");
+/** A convert says so; an install keeps no packed copy, so it has no packed size. */
+const kindOf = (e: HistoryEntry): Exclude<Filter, "all"> =>
+  e.kind === "convert" ? "convert" : e.packedBytes === null ? "install" : "pack";
 
 function what(e: HistoryEntry): string {
   if (kindOf(e) === "install") return "Installed on the PS5";
+  if (kindOf(e) === "convert") return e.sent ? "Converted and installed" : "Converted";
   return e.sent ? "Packed and sent" : "Packed";
 }
 
-const saved = (e: HistoryEntry) => (e.packedBytes === null ? 0 : Math.max(0, e.sourceBytes - e.packedBytes));
+const saved = (e: HistoryEntry) =>
+  e.packedBytes === null || kindOf(e) === "convert" ? 0 : Math.max(0, e.sourceBytes - e.packedBytes);
 
 const FILTERS: [Filter, string][] = [
   ["all", "All"],
   ["install", "Install"],
+  ["convert", "Convert"],
   ["pack", "Pack"],
 ];
 
@@ -87,7 +91,7 @@ export function HistoryPage({ load, onClear, onShow, now }: Props) {
         )}
       </div>
       {entries && all.length === 0 && (
-        <p className="list-empty">Nothing here yet. Each game you install or pack shows up here once it's done.</p>
+        <p className="list-empty">Nothing here yet. Each game you install, convert or pack shows up here once it's done.</p>
       )}
       {all.length > 0 && (
         <div className="table-box">
@@ -132,7 +136,7 @@ export function HistoryPage({ load, onClear, onShow, now }: Props) {
                       )}
                       {e.packed && (
                         <>
-                          {!e.sent && <span>Packed copy kept</span>}
+                          {!e.sent && <span>{kindOf(e) === "convert" ? ".fpkg kept" : "Packed copy kept"}</span>}
                           <button className="small-button" onClick={() => onShow(e.packed!)}>
                             Show folder
                           </button>

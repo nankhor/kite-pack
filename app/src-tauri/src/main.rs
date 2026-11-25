@@ -79,6 +79,12 @@ struct PackOptions {
     /// DLC and a backport to fold into the packed copy, before it is written.
     #[serde(default)]
     bundle: BundleOptions,
+    /// Convert (format `pkg`): compress the package's blocks.
+    #[serde(default)]
+    compress: bool,
+    /// Convert: install the package on the PS5 once it's written.
+    #[serde(default)]
+    install: bool,
 }
 
 /// What the screen picked to go inside the pack.
@@ -143,6 +149,7 @@ fn install(app: AppHandle, session: State<'_, Session>, ps5: State<'_, Ps5>, sou
         dlc: vec![],
         bundle: Default::default(),
         install: true,
+        compress: false,
     };
     session.start(source, options, emitter(app))
 }
@@ -162,7 +169,10 @@ fn start(
     source: PathBuf,
     options: PackOptions,
 ) -> Result<JobView, String> {
-    let send = if options.send {
+    // Convert installs through the PS5's installer, which needs the PS5 as Send does.
+    let converting = options.format == OutputFormat::Pkg;
+    let installing = converting && options.install;
+    let send = if options.send || installing {
         let settings = ps5.settings();
         let address = settings
             .address
@@ -190,7 +200,8 @@ fn start(
             // The emulator is carried by the app; a dump with its own keeps it.
             emulator: None,
         },
-        install: false,
+        install: installing,
+        compress: converting && options.compress,
     };
     session.start(source, options, emitter(app))
 }

@@ -148,6 +148,7 @@ pub fn to_forge_format(format: OutputFormat) -> Format {
         OutputFormat::Exfat => Format::Exfat,
         OutputFormat::Ffpkg => Format::Ffpkg,
         OutputFormat::Ffpfs => Format::Ffpfs,
+        OutputFormat::Pkg => Format::Pkg,
     }
 }
 
@@ -201,22 +202,36 @@ impl Packer for ForgePacker {
             (unpacked.path().to_path_buf(), Some(unpacked), Some(out))
         };
         // Forge never hands back a path that exists: a second pack gets "-2", "-3", ...
-        let output = generated_output(&req.source, format, &req.output_dir, &[], Some(PackKind::Zstd), None)
-            .map_err(failed)?;
+        // A package is Convert: Forge's package writer, no zstd packs (it refuses them).
+        let converting = req.format == OutputFormat::Pkg;
+        let kind = (!converting).then_some(PackKind::Zstd);
+        let output = generated_output(&req.source, format, &req.output_dir, &[], kind, None).map_err(failed)?;
         // Built through serde so every field Forge adds later keeps its own default.
-        let request: ConvertRequest = serde_json::from_value(serde_json::json!({
-            "source": pack_source,
-            "format": format,
-            "output": output,
-            "zstd_pack": true,
-            "zstd_level": req.level.zstd_level(),
-            "full_verify": self.full_verify,
-            "delete_source": false,
-            // A folder pack's space check goes by a sample of the game, not by nothing
-            // compressing (third_party/forge-core/README.md).
-            "sample_space": req.format == OutputFormat::Folder,
-        }))
-        .map_err(failed)?;
+        let request = if converting {
+            serde_json::json!({
+                "source": pack_source,
+                "format": format,
+                "output": output,
+                // Stored blocks install on every firmware; compressed ones are proven on 5.10 only.
+                "kraken_level": if req.compress { "fast" } else { "stored" },
+                "full_verify": self.full_verify,
+                "delete_source": false,
+            })
+        } else {
+            serde_json::json!({
+                "source": pack_source,
+                "format": format,
+                "output": output,
+                "zstd_pack": true,
+                "zstd_level": req.level.zstd_level(),
+                "full_verify": self.full_verify,
+                "delete_source": false,
+                // A folder pack's space check goes by a sample of the game, not by nothing
+                // compressing (third_party/forge-core/README.md).
+                "sample_space": req.format == OutputFormat::Folder,
+            })
+        };
+        let request: ConvertRequest = serde_json::from_value(request).map_err(failed)?;
 
         // Letting parts go: Forge's packer goes through the hook for this pack only (one pack runs
         // at a time; the guard clears it however the pack ends).

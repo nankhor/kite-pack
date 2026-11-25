@@ -18,6 +18,8 @@ pub struct Settings {
     pub destination: String,
     /// Where packed copies go on this computer; None for beside the game.
     pub packed_folder: Option<PathBuf>,
+    /// Where converted packages (.fpkg) go on this computer; None for beside the game.
+    pub packages_folder: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -29,6 +31,7 @@ impl Default for Settings {
             smp_port: kite_smp::DEFAULT_PORT,
             destination: "/data/homebrew".into(),
             packed_folder: None,
+            packages_folder: None,
         }
     }
 }

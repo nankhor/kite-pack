@@ -103,3 +103,42 @@ fn a_refusal_fails_the_step_with_its_reason() {
     assert_eq!(outcome, RunOutcome::Failed { index: 0 });
     assert!(matches!(&job.steps[0].state, StepState::Failed { reason } if reason.contains("0x80B2116F")), "{:?}", job.steps[0].state);
 }
+
+/// A dump turned into a .fpkg and installed, the .fpkg deleted after when `delete_after`.
+fn convert_job(w: &World, delete_after: bool) -> Job {
+    let mut options = w.options(false, true, delete_after, 0);
+    options.format = OutputFormat::Pkg;
+    options.install = true;
+    Job::new(w.source.clone(), options).unwrap()
+}
+
+#[test]
+fn a_converted_package_is_installed_not_the_dump() {
+    let w = world();
+    let mut job = convert_job(&w, false);
+    let (outcome, _, _) = go(&w, &mut job, &streamer(&w, vec![]));
+    assert_eq!(outcome, RunOutcome::Finished);
+    assert_eq!(calls(&w.log), ["pack", "install PPSA01234 on ps5"]);
+    assert_eq!(job.steps[1].state, StepState::Done { note: "Installed and confirmed".into() });
+}
+
+#[test]
+fn a_converted_package_goes_to_the_trash_once_installed() {
+    let w = world();
+    let mut job = convert_job(&w, true);
+    let (outcome, _, _) = go(&w, &mut job, &streamer(&w, vec![]));
+    assert_eq!(outcome, RunOutcome::Finished);
+    let trashed = format!("trash {}", w.packed_path().display());
+    assert_eq!(calls(&w.log), vec!["pack".to_string(), "install PPSA01234 on ps5".into(), trashed]);
+}
+
+#[test]
+fn a_refused_install_keeps_the_converted_package() {
+    let w = world();
+    let mut job = convert_job(&w, true);
+    let refused = InstallError::Refused { code: 0x80B2_116F, hint: "Sony's installer refused it".into() };
+    let (outcome, _, _) = go(&w, &mut job, &streamer(&w, vec![Err(refused)]));
+    assert_eq!(outcome, RunOutcome::Failed { index: 1 });
+    assert_eq!(calls(&w.log), ["pack", "install PPSA01234 on ps5"], "nothing trashed");
+    assert_eq!(job.steps[2].state, StepState::Pending);
+}

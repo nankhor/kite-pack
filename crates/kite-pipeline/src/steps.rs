@@ -1,4 +1,4 @@
-use crate::options::Options;
+use crate::options::{Options, OutputFormat};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -12,7 +12,8 @@ pub enum StepKind {
     Send,
     InstallDlc { pkg: PathBuf },
     DeletePacked,
-    /// The source, a package, installed on the PS5 as it is.
+    /// A package installed on the PS5 by its installer: the packed copy when the job packs one
+    /// (Convert), otherwise the source as it is.
     InstallPackage,
 }
 
@@ -34,6 +35,17 @@ pub struct Step {
 
 /// The steps `options` asks for, in the order they run. Validate `options` first.
 pub fn plan_steps(options: &Options) -> Vec<StepKind> {
+    if options.format == OutputFormat::Pkg {
+        // Convert: the package is installed by the PS5's installer, never sent to a folder.
+        let mut steps = vec![StepKind::Pack];
+        if options.install {
+            steps.push(StepKind::InstallPackage);
+            if options.delete_packed {
+                steps.push(StepKind::DeletePacked);
+            }
+        }
+        return steps;
+    }
     if options.install {
         return vec![StepKind::InstallPackage];
     }
@@ -72,7 +84,16 @@ mod tests {
             dlc: (0..dlc).map(|i| PathBuf::from(format!("/dlc/{i}.pkg"))).collect(),
             bundle: Default::default(),
             install: false,
+            compress: false,
         }
+    }
+
+    /// A dump turned into a .fpkg: installing needs the PS5, so it brings `send`.
+    fn convert(install: bool, delete_packed: bool) -> Options {
+        let mut o = opts(false, install, delete_packed, 0);
+        o.format = OutputFormat::Pkg;
+        o.install = install;
+        o
     }
 
     #[test]
@@ -160,5 +181,55 @@ mod tests {
         o.delete_packed = false;
         o.dlc.clear();
         assert_eq!(o.validate(), Err(OptionsError::InstallWithoutPs5));
+    }
+
+    #[test]
+    fn convert_only() {
+        assert_eq!(plan_steps(&convert(false, false)), vec![Pack]);
+        assert_eq!(convert(false, false).validate(), Ok(()));
+    }
+
+    #[test]
+    fn convert_and_install() {
+        assert_eq!(plan_steps(&convert(true, false)), vec![Pack, InstallPackage]);
+        assert_eq!(convert(true, false).validate(), Ok(()));
+    }
+
+    #[test]
+    fn convert_install_and_delete() {
+        assert_eq!(plan_steps(&convert(true, true)), vec![Pack, InstallPackage, DeletePacked]);
+        assert_eq!(convert(true, true).validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_converted_package_is_deleted_only_after_installing() {
+        let mut o = convert(false, true);
+        o.send = Some(SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() });
+        assert_eq!(o.validate(), Err(OptionsError::DeletePackageWithoutInstall));
+    }
+
+    #[test]
+    fn a_converted_package_is_never_sent_to_a_folder() {
+        let mut o = convert(false, false);
+        o.send = Some(SendTarget { console: "ps5".into(), destination: "/data/homebrew".into() });
+        o.delete_original = true;
+        assert_eq!(plan_steps(&o), vec![Pack]);
+    }
+
+    #[test]
+    fn install_only_is_unchanged() {
+        let mut o = opts(false, true, false, 0);
+        o.install = true;
+        assert_eq!(plan_steps(&o), vec![InstallPackage]);
+    }
+
+    #[test]
+    fn options_without_compress_still_load() {
+        let o: Options = serde_json::from_value(serde_json::json!({
+            "format": "pkg", "level": "fast", "output_dir": "/out", "delete_original": false,
+            "send": null, "delete_packed": false, "dlc": []
+        }))
+        .unwrap();
+        assert_eq!((o.format, o.compress), (OutputFormat::Pkg, false));
     }
 }

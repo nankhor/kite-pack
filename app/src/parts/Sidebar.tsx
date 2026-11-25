@@ -34,6 +34,11 @@ const ICONS: Record<string, ReactNode> = {
       <path d="M4 17v3h16v-3" />
     </>
   ),
+  convert: (
+    <>
+      <path d="M4 7h12l-3-3M20 17H8l3 3" />
+    </>
+  ),
   pack: (
     <>
       <path d="M21 8l-9-5-9 5v8l9 5 9-5z" />
@@ -104,6 +109,7 @@ export function Sidebar({ view, status, badge, badgeOn, onView }: Props) {
       </div>
       <nav className="side-nav" aria-label="Sections">
         {item("install", "Install", "Stream a .pkg to the PS5")}
+        {item("convert", "Convert", "Turn a dump into a .fpkg")}
         {item("pack", "Pack", "Compress and send")}
         {item("history", "History")}
       </nav>
