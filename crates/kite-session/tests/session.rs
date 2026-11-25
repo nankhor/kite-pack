@@ -512,3 +512,55 @@ fn closing_during_an_install_keeps_it_for_next_launch() {
     assert_eq!(events.last().state, JobState::Paused);
     assert!(installer.0.lock().unwrap().is_empty(), "nothing forgotten: it carries on next launch");
 }
+
+impl World {
+    /// A session that really converts (Forge) and whose installs wait until stopped, and the
+    /// options to turn the test game into a .fpkg and install it.
+    fn converting(&self, packer: Arc<dyn Packer>) -> (Session, Arc<WaitingInstaller>, Options) {
+        let installer = Arc::new(WaitingInstaller::default());
+        let ports = Ports {
+            packer,
+            trash: Arc::new(BinTrash(self.bin.clone())),
+            sender: Arc::new(Unavailable),
+            installer: installer.clone(),
+        };
+        let session = Session::new(self.jobs.clone(), ports).unwrap();
+        let mut options = self.options(false);
+        options.format = OutputFormat::Pkg;
+        options.install = true;
+        options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
+        (session, installer, options)
+    }
+}
+
+#[test]
+fn converting_is_not_yet_an_install() {
+    let w = World::new();
+    let (session, _, options) = w.converting(Arc::new(WaitingPacker));
+    let events = Events::default();
+    session.start(w.game.clone(), options, events.emit()).unwrap();
+    assert!(session.is_running());
+    assert!(!session.running_install(), "closing while converting carries on next launch, no question");
+    session.cancel();
+    events.last();
+}
+
+#[test]
+fn stopping_a_converted_install_forgets_the_package_not_the_dump() {
+    let w = World::new();
+    let (session, installer, options) = w.converting(Arc::new(ForgePacker::default()));
+    let events = Events::default();
+    let view = session.start(w.game.clone(), options, events.emit()).unwrap();
+    assert_eq!(view.format, OutputFormat::Pkg);
+    let start = Instant::now();
+    while !session.running_install() {
+        assert!(start.elapsed() < Duration::from_secs(60), "never started installing");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    session.cancel();
+    let end = events.last();
+    assert_eq!(end.state, JobState::Cancelled);
+    let packed = end.packed.expect("the converted package");
+    assert_eq!(packed.extension().unwrap(), "pkg");
+    assert_eq!(*installer.0.lock().unwrap(), [packed]);
+}

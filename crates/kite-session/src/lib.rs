@@ -34,8 +34,6 @@ struct Running {
     cancel: Arc<AtomicBool>,
     /// Stopped because the app is closing: the job stays for the next launch.
     exiting: Arc<AtomicBool>,
-    /// The job installs a package: the PS5 downloads it from this computer while it runs.
-    install: bool,
 }
 
 pub struct Session {
@@ -107,9 +105,16 @@ impl Session {
         self.running.lock().unwrap().is_some()
     }
 
-    /// Whether the running job is an install: closing the app would stop the PS5's download.
+    /// Whether the running job is installing a package: closing the app would stop the PS5's
+    /// download. A convert is an install only once its package is written.
     pub fn running_install(&self) -> bool {
-        self.running.lock().unwrap().as_ref().is_some_and(|r| r.install)
+        let Some(id) = self.running.lock().unwrap().as_ref().map(|r| r.id.clone()) else {
+            return false;
+        };
+        // The step it is on (or about to start): the first one not done.
+        self.store
+            .load(&id)
+            .is_ok_and(|job| job.next_open().is_some_and(|i| job.steps[i].kind == StepKind::InstallPackage))
     }
 
     /// The app is closing: stops the running step cleanly (Forge removes its partial output)
@@ -143,7 +148,6 @@ impl Session {
                 id: job.id.clone(),
                 cancel: cancel.clone(),
                 exiting: exiting.clone(),
-                install: job.options.install,
             });
         }
         // Stamped before the thread starts, so every event's view is newer than this reply.
@@ -236,10 +240,13 @@ fn run(
             // A cancelled job doesn't come back on the next launch.
             let _ = store.remove(&job.id);
             // Nor does a stopped install: the next one of the same package asks at once.
+            // The package it installed: a convert's own, or the source as it is.
+            let converted = job.steps.iter().any(|s| s.kind == StepKind::Pack);
+            let pkg = if converted { job.packed.as_ref() } else { Some(&job.source) };
             if job.options.install
-                && let Some(target) = &job.options.send
+                && let (Some(target), Some(pkg)) = (&job.options.send, pkg)
             {
-                ports.installer.forget_package(&job.source, target);
+                ports.installer.forget_package(pkg, target);
             }
             JobView::of(&job, JobState::Cancelled)
         }

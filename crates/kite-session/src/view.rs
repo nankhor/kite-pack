@@ -1,6 +1,6 @@
 //! What the screen receives: a job as plain data, and the events that update it.
 
-use kite_pipeline::{Job, StepKind, StepState};
+use kite_pipeline::{Job, OutputFormat, StepKind, StepState};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 
@@ -47,6 +47,8 @@ pub struct JobView {
     pub id: String,
     pub source: PathBuf,
     pub output_dir: PathBuf,
+    /// What it packs to: `pkg` is Convert, which has a page of its own.
+    pub format: OutputFormat,
     pub delete_original: bool,
     pub packed: Option<PathBuf>,
     /// The packed copy's size on disk, once the job has finished.
@@ -80,6 +82,7 @@ impl JobView {
             id: job.id.clone(),
             source: job.source.clone(),
             output_dir: job.options.output_dir.clone(),
+            format: job.options.format,
             delete_original: job.options.delete_original,
             packed: job.packed.clone(),
             packed_bytes: None,
@@ -150,7 +153,7 @@ pub fn packed_size(path: &Path) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kite_pipeline::{Level, Options, OutputFormat, SendTarget};
+    use kite_pipeline::{Level, Options, SendTarget};
 
     #[test]
     fn dlc_steps_name_their_package() {
@@ -171,5 +174,24 @@ mod tests {
         let dlc: Vec<_> = view.steps.iter().filter(|s| s.kind == "installDlc").map(|s| s.pkg.clone()).collect();
         assert_eq!(dlc, vec![Some(PathBuf::from("/dlc/suits.pkg")), Some(PathBuf::from("/dlc/map.pkg"))]);
         assert!(view.steps.iter().filter(|s| s.kind != "installDlc").all(|s| s.pkg.is_none()));
+    }
+
+    #[test]
+    fn a_view_says_its_format_so_the_screen_finds_its_page() {
+        let options = Options {
+            format: OutputFormat::Pkg,
+            level: Level::Fast,
+            output_dir: PathBuf::from("/Packages"),
+            delete_original: false,
+            send: None,
+            delete_packed: false,
+            dlc: vec![],
+            bundle: Default::default(),
+            install: false,
+            compress: false,
+        };
+        let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
+        let json = serde_json::to_value(JobView::at_rest(&job)).unwrap();
+        assert_eq!(json["format"], "pkg");
     }
 }

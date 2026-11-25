@@ -11,6 +11,7 @@ fn missing_settings_are_the_defaults() {
     assert_eq!(s.loader_port, 9021);
     assert_eq!(s.destination, "/data/homebrew");
     assert_eq!(s.packed_folder, None);
+    assert_eq!(s.packages_folder, None);
 }
 
 #[test]
@@ -24,11 +25,13 @@ fn settings_round_trip() {
         smp_port: kite_smp::DEFAULT_PORT,
         destination: "/mnt/ext0/homebrew".into(),
         packed_folder: Some(PathBuf::from("/Games/Packed")),
+        packages_folder: Some(PathBuf::from("/Games/Packages")),
     };
     s.save(&path).unwrap();
     assert_eq!(Settings::load(&path), s);
     let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     assert_eq!(json["helperPort"], 9131, "camelCase for the screen");
+    assert_eq!(json["packagesFolder"], "/Games/Packages");
 }
 
 #[test]

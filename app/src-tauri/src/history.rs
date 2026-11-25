@@ -30,6 +30,10 @@ pub struct Entry {
     pub packed: Option<PathBuf>,
     /// DLC installed along with it.
     pub dlc: u32,
+    /// `convert` for a game turned into a .fpkg; none for a pack or an install, which the
+    /// screen tells apart by the packed size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_data_url: Option<String>,
 }
@@ -124,8 +128,20 @@ mod tests {
             sent: true,
             packed: None,
             dlc: 2,
+            kind: None,
             icon_data_url: icon.map(String::from),
         }
+    }
+
+    #[test]
+    fn a_convert_says_so_and_older_entries_still_load() {
+        let tmp = tempfile::tempdir().unwrap();
+        let h = History::new(tmp.path().into());
+        h.add(Entry { kind: Some("convert".into()), ..entry("c", None) }).unwrap();
+        assert_eq!(h.load()[0].kind.as_deref(), Some("convert"));
+        let old = r#"[{"id":"o","title":"Old","titleId":null,"finishedAt":1,"sourceBytes":2,"packedBytes":null,"sent":true,"packed":null,"dlc":0}]"#;
+        fs::write(tmp.path().join("history.json"), old).unwrap();
+        assert_eq!(h.load()[0].kind, None);
     }
 
     #[test]
