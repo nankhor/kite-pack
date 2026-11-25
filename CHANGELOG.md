@@ -12,6 +12,9 @@
   during an install asks first; if it closes anyway, opening it again picks the install back up.
   Fake packages need kstuff with fake-package support running on the PS5, nothing else. Use your
   own games. Kite Pack doesn't provide games, and we don't condone piracy. Support the developers.
+- **A package shows its real size.** A dropped `.pkg` or `.fpkg` shows the size of the file
+  itself (an 85 GB package reads 85 GB), not the game files packed inside it, which added up to
+  far more.
 - **Big games without the room for them.** With **Save as: Folder**, **Send to PS5** and **Delete
   the packed folder** on (and the Kite helper 0.4.0), each part leaves the PC once the PS5 has it:
   the PC holds about 16 GB at most, whatever the game's size. Every part is unpacked and checked
