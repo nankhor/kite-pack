@@ -22,6 +22,22 @@ export interface DlcFolder {
   skipped: string[];
 }
 
+/** A package as Sony's installer takes it, read from its header. */
+export interface PackageInfo {
+  /** "ps5" or "ps4". */
+  platform: string;
+  /** "game", "update" or "dlc". */
+  kind: string;
+  titleId: string;
+  contentId: string;
+  title: string | null;
+  version: string | null;
+  bytes: number;
+  iconDataUrl: string | null;
+  /** A PS5 game package Forge can also pack. */
+  packable: boolean;
+}
+
 export interface GameInfo {
   kind: string;
   title: string | null;
@@ -32,9 +48,11 @@ export interface GameInfo {
   dlcs: DlcInfo[];
   iconDataUrl: string | null;
   findings: string[];
+  /** Set when the item is a package: it can be installed on the PS5 as it is. */
+  package?: PackageInfo | null;
 }
 
-export type StepKind = "pack" | "deleteOriginal" | "send" | "installDlc" | "deletePacked";
+export type StepKind = "pack" | "deleteOriginal" | "send" | "installDlc" | "deletePacked" | "installPackage";
 export type StepState = "pending" | "running" | "waiting" | "done" | "failed";
 export type JobState = "running" | "paused" | "finished" | "failed" | "cancelled";
 
@@ -67,7 +85,9 @@ export type UiEvent =
   | { type: "progress"; id: string; index: number; done: number; total: number }
   /** While Pack runs: parts of the packed copy already on the PS5, one on its way, the bytes
    *  on the PS5, and what the packed copy should come to (0 until a first part says). */
-  | { type: "ahead"; id: string; index: number; sent: number; sending: boolean; onPs5: number; estimate: number };
+  | { type: "ahead"; id: string; index: number; sent: number; sending: boolean; onPs5: number; estimate: number }
+  /** The window was asked to close while an install runs: ask first. */
+  | { type: "closeAsked" };
 
 export type Format = "folder" | "exfat" | "ffpkg" | "ffpfs";
 export type Level = "fast" | "medium" | "max";

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
+import { CloseQuestion } from "./parts/CloseQuestion";
 import { folderNote, footerNote, historyEntry, jobBar, packBadge, sendsAlongside, versionAtLeast } from "./model";
 import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
@@ -60,7 +61,7 @@ export function onConsole(label: string | null, installed: string[]): boolean {
 /** How long after opening the app looks for a newer version, so it doesn't slow the start. */
 const UPDATE_CHECK_AFTER_MS = 3000;
 
-export default function App({
+function Screens({
   backend,
   now = Date.now,
   updateCheckAfterMs = UPDATE_CHECK_AFTER_MS,
@@ -510,6 +511,20 @@ export default function App({
     }
   }
 
+  /** A package, installed as it is: the PS5 downloads it from this computer. */
+  async function install() {
+    if (!s.source || preparingRef.current) return;
+    preparingRef.current = true;
+    try {
+      dispatch({ type: "starting" });
+      dispatch({ type: "started", job: await backend.install(s.source) });
+    } catch (e) {
+      dispatch({ type: "message", text: String(e) });
+    } finally {
+      preparingRef.current = false;
+    }
+  }
+
   /** The picked DLC that are packages a native install can take (the rest go in the pack). */
   function installable(items: BundleItem[]) {
     return items
@@ -776,7 +791,8 @@ export default function App({
   }
 
   const done = s.phase === "done";
-  const sent = !!s.job?.steps.some((st) => st.kind === "send" && st.state === "done");
+  const sent = !!s.job?.steps.some((st) => (st.kind === "send" || st.kind === "installPackage") && st.state === "done");
+  const pkg = s.game.package ?? null;
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
   const picksEmpty = s.bundle.dlc.length === 0 && !s.bundle.backport;
@@ -787,6 +803,8 @@ export default function App({
   const note =
     preparing
       ? "Reading the DLC you picked…"
+      : (s.phase === "ready" || !s.job) && pkg
+      ? footerNote({ kind: "install" })
       : s.phase === "ready" || !s.job
       ? footerNote({
           kind: "ready",
@@ -831,11 +849,12 @@ export default function App({
                 destination={s.settings?.destination ?? "/data/homebrew"}
                 onChange={(patch) => dispatch({ type: "options", patch })}
                 onChangeFolder={() => void changeOutput()}
+                pkg={pkg}
               />
             ) : (
               s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
             )}
-            {s.phase === "ready" && (
+            {s.phase === "ready" && (!pkg || pkg.packable) && (
               <Dlc
                 plan={s.bundlePlan}
                 busy={readingPicks || choosing}
@@ -860,6 +879,9 @@ export default function App({
             canShow={packedKept}
             canPack={!preparing && !choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
             send={sending}
+            install={!!pkg}
+            packable={!!pkg?.packable}
+            onInstall={() => void install()}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
             onCancel={() => void (s.phase === "failed" ? discard() : backend.cancel())}
@@ -870,5 +892,15 @@ export default function App({
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Every page, and the question asked before closing during an install, whichever page is open. */
+export default function App(props: Parameters<typeof Screens>[0]) {
+  return (
+    <>
+      <Screens {...props} />
+      <CloseQuestion backend={props.backend} />
+    </>
   );
 }

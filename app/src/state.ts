@@ -105,6 +105,8 @@ function phaseOf(job: JobView): Phase {
 }
 
 function onEvent(s: State, e: UiEvent, now: number): State {
+  // Asked of the screen, not of the job: App answers it.
+  if (e.type === "closeAsked") return s;
   if (!s.job) {
     // The job's first update can beat Pack's reply; take it as the job.
     if (s.starting && e.type === "job" && e.job.state !== "cancelled") {
