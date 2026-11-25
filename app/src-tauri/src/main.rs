@@ -8,7 +8,7 @@ mod history;
 mod packages;
 
 use history::{Entry, History};
-use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_game};
+use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_source};
 use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
 use kite_ps5::{
     Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings,
@@ -29,6 +29,10 @@ const DISCOVER_WAIT: Duration = Duration::from_secs(2);
 
 /// The Kite helper for the PS5, embedded at build time (empty in builds without it).
 static HELPER_ELF: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/kite-helper.elf"));
+
+/// Set once the person agreed to close during an install.
+#[derive(Default)]
+struct Quitting(std::sync::atomic::AtomicBool);
 
 struct Ps5 {
     keys: Keys,
@@ -117,10 +121,37 @@ async fn blocking<T: Send + 'static>(
         .map_err(|e| e.to_string())
 }
 
-/// Reads a dropped or chosen item. Archives can take a while, so off the main thread.
+/// Reads a dropped or chosen item: a game, or a package to install as it is. Archives can take
+/// a while, so off the main thread.
 #[tauri::command]
 async fn inspect(path: PathBuf) -> Result<GameInfo, String> {
-    blocking(move || inspect_game(&path).map_err(|p| p.message())).await?
+    blocking(move || inspect_source(&path).map_err(|p| p.message())).await?
+}
+
+/// Installs a package on the PS5 as it is: the PS5 downloads it from this computer.
+#[tauri::command]
+fn install(app: AppHandle, session: State<'_, Session>, ps5: State<'_, Ps5>, source: PathBuf) -> Result<JobView, String> {
+    let settings = ps5.settings();
+    let address = settings.address.ok_or("Set up your PS5 in Settings first.")?;
+    let options = Options {
+        format: OutputFormat::Folder,
+        level: Level::Fast,
+        output_dir: source.parent().map(PathBuf::from).unwrap_or_default(),
+        delete_original: false,
+        delete_packed: false,
+        send: Some(SendTarget { console: format!("{address}:{}", settings.helper_port), destination: settings.destination }),
+        dlc: vec![],
+        bundle: Default::default(),
+        install: true,
+    };
+    session.start(source, options, emitter(app))
+}
+
+/// The person chose "Close anyway" while an install runs.
+#[tauri::command]
+fn quit(window: tauri::Window, quitting: State<'_, Quitting>) -> Result<(), String> {
+    quitting.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    window.close().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -487,13 +518,26 @@ fn main() {
                 settings,
             });
             app.manage(Smp { installer: smp });
+            app.manage(Quitting::default());
             app.manage(History::new(data));
             // The copy an update replaced, if one did.
             std::thread::spawn(kite_update::clean_up);
             Ok(())
         })
+        // Closing the window mid-install stops the PS5's download: ask first.
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event
+                && window.state::<Session>().running_install()
+                && !window.state::<Quitting>().0.load(std::sync::atomic::Ordering::SeqCst)
+            {
+                api.prevent_close();
+                let _ = window.emit(EVENT, UiEvent::CloseAsked);
+            }
+        })
         .invoke_handler(tauri::generate_handler![
             inspect,
+            install,
+            quit,
             start,
             cancel,
             carry_on,

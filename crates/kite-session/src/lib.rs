@@ -34,6 +34,8 @@ struct Running {
     cancel: Arc<AtomicBool>,
     /// Stopped because the app is closing: the job stays for the next launch.
     exiting: Arc<AtomicBool>,
+    /// The job installs a package: the PS5 downloads it from this computer while it runs.
+    install: bool,
 }
 
 pub struct Session {
@@ -105,6 +107,11 @@ impl Session {
         self.running.lock().unwrap().is_some()
     }
 
+    /// Whether the running job is an install: closing the app would stop the PS5's download.
+    pub fn running_install(&self) -> bool {
+        self.running.lock().unwrap().as_ref().is_some_and(|r| r.install)
+    }
+
     /// The app is closing: stops the running step cleanly (Forge removes its partial output)
     /// and keeps the job, so the next launch carries on. True once nothing is running; false
     /// if the step didn't stop within `wait`.
@@ -132,7 +139,12 @@ impl Session {
                 return Err(BUSY.into());
             }
             self.store.save(&job).map_err(|e| format!("Couldn't save the job: {e}"))?;
-            *running = Some(Running { id: job.id.clone(), cancel: cancel.clone(), exiting: exiting.clone() });
+            *running = Some(Running {
+                id: job.id.clone(),
+                cancel: cancel.clone(),
+                exiting: exiting.clone(),
+                install: job.options.install,
+            });
         }
         // Stamped before the thread starts, so every event's view is newer than this reply.
         let view = self.revs.stamp(JobView::of(&job, JobState::Running));
@@ -223,6 +235,12 @@ fn run(
         RunOutcome::Cancelled { .. } => {
             // A cancelled job doesn't come back on the next launch.
             let _ = store.remove(&job.id);
+            // Nor does a stopped install: the next one of the same package asks at once.
+            if job.options.install
+                && let Some(target) = &job.options.send
+            {
+                ports.installer.forget_package(&job.source, target);
+            }
             JobView::of(&job, JobState::Cancelled)
         }
     }

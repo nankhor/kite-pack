@@ -34,6 +34,11 @@ impl SonyInstaller {
     fn console(&self, target: &SendTarget) -> Console {
         Console::parse(&target.console, self.helper_port)
     }
+
+    /// The note for an install of `pkg` on `console`, named like its stable link.
+    fn marker(&self, pkg: &std::path::Path, console: &Console) -> std::path::PathBuf {
+        self.markers.join(format!("{}.started", PkgServer::stable_key(pkg, &console.address)))
+    }
 }
 
 impl Installer for SonyInstaller {
@@ -48,7 +53,12 @@ impl Installer for SonyInstaller {
         let console = self.console(target);
         let server = PkgServer::start_stable(pkg, &console.address).map_err(InstallError::Failed)?;
         let ops = HelperOps { console: &console, keys: &self.keys };
-        install_with(&ops, pkg, &info, &server, &self.markers, progress, cancel, &RealClock)
+        let marker = self.marker(pkg, &console);
+        install_with(&ops, pkg, &info, &server, &marker, progress, cancel, &RealClock)
+    }
+
+    fn forget_package(&self, pkg: &std::path::Path, target: &SendTarget) {
+        std::fs::remove_file(self.marker(pkg, &self.console(target))).ok();
     }
 
     fn is_installed(&self, pkg: &std::path::Path, target: &SendTarget) -> Result<bool, InstallError> {

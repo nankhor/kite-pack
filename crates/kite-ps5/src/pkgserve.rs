@@ -62,11 +62,14 @@ impl PkgServer {
     /// restart the console's installer finds the same link again (a random port when that one
     /// is taken).
     pub fn start_stable(pkg: &Path, console: &str) -> Result<PkgServer, String> {
-        let text = format!("{}\0{}", pkg.display(), console.trim());
-        let hash = text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
-        let port = 40_000 + (hash % 20_000) as u16;
-        PkgServer::start_on(pkg, console, port, format!("{hash:016x}"))
+        let hash = stable_hash(pkg, console);
+        PkgServer::start_on(pkg, console, stable_port(pkg, console), format!("{hash:016x}"))
             .or_else(|_| PkgServer::start_on(pkg, console, 0, format!("{hash:016x}")))
+    }
+
+    /// What names this package for this console, the same each time: the stable link's token.
+    pub fn stable_key(pkg: &Path, console: &str) -> String {
+        format!("{:016x}", stable_hash(pkg, console))
     }
 
     fn start_on(pkg: &Path, console: &str, port: u16, token: String) -> Result<PkgServer, String> {
@@ -234,6 +237,17 @@ fn parse_range(value: &str, size: u64) -> Option<(u64, u64)> {
     Some((start, end))
 }
 
+/// Below the ports the system hands out for outgoing connections (32768 up on Linux, 49152 up
+/// on Windows and macOS), so a browser tab can't be holding it when Kite Pack restarts.
+fn stable_port(pkg: &Path, console: &str) -> u16 {
+    20_000 + (stable_hash(pkg, console) % 10_000) as u16
+}
+
+fn stable_hash(pkg: &Path, console: &str) -> u64 {
+    let text = format!("{}\0{}", pkg.display(), console.trim());
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
 /// `name` as it can sit in a link: a game's file name often has spaces and brackets, which
 /// Sony's downloader would not take as they are.
 fn in_link(name: &str) -> String {
@@ -322,6 +336,16 @@ mod tests {
         get(server.url(), &format!("bytes={half}-"));
         assert_eq!(settles(&server, size), size);
         assert_eq!(server.requests(), 4);
+    }
+
+    #[test]
+    fn the_link_stays_clear_of_the_ports_the_system_hands_out() {
+        // Outgoing connections take ports from 32768 up (Linux) or 49152 up (Windows, macOS):
+        // a stable port there can be taken by a browser tab when Kite Pack restarts.
+        for n in 0..200 {
+            let port = stable_port(Path::new(&format!("/games/game {n}.pkg")), "192.168.1.42");
+            assert!((20_000..30_000).contains(&port), "{port}");
+        }
     }
 
     #[test]

@@ -6,7 +6,7 @@
 //! once, so progress counts each byte once, whatever the order. The install is confirmed by
 //! finding the package where Sony keeps it, with the same size, beginning and end.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -55,23 +55,16 @@ impl Clock for RealClock {
     }
 }
 
-/// The file that says an install of this link was asked for and hasn't been confirmed yet.
-pub(crate) fn marker(markers: &Path, server: &PkgServer) -> PathBuf {
-    let hash = server
-        .url()
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
-    markers.join(format!("{hash:016x}.started"))
-}
-
-/// Installs `pkg`, served by `server`, and waits until the PS5 has it.
+/// Installs `pkg`, served by `server`, and waits until the PS5 has it. `marker` is the note
+/// that says an install was asked for and not confirmed yet: it holds the link Sony was given,
+/// and outlives the app closing, so after a restart Sony gets time to come back to the link.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
     ops: &O,
     pkg: &Path,
     info: &PackageInfo,
     server: &PkgServer,
-    markers: &Path,
+    marker: &Path,
     progress: &dyn Fn(Progress),
     cancel: &AtomicBool,
     clock: &dyn Clock,
@@ -81,17 +74,17 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
     }
     let size = server.size();
     let local = Samples::of(pkg, size).map_err(|e| InstallError::Failed(format!("Couldn't read the package: {e}")))?;
-    let marker = marker(markers, server);
 
     if find_installed(ops, info, size, &local).map_err(from_ps5)? {
-        std::fs::remove_file(&marker).ok();
+        std::fs::remove_file(marker).ok();
         return Ok(InstallOutcome::AlreadyThere);
     }
 
     // Started before a restart: Sony may still be downloading from the same link. Give it time
-    // to come back before asking for a second install of the same package.
+    // to come back before asking for a second install of the same package. A note for another
+    // link (the usual port was taken) means Sony can't come back: ask at once.
     let mut carried_on = false;
-    if marker.exists() {
+    if std::fs::read_to_string(marker).is_ok_and(|link| link == server.url()) {
         let until = clock.now() + RESUME_WAIT;
         while clock.now() < until {
             if cancel.load(Ordering::SeqCst) {
@@ -110,7 +103,7 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
         if let Some(dir) = marker.parent() {
             std::fs::create_dir_all(dir).ok();
         }
-        std::fs::write(&marker, server.url()).ok();
+        std::fs::write(marker, server.url()).ok();
     }
 
     let finishing = Duration::from_secs((size / 50_000_000).max(15 * 60));
@@ -119,8 +112,8 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
     let mut last_check = clock.now();
     let mut nearly_all_at: Option<Instant> = None;
     loop {
+        // The note stays: closing the app lands here too, and the next launch carries on.
         if cancel.load(Ordering::SeqCst) {
-            std::fs::remove_file(&marker).ok();
             return Err(InstallError::Cancelled);
         }
         let now = clock.now();
@@ -141,12 +134,12 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
                 if shown < size {
                     progress(Progress::Bytes { done: size, total: size });
                 }
-                std::fs::remove_file(&marker).ok();
+                std::fs::remove_file(marker).ok();
                 return Ok(InstallOutcome::Installed);
             }
         }
         if !nearly_all && now.duration_since(last_change) >= STALL {
-            std::fs::remove_file(&marker).ok();
+            std::fs::remove_file(marker).ok();
             return Err(InstallError::Failed(
                 "The PS5 stopped downloading the package. Check it's still on and connected, then try again.".into(),
             ));
@@ -154,7 +147,7 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
         if let Some(at) = nearly_all_at
             && now.duration_since(at) >= finishing
         {
-            std::fs::remove_file(&marker).ok();
+            std::fs::remove_file(marker).ok();
             return Err(InstallError::Failed(
                 "The PS5 has the whole package but never finished installing it. Check the PS5's notifications.".into(),
             ));
@@ -298,6 +291,7 @@ impl ConsoleOps for HelperOps<'_> {
 mod tests {
     use super::*;
     use std::collections::HashMap;
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::io::{Read, Write};
     use std::sync::Mutex;
@@ -317,13 +311,26 @@ mod tests {
     struct FakePs5 {
         files: Mutex<HashMap<String, Vec<u8>>>,
         asked: Mutex<Vec<String>>,
+        /// How long after the start (on the test's clock) it was asked.
+        asked_after: Mutex<Option<Duration>>,
         does: Does,
         away: AtomicBool,
+        clock: FastClock,
+        start: Instant,
     }
 
     impl FakePs5 {
         fn new(does: Does) -> Arc<FakePs5> {
-            Arc::new(FakePs5 { files: Mutex::new(HashMap::new()), asked: Mutex::new(Vec::new()), does, away: AtomicBool::new(false) })
+            let start = Instant::now();
+            Arc::new(FakePs5 {
+                files: Mutex::new(HashMap::new()),
+                asked: Mutex::new(Vec::new()),
+                asked_after: Mutex::new(None),
+                does,
+                away: AtomicBool::new(false),
+                clock: FastClock(Mutex::new(start)),
+                start,
+            })
         }
 
         /// Sony's installer at work: fetches `url` from this computer, then installs.
@@ -385,6 +392,7 @@ mod tests {
                 return Err(Ps5Error::Unreachable("away".into()));
             }
             self.asked.lock().unwrap().push(name.to_string());
+            *self.asked_after.lock().unwrap() = Some(self.clock.now() - self.start);
             if let Does::Refuse(why) = &self.does {
                 return Err(Ps5Error::Failed(why.clone()));
             }
@@ -440,7 +448,7 @@ mod tests {
         pkg: PathBuf,
         bytes: Vec<u8>,
         info: PackageInfo,
-        markers: PathBuf,
+        marker: PathBuf,
     }
 
     fn setup(kind: &str) -> Setup {
@@ -467,8 +475,8 @@ mod tests {
             icon_data_url: None,
             packable: true,
         };
-        let markers = tmp.path().join("installs");
-        Setup { _tmp: tmp, pkg, bytes, info, markers }
+        let marker = tmp.path().join("installs").join("tide.started");
+        Setup { _tmp: tmp, pkg, bytes, info, marker }
     }
 
     fn run(s: &Setup, ps5: &Arc<FakePs5>, cancel: &AtomicBool) -> (Result<InstallOutcome, InstallError>, Vec<(u64, u64)>) {
@@ -479,8 +487,7 @@ mod tests {
                 seen.lock().unwrap().push((done, total));
             }
         };
-        let clock = FastClock(Mutex::new(Instant::now()));
-        let out = install_with(ps5, &s.pkg, &s.info, &server, &s.markers, &progress, cancel, &clock);
+        let out = install_with(ps5, &s.pkg, &s.info, &server, &s.marker, &progress, cancel, &ps5.clock);
         (out, seen.into_inner().unwrap())
     }
 
@@ -497,7 +504,7 @@ mod tests {
         assert_eq!(progress.last(), Some(&(size, size)));
         assert!(progress.iter().all(|&(d, t)| d <= t && t == size), "never past the whole");
         assert!(progress.windows(2).all(|w| w[0].0 <= w[1].0), "only goes up");
-        assert_eq!(std::fs::read_dir(&s.markers).map(|d| d.count()).unwrap_or(0), 0, "no marker left");
+        assert!(!s.marker.exists(), "no note left once it's confirmed");
     }
 
     #[test]
@@ -549,10 +556,10 @@ mod tests {
         let ps5 = FakePs5::new(Does::Install(GAME.into()));
         // Started before the restart: the marker is there and Sony keeps fetching the same link.
         let server = PkgServer::start_stable(&s.pkg, "127.0.0.1").unwrap();
-        std::fs::create_dir_all(&s.markers).unwrap();
-        std::fs::write(marker(&s.markers, &server), b"").unwrap();
         let url = server.url().to_string();
         drop(server);
+        std::fs::create_dir_all(s.marker.parent().unwrap()).unwrap();
+        std::fs::write(&s.marker, &url).unwrap();
         let later = Arc::clone(&ps5);
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(100));
@@ -567,11 +574,37 @@ mod tests {
         let s = setup("game");
         let ps5 = FakePs5::new(Does::Install(GAME.into()));
         let server = PkgServer::start_stable(&s.pkg, "127.0.0.1").unwrap();
-        std::fs::create_dir_all(&s.markers).unwrap();
-        std::fs::write(marker(&s.markers, &server), b"").unwrap();
+        let url = server.url().to_string();
         drop(server);
+        std::fs::create_dir_all(s.marker.parent().unwrap()).unwrap();
+        std::fs::write(&s.marker, &url).unwrap();
         assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
         assert_eq!(ps5.asked.lock().unwrap().len(), 1);
+        assert!(ps5.asked_after.lock().unwrap().unwrap() >= Duration::from_secs(90), "waited for Sony first");
+    }
+
+    #[test]
+    fn a_note_for_another_link_is_not_waited_for() {
+        let s = setup("game");
+        let ps5 = FakePs5::new(Does::Install(GAME.into()));
+        std::fs::create_dir_all(s.marker.parent().unwrap()).unwrap();
+        std::fs::write(&s.marker, "http://192.168.1.10:49999/0000/Ashen%20Tide.pkg").unwrap();
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
+        assert!(ps5.asked_after.lock().unwrap().unwrap() < Duration::from_secs(5), "asked at once");
+    }
+
+    #[test]
+    fn a_stopped_install_keeps_its_note_for_the_next_launch() {
+        let s = setup("game");
+        let ps5 = FakePs5::new(Does::StallHalfway);
+        let cancel = Arc::new(AtomicBool::new(false));
+        let later = Arc::clone(&cancel);
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            later.store(true, Ordering::SeqCst);
+        });
+        assert_eq!(run(&s, &ps5, &cancel).0, Err(InstallError::Cancelled));
+        assert!(s.marker.exists(), "closing the app mid-install keeps the note; Stop forgets it through the session");
     }
 
     #[test]

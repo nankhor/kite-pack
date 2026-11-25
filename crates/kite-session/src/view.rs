@@ -25,6 +25,8 @@ pub enum UiEvent {
         on_ps5: u64,
         estimate: u64,
     },
+    /// The window was asked to close while an install runs: the screen asks whether to.
+    CloseAsked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

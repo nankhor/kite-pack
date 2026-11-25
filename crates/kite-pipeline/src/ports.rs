@@ -233,6 +233,10 @@ pub trait Installer: Send + Sync {
     ) -> Result<InstallOutcome, InstallError> {
         Err(InstallError::Failed("This Kite Pack can't install packages".into()))
     }
+
+    /// The person stopped installing `pkg`: forget it was going on, so the next install of it
+    /// asks the PS5 at once instead of waiting for the stopped one to come back.
+    fn forget_package(&self, _pkg: &Path, _target: &SendTarget) {}
 }
 
 pub trait Sleeper: Send + Sync {
