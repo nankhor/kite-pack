@@ -32,6 +32,8 @@ export type ImageSize = "cover_small" | "cover_big" | "screenshot_med" | "screen
 
 /** IGDB's picture links need no key. */
 export function igdbImage(id: string, size: ImageSize): string {
+  // An IGDB id never holds a ":"; a whole address (the demo's drawings) is used as it is.
+  if (id.includes(":")) return id;
   return `https://images.igdb.com/igdb/image/upload/t_${size}/${id}.jpg`;
 }
 

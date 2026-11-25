@@ -85,7 +85,7 @@ class FakeBackend implements Backend {
   unfinished = vi.fn(async () => this.left);
   initialPath = vi.fn(async () => this.initial);
   pickFolder = vi.fn(async () => "/Games/Ashen Tide");
-  pickFile = vi.fn(async () => null);
+  pickFile = vi.fn(async (): Promise<string | null> => null);
   reveal = vi.fn(async (_path: string) => {});
   settings = vi.fn(async () => ({ ...this.cfg }));
   saveSettings = vi.fn(async (s: Settings) => {
@@ -1535,7 +1535,7 @@ describe("a package", () => {
     });
   }
 
-  it("offers to install it, and still to pack a PS5 game package", async () => {
+  it("offers to install it, and nothing else on Install", async () => {
     backend.games.set("/Games/Ashen Tide.pkg", PS5_PKG);
     await showPackage("/Games/Ashen Tide.pkg", "Ashen Tide");
     expect(
@@ -1543,7 +1543,8 @@ describe("a package", () => {
         "Installs on the PS5 straight from this computer: nothing is copied to the PS5 first. Keep Kite Pack open until it's done.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pack" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Pack/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Options" })).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Install on PS5" }));
     expect(backend.install).toHaveBeenCalledWith("/Games/Ashen Tide.pkg");
     expect(backend.start).not.toHaveBeenCalled();
@@ -1556,12 +1557,33 @@ describe("a package", () => {
     expect(screen.getByText("12.4 GB of 45.6 GB on the PS5")).toBeInTheDocument();
   });
 
-  it("only installs a PS4 package", async () => {
+  it("still packs a PS5 game package, from Pack", async () => {
+    backend.games.set("/Games/Ashen Tide.pkg", PS5_PKG);
+    await showPackage("/Games/Ashen Tide.pkg", "Ashen Tide");
+    await userEvent.click(nav("Pack"));
+    expect(await screen.findByRole("heading", { name: "Ashen Tide" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Install on PS5" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide.pkg", expect.anything());
+  });
+
+  it("only installs a PS4 package: Pack doesn't take it", async () => {
     backend.games.set("/Games/Old Harbor.pkg", PS4_PKG);
     await showPackage("/Games/Old Harbor.pkg", "Old Harbor");
-    expect(screen.getByText("This package installs as it is; it can't be packed.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Pack/ })).toBeNull();
     expect(screen.getByRole("button", { name: "Install on PS5" })).toBeInTheDocument();
+    await userEvent.click(nav("Pack"));
+    expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
+  });
+
+  it("asks for a package on an empty Install page", async () => {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await userEvent.click(nav("Install"));
+    expect(await screen.findByText("Drop a .pkg or .fpkg here")).toBeInTheDocument();
+    backend.pickFile = vi.fn(async () => "/Games/Ashen Tide.pkg");
+    backend.games.set("/Games/Ashen Tide.pkg", PS5_PKG);
+    await userEvent.click(screen.getByRole("button", { name: "Choose a package" }));
+    expect(await screen.findByRole("button", { name: "Install on PS5" })).toBeInTheDocument();
   });
 
   it("asks before closing during an install", async () => {
