@@ -47,6 +47,8 @@ describe("formatSize", () => {
     expect(formatSize(716_978)).toBe("717 KB");
     expect(formatSize(6_100_000_000)).toBe("6.1 GB");
     expect(formatSize(0)).toBe("0 bytes");
+    expect(formatSize(2_000_000_000_000)).toBe("2.0 TB");
+    expect(formatSize(1_190_000_000_000)).toBe("1.2 TB");
   });
 });
 

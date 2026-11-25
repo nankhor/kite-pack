@@ -161,7 +161,7 @@ describe("the PS5 connection, in Settings", () => {
     backend.cfg.address = "192.168.1.42";
     render(<App backend={backend} />);
     await userEvent.click(await screen.findByRole("link", { name: /^My games/ }));
-    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "My games" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Find my PS5" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
   });

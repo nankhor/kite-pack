@@ -1863,141 +1863,214 @@
   color: var(--text);
 }
 
-/* The PS5 tab: what the console has, as a list like History. */
+/* My games: the drives, then the games as cards. */
 
-.library {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+.search {
+  min-height: 36px;
+  width: 280px;
+  max-width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--fg);
+  font-size: 14px;
+  user-select: text;
 }
 
-.library-top {
+.search::placeholder {
+  color: var(--muted);
+}
+
+.drives {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
   gap: 16px;
 }
 
-.library-heading {
+.drive {
+  flex: 1 1 280px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-
-.library-title {
-  margin: 0;
-  font-size: 40px;
-  line-height: 1;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-
-.library-sub,
-.library-note {
-  margin: 0;
-  color: var(--note);
-  font-size: 15px;
-}
-
-.library-search {
-  max-width: 360px;
-  min-height: 40px;
-  padding: 0 14px;
-  border-radius: 999px;
+  gap: 10px;
+  padding: 16px 18px;
   border: 1px solid var(--line);
-  background: var(--fill);
-  color: var(--text);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.drive-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.drive-name {
+  font-weight: 500;
+}
+
+.drive-path {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.drive-free {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--soft);
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary);
+}
+
+.game-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.game-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  color: var(--fg);
   font: inherit;
-}
-
-.library-row {
+  text-align: left;
   cursor: pointer;
+  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
 }
 
-.library-row:hover {
+.game-tile:hover {
+  border-color: var(--line2);
+  box-shadow: var(--lift);
+}
+
+.game-tile-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.game-tile-icon {
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 10px;
+  object-fit: cover;
   background: var(--soft);
 }
 
-/* The title opens the game's page: it reads as the title, and the whole row is the target. */
-.library-table .history-title {
-  align-self: flex-start;
-  min-height: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-size: 16px;
-  font-weight: 700;
-  text-align: left;
-  text-decoration: none;
-  white-space: normal;
-  overflow-wrap: anywhere;
-  cursor: pointer;
+.game-tile-icon.placeholder {
+  display: grid;
+  place-items: center;
 }
 
-.library-row:hover .history-title {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-
-.ps5-game-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.ps5-game-badge {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ok);
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 3px 8px;
-}
-
-.ps5-dlc {
-  margin-top: 18px;
-}
-
-.ps5-dlc h2 {
-  font-size: 13px;
+.game-tile-icon.placeholder::before {
+  content: attr(data-letter);
+  color: var(--muted);
+  font-size: 18px;
   font-weight: 600;
-  color: var(--ink-dim);
-  margin: 0 0 8px;
 }
 
-.ps5-dlc-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
+.game-tile-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.game-tile-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-tile-id {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.game-tile-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
-.ps5-dlc-list li {
-  font-size: 11px;
-  color: var(--ink-dim);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 3px 6px;
+.game-tile-size {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 
-.library-table .chip.update {
-  min-height: 26px;
+.game-tile-bytes {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
-.library-table .dim {
-  color: var(--dim);
-}
-
-.game-card-note {
-  margin-top: 2px;
+.size-note {
+  color: var(--muted);
   font-size: 12px;
-  color: var(--warn);
+}
+
+.library-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+/* A game's page on the PS5: the Back button over the card, its add-ons in a card. */
+.ps5-game-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ps5-dlc {
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.ps5-dlc h2 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ps5-dlc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 13px;
 }
 
 /* One Add DLC button, with its two ways in. */

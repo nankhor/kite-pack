@@ -715,14 +715,14 @@ function Screens({
               />
             )
           ) : (
-            <section className="library" aria-label="Games on the PS5">
-              <div className="library-top">
-                <div className="library-heading">
-                  <h1 className="library-title">On the PS5</h1>
-                  <p className="library-sub">No PS5 set up yet. Choose yours in Settings, and its games show up here.</p>
+            <section className="list-page library" aria-label="Games on the PS5">
+              <div className="list-head">
+                <div>
+                  <h1 className="page-title">My games</h1>
+                  <p className="page-sub">No PS5 set up yet. Choose yours in Settings, and its games show up here.</p>
                 </div>
-                <div className="buttons">
-                  <button className="button secondary" onClick={() => showView("settings")}>
+                <div className="list-tools">
+                  <button className="button primary" onClick={() => showView("settings")}>
                     Open Settings
                   </button>
                 </div>

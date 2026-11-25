@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Backend } from "../backend";
 import { dumpNote, formatSize } from "../model";
-import type { GameIcon, InstalledGame, Library as LibraryData, Measured } from "../types";
+import type { FreeSpace, GameIcon, InstalledGame, Library as LibraryData, Measured } from "../types";
 
 interface Props {
   backend: Backend;
@@ -26,13 +26,39 @@ type Loaded =
   | { phase: "ready"; library: LibraryData }
   | { phase: "failed"; message: string };
 
-/** The tile of an installed title, or a stand-in with its first letter. */
+/** The tile of an installed title, or a stand-in with its first letter (drawn by CSS). */
 function Tile({ game, icon }: { game: InstalledGame; icon?: string }) {
-  if (icon) return <img className="history-icon" src={icon} alt="" />;
+  if (icon) return <img className="game-tile-icon" src={icon} alt="" />;
+  return <span className="game-tile-icon placeholder" aria-hidden="true" data-letter={game.title.slice(0, 1).toUpperCase()} />;
+}
+
+/** The extended drives a PS5 can have; each shows only when the console answers for it. */
+const EXTENDED = ["/mnt/ext0", "/mnt/ext1"];
+
+interface Drive {
+  path: string;
+  name: string;
+  room: FreeSpace;
+  /** Where games go: its words say so. */
+  games: boolean;
+}
+
+/** One drive: how full it is, and what's left. */
+function DriveCard({ drive }: { drive: Drive }) {
+  const used = drive.room.total > 0 ? Math.round(((drive.room.total - drive.room.free) / drive.room.total) * 100) : 0;
   return (
-    <span className="history-icon placeholder" aria-hidden="true">
-      {game.title.slice(0, 1).toUpperCase()}
-    </span>
+    <div className="drive">
+      <div className="drive-head">
+        <span className="drive-name">{drive.name}</span>
+        <span className="drive-path">{drive.path}</span>
+      </div>
+      <div className="bar" role="progressbar" aria-label={`${drive.name} used`} aria-valuenow={used} aria-valuemin={0} aria-valuemax={100}>
+        <i style={{ width: `${used}%` }} />
+      </div>
+      <span className="drive-free">
+        {formatSize(drive.room.usable)} free{drive.games ? " where games go" : ""}, of {formatSize(drive.room.total)}
+      </span>
+    </div>
   );
 }
 
@@ -48,7 +74,7 @@ export function Library({ backend, onBack, destination, statusNote, sizes, notes
   const [loaded, setLoaded] = useState<Loaded>({ phase: "loading" });
   const [icons, setIcons] = useState<Record<string, string>>({});
   const [query, setQuery] = useState("");
-  const [free, setFree] = useState<number | null>(null);
+  const [drives, setDrives] = useState<Drive[]>([]);
 
   const load = useCallback(async () => {
     setLoaded({ phase: "loading" });
@@ -60,10 +86,17 @@ export function Library({ backend, onBack, destination, statusNote, sizes, notes
         .libraryIcons(library.games.map((g) => g.titleId))
         .then((got: GameIcon[]) => setIcons(Object.fromEntries(got.map((i) => [i.titleId, i.dataUrl]))))
         .catch(() => {});
-      void backend
-        .freeSpace(destination)
-        .then((room) => setFree(room.usable))
-        .catch(() => setFree(null));
+      // Where games go, then each extended drive that answers; one that doesn't is left out.
+      void Promise.all(
+        [destination, ...EXTENDED].map((path, i) =>
+          backend
+            .freeSpace(path)
+            .then((room): Drive | null =>
+              room.total > 0 ? { path, room, games: i === 0, name: i === 0 ? "Where games go" : "Extended drive" } : null,
+            )
+            .catch(() => null),
+        ),
+      ).then((found) => setDrives(found.filter((d): d is Drive => d !== null)));
     } catch (e) {
       setLoaded({ phase: "failed", message: String(e) });
     }
@@ -95,31 +128,41 @@ export function Library({ backend, onBack, destination, statusNote, sizes, notes
         : `${games.length} ${games.length === 1 ? "title" : "titles"} installed`;
 
   return (
-    <section className="library" aria-label="Games on the PS5">
-      <div className="library-top">
-        <div className="library-heading">
-          <h1 className="library-title">On the PS5</h1>
-          <p className="library-sub">
-            <span>{heading}</span>
-            {free !== null && (
-              <span>
-                {" · "}
-                {formatSize(free)} free where games go
-              </span>
-            )}
-          </p>
+    <section className="list-page library" aria-label="Games on the PS5">
+      <div className="list-head">
+        <div>
+          <h1 className="page-title">My games</h1>
+          <p className="page-sub">{heading}</p>
         </div>
-        <div className="buttons">
-          <button className="button secondary" onClick={() => void load()} disabled={loaded.phase === "loading"}>
+        <div className="list-tools">
+          {games.length > 0 && (
+            <input
+              className="search"
+              type="search"
+              aria-label="Search games"
+              placeholder="Search by name or title id"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          )}
+          <button className="small-button" onClick={() => void load()} disabled={loaded.phase === "loading"}>
             Refresh
           </button>
           {onBack && (
-            <button className="button secondary" onClick={onBack}>
+            <button className="small-button" onClick={onBack}>
               Back
             </button>
           )}
         </div>
       </div>
+
+      {drives.length > 0 && (
+        <section className="drives" aria-label="Space on the PS5">
+          {drives.map((d) => (
+            <DriveCard key={d.path} drive={d} />
+          ))}
+        </section>
+      )}
 
       {loaded.phase === "failed" && (
         <p role="alert" className="message">
@@ -136,80 +179,47 @@ export function Library({ backend, onBack, destination, statusNote, sizes, notes
         </p>
       )}
 
-      {games.length > 0 && (
-        <input
-          className="library-search"
-          type="search"
-          aria-label="Search games"
-          placeholder="Search by name or title id"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
-      )}
-
       {shown.length > 0 && (
-        <div className="table-box">
-          <table className="history-table library-table">
-            <thead>
-              <tr>
-                <th scope="col">Game</th>
-                <th scope="col">Version</th>
-                <th scope="col">Update</th>
-                <th scope="col">DLC</th>
-                <th scope="col">Storage</th>
-                <th scope="col">Size</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((game) => {
-                const measured = sizes[game.titleId];
-                return (
-                  <tr key={game.titleId} className="library-row" onClick={() => onOpen(game, icons[game.titleId])}>
-                    <td>
-                      <span className="history-game">
-                        <Tile game={game} icon={icons[game.titleId]} />
-                        <span className="history-name">
-                          <button
-                            className="link-button history-title"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpen(game, icons[game.titleId]);
-                            }}
-                          >
-                            {game.title}
-                          </button>
-                          <span className="history-dlc">{game.titleId}</span>
-                        </span>
+        <div className="game-grid">
+          {shown.map((game) => {
+            const measured = sizes[game.titleId];
+            return (
+              <button key={game.titleId} className="game-tile" onClick={() => onOpen(game, icons[game.titleId])}>
+                <span className="game-tile-top">
+                  <Tile game={game} icon={icons[game.titleId]} />
+                  <span className="game-tile-name">
+                    <span className="game-tile-title">{game.title}</span>
+                    <span className="game-tile-id">{game.titleId}</span>
+                  </span>
+                </span>
+                <span className="game-tile-tags">
+                  <span className="chip">Version {version(game.version)}</span>
+                  {game.updateInstalled && <span className="chip update">Update</span>}
+                  {game.dlc.length > 0 && <span className="chip">{game.dlc.length} DLC</span>}
+                  <span className="chip">{game.external ? "Extended" : "Internal"}</span>
+                </span>
+                <span className="game-tile-size">
+                  {measured ? (
+                    <>
+                      <span className="game-tile-bytes">
+                        {formatSize(measured.bytes)}
+                        {measured.partial ? " (at least)" : ""}
                       </span>
-                    </td>
-                    <td className="num">{version(game.version)}</td>
-                    <td>{game.updateInstalled ? <span className="chip update">Installed</span> : <span className="dim">–</span>}</td>
-                    <td className="num">{game.dlc.length > 0 ? `${game.dlc.length} DLC` : <span className="dim">–</span>}</td>
-                    <td>{game.external ? "Extended" : "Internal"}</td>
-                    <td className="num">
-                      {measured ? (
-                        <span className="size-cell">
-                          <span>
-                            {formatSize(measured.bytes)}
-                            {measured.partial ? " (at least)" : ""}
-                          </span>
-                          <span className="size-note" title={measured.dumps.join("\n") || undefined}>
-                            {dumpNote(measured)}
-                          </span>
-                        </span>
-                      ) : notes[game.titleId] ? (
-                        <span role="alert" className="size-note">
-                          {notes[game.titleId]}
-                        </span>
-                      ) : (
-                        <span className="dim">Measuring…</span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <span className="size-note" title={measured.dumps.join("\n") || undefined}>
+                        {dumpNote(measured)}
+                      </span>
+                    </>
+                  ) : notes[game.titleId] ? (
+                    <span role="alert" className="size-note">
+                      {notes[game.titleId]}
+                    </span>
+                  ) : (
+                    <span className="size-note">Measuring…</span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
       {loaded.phase === "ready" && games.length > 0 && shown.length === 0 && (

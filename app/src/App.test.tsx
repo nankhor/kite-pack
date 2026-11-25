@@ -155,7 +155,7 @@ class FakeBackend implements Backend {
     partial: false,
   };
   measureApp = vi.fn(async () => this.measured);
-  freeSpace = vi.fn(async () => ({ total: 1_000_000_000_000, free: 500_000_000_000, usable: 480_000_000_000, reserve: 10_000_000_000 }));
+  freeSpace = vi.fn(async (_path: string) => ({ total: 1_000_000_000_000, free: 500_000_000_000, usable: 480_000_000_000, reserve: 10_000_000_000 }));
   startHelper = vi.fn(async (): Promise<StartOutcome> => "sent");
   /** DLC packages for Ashen Tide, by path; anything else isn't its DLC. */
   dlc = new Map<string, DlcInfo>();
@@ -691,7 +691,7 @@ describe("sidebar", () => {
     await screen.findByText("Drop a game here");
     expect(nav("Pack")).toHaveAttribute("aria-current", "page");
     await userEvent.click(nav("My games"));
-    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "My games" })).toBeInTheDocument();
     expect(nav("My games")).toHaveAttribute("aria-current", "page");
     expect(nav("Pack")).not.toHaveAttribute("aria-current");
     await userEvent.click(nav("History"));
@@ -1015,14 +1015,32 @@ describe("what's installed on the PS5", () => {
     expect(backend.library).not.toHaveBeenCalled();
     await userEvent.click(nav("My games"));
 
-    const row = (await screen.findByText("Ashen Tide")).closest("tr")!;
-    expect(within(row).getByText("PPSA00001")).toBeInTheDocument();
-    expect(within(row).getByText("1.05")).toBeInTheDocument();
-    expect(within(row).getByText("Installed")).toBeInTheDocument();
-    expect(within(row).getByText("Internal")).toBeInTheDocument();
-    expect(screen.getByText("2 DLC")).toBeInTheDocument();
+    const card = await screen.findByRole("button", { name: /^Ashen Tide/ });
+    expect(within(card).getByText("PPSA00001")).toBeInTheDocument();
+    expect(within(card).getByText("Version 1.05")).toBeInTheDocument();
+    expect(within(card).getByText("Update")).toBeInTheDocument();
+    expect(within(card).getByText("Internal")).toBeInTheDocument();
+    expect(within(card).getByText("2 DLC")).toBeInTheDocument();
     expect(backend.library).toHaveBeenCalled();
     expect(await screen.findByText(/free where games go/)).toBeInTheDocument();
+  });
+
+  it("shows the free space on each drive the PS5 has", async () => {
+    backend.installed = [ASHEN];
+    backend.cfg.address = "192.168.1.42";
+    backend.freeSpace = vi.fn(async (path: string) => {
+      if (path === "/mnt/ext1") return { total: 2_000_000_000_000, free: 1_200_000_000_000, usable: 1_190_000_000_000, reserve: 0 };
+      if (path === "/mnt/ext0") throw "That isn't on the PS5";
+      return { total: 825_000_000_000, free: 318_600_000_000, usable: 308_000_000_000, reserve: 10_000_000_000 };
+    });
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await userEvent.click(nav("My games"));
+    const drives = await screen.findByRole("region", { name: "Space on the PS5" });
+    expect(await within(drives).findByText("308.0 GB free where games go, of 825.0 GB")).toBeInTheDocument();
+    expect(await within(drives).findByText("1.2 TB free, of 2.0 TB")).toBeInTheDocument();
+    expect(within(drives).getByText("Extended drive")).toBeInTheDocument();
+    expect(within(drives).queryByText("/mnt/ext0")).toBeNull();
   });
 
   it("measures a title's size as soon as the library lists it", async () => {
@@ -1054,7 +1072,7 @@ describe("what's installed on the PS5", () => {
     expect(screen.getByText("SPDLC02")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /Back to the library/ }));
-    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Ashen Tide/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Back to the library/ })).not.toBeInTheDocument();
   });
 
@@ -1083,7 +1101,7 @@ describe("what's installed on the PS5", () => {
     backend.installed = [ASHEN];
     render(<App backend={backend} />);
     await userEvent.click(await screen.findByRole("button", { name: /See what/ }));
-    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "My games" })).toBeInTheDocument();
     expect(await screen.findByText("Ashen Tide")).toBeInTheDocument();
     expect(nav("My games")).toHaveAttribute("aria-current", "page");
   });
