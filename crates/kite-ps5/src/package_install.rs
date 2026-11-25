@@ -32,8 +32,9 @@ const STALL: Duration = Duration::from_secs(10 * 60);
 pub(crate) trait ConsoleOps {
     /// Asks Sony's installer to install the package at `url`, shown as `name`.
     fn request_install(&self, url: &str, name: &str) -> Result<(), Ps5Error>;
-    /// The size of the file at `path`, or `None` when there's no file there.
-    fn stat_size(&self, path: &str) -> Result<Option<u64>, Ps5Error>;
+    /// The size of the file at `path` and when it was last written, or `None` when there's no
+    /// file there.
+    fn stat(&self, path: &str) -> Result<Option<(u64, i64)>, Ps5Error>;
     fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, Ps5Error>;
     /// The names in the folder `path`, each with whether it is a folder; empty when it's missing.
     fn list(&self, path: &str) -> Result<Vec<(String, bool)>, Ps5Error>;
@@ -73,12 +74,16 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
         return Err(InstallError::Cancelled);
     }
     let size = server.size();
-    let local = Samples::of(pkg, size).map_err(|e| InstallError::Failed(format!("Couldn't read the package: {e}")))?;
+    let local = Identity::of(pkg, info, size).map_err(|e| InstallError::Failed(format!("Couldn't read the package: {e}")))?;
 
-    if find_installed(ops, info, size, &local).map_err(from_ps5)? {
+    // A PS5 package already there under its content id but with other bytes is an older build:
+    // installed over, and its file as it is now tells the new one apart once Sony rewrites it.
+    let before = find_installed(ops, info, &local).map_err(from_ps5)?;
+    if before.as_ref().is_some_and(|f| f.same) {
         std::fs::remove_file(marker).ok();
         return Ok(InstallOutcome::AlreadyThere);
     }
+    let older = before.map(|f| (f.size, f.mtime));
 
     // Started before a restart: Sony may still be downloading from the same link. Give it time
     // to come back before asking for a second install of the same package. A note for another
@@ -111,6 +116,9 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
     let mut last_change = clock.now();
     let mut last_check = clock.now();
     let mut nearly_all_at: Option<Instant> = None;
+    // A PS5 package's file as the last check saw it, with the bytes served then: the same twice
+    // running, and nothing more fetched in between, means Sony has finished writing it.
+    let mut last_seen: Option<(u64, i64, u64)> = None;
     loop {
         // The note stays: closing the app lands here too, and the next launch carries on.
         if cancel.load(Ordering::SeqCst) {
@@ -130,7 +138,21 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
         if now.duration_since(last_check) >= CHECK_EVERY || (nearly_all && nearly_all_at == Some(now)) {
             last_check = now;
             // A check that fails is not the install failing: the bytes say whether it goes on.
-            if find_installed(ops, info, size, &local).unwrap_or(false) {
+            let found = find_installed(ops, info, &local).ok().flatten();
+            let done = match (&local, found) {
+                (Identity::Exact { .. }, Some(_)) => true,
+                (Identity::Content { .. }, Some(f)) if Some((f.size, f.mtime)) != older => {
+                    let seen = (f.size, f.mtime, got);
+                    let settled = last_seen == Some(seen);
+                    last_seen = Some(seen);
+                    settled
+                }
+                _ => {
+                    last_seen = None;
+                    false
+                }
+            };
+            if done {
                 if shown < size {
                     progress(Progress::Bytes { done: size, total: size });
                 }
@@ -156,28 +178,77 @@ pub(crate) fn install_with<O: ConsoleOps + ?Sized>(
     }
 }
 
-/// The beginning and the end of a package, to recognise it on the PS5.
-struct Samples {
-    head: Vec<u8>,
-    tail: Vec<u8>,
+/// How a package is recognised on the PS5 once it is installed.
+enum Identity {
+    /// A PS4 package lands as the very bytes served: the same size, beginning and end.
+    Exact { size: u64, head: Vec<u8>, tail: Vec<u8> },
+    /// A PS5 fake package is an outer container: the PS5 keeps the image inside it, another size
+    /// and other bytes (ps5upload saw 1,345,936,761 bytes served become a 1,333,460,992-byte
+    /// `app.pkg`). Its header still names the content id, and its beginning is the image's.
+    Content { content_id: String, head: Vec<u8> },
 }
 
-impl Samples {
-    fn of(pkg: &Path, size: u64) -> std::io::Result<Samples> {
-        use std::io::{Read, Seek, SeekFrom};
+impl Identity {
+    fn of(pkg: &Path, info: &PackageInfo, size: u64) -> std::io::Result<Identity> {
         let mut f = std::fs::File::open(pkg)?;
+        if info.platform == "ps5" {
+            let base = image_base(&read_local(&mut f, 0, 0xA0)?).unwrap_or(0).min(size);
+            let head = read_local(&mut f, base, SAMPLE.min(size - base))?;
+            return Ok(Identity::Content { content_id: info.content_id.clone(), head });
+        }
         let len = SAMPLE.min(size);
-        let mut head = vec![0; len as usize];
-        f.read_exact(&mut head)?;
-        let mut tail = vec![0; len as usize];
-        f.seek(SeekFrom::Start(size - len))?;
-        f.read_exact(&mut tail)?;
-        Ok(Samples { head, tail })
+        Ok(Identity::Exact { size, head: read_local(&mut f, 0, len)?, tail: read_local(&mut f, size - len, len)? })
     }
 }
 
-/// Whether the package is on the PS5 where Sony keeps that kind of package.
-fn find_installed<O: ConsoleOps + ?Sized>(ops: &O, info: &PackageInfo, size: u64, local: &Samples) -> Result<bool, Ps5Error> {
+fn read_local(f: &mut std::fs::File, at: u64, len: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    f.seek(SeekFrom::Start(at))?;
+    let mut out = Vec::with_capacity(len as usize);
+    f.take(len).read_to_end(&mut out)?;
+    Ok(out)
+}
+
+const CNT: u32 = 0x7F43_4E54;
+const FIH: u32 = 0x7F46_4948;
+
+/// Where the package image starts: at the offset a `\x7FFIH` container's header gives, or at 0
+/// for a bare `\x7FCNT` package. None for anything else.
+fn image_base(header: &[u8]) -> Option<u64> {
+    if header.len() < 0x60 {
+        return None;
+    }
+    match u32::from_be_bytes(header[0..4].try_into().ok()?) {
+        FIH if u16::from_le_bytes([header[6], header[7]]) == 3 => Some(u64::from_le_bytes(header[0x58..0x60].try_into().ok()?)),
+        CNT => Some(0),
+        _ => None,
+    }
+}
+
+/// The content id in the header of the package at `path` on the PS5, inside its container if
+/// it has one.
+fn content_id_on<O: ConsoleOps + ?Sized>(ops: &O, path: &str) -> Result<Option<(String, u64)>, Ps5Error> {
+    let outer = ops.read_at(path, 0, 0xA0)?;
+    let Some(base) = image_base(&outer) else { return Ok(None) };
+    let head = if base == 0 { outer } else { ops.read_at(path, base, 0xA0)? };
+    if head.len() < 0x40 + 36 || head[0..4] != CNT.to_be_bytes() {
+        return Ok(None);
+    }
+    let raw = &head[0x40..0x40 + 36];
+    let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+    Ok(Some((String::from_utf8_lossy(&raw[..end]).trim().to_string(), base)))
+}
+
+/// The package found where Sony keeps its kind: its file now, and whether it is this very
+/// package (a PS5 one with the same content id may be another build).
+struct Found {
+    size: u64,
+    mtime: i64,
+    same: bool,
+}
+
+/// The package on the PS5, where Sony keeps that kind of package.
+fn find_installed<O: ConsoleOps + ?Sized>(ops: &O, info: &PackageInfo, local: &Identity) -> Result<Option<Found>, Ps5Error> {
     let id = &info.title_id;
     let mut places: Vec<String> = Vec::new();
     match info.kind.as_str() {
@@ -203,15 +274,28 @@ fn find_installed<O: ConsoleOps + ?Sized>(ops: &O, info: &PackageInfo, size: u64
         }
     }
     for place in places {
-        if ops.stat_size(&place)? != Some(size) {
-            continue;
-        }
-        let len = local.head.len();
-        if ops.read_at(&place, 0, len)? == local.head && ops.read_at(&place, size - len as u64, len)? == local.tail {
-            return Ok(true);
+        let Some((size, mtime)) = ops.stat(&place)? else { continue };
+        match local {
+            Identity::Exact { size: want, head, tail } => {
+                let len = head.len();
+                if size == *want
+                    && ops.read_at(&place, 0, len)? == *head
+                    && ops.read_at(&place, size - len as u64, len)? == *tail
+                {
+                    return Ok(Some(Found { size, mtime, same: true }));
+                }
+            }
+            Identity::Content { content_id, head } => {
+                if let Some((id, base)) = content_id_on(ops, &place)?
+                    && id == *content_id
+                {
+                    let same = ops.read_at(&place, base, head.len())? == *head;
+                    return Ok(Some(Found { size, mtime, same }));
+                }
+            }
         }
     }
-    Ok(false)
+    Ok(None)
 }
 
 fn is_pkg(name: &str) -> bool {
@@ -251,13 +335,13 @@ impl ConsoleOps for HelperOps<'_> {
         crate::install_url(self.console, self.keys, url, name)
     }
 
-    fn stat_size(&self, path: &str) -> Result<Option<u64>, Ps5Error> {
+    fn stat(&self, path: &str) -> Result<Option<(u64, i64)>, Ps5Error> {
         runtime().block_on(async {
             let s = open(self.console, &self.keys.checker, self.keys).await?;
             let out = meta::stat(&s, path).await;
             s.close().await;
             match out {
-                Ok(e) if e.kind == "file" => Ok(Some(e.size)),
+                Ok(e) if e.kind == "file" => Ok(Some((e.size, e.mtime))),
                 Ok(_) | Err(MetaError::NotFound) | Err(MetaError::Path) => Ok(None),
                 Err(e) => Err(meta::into_ps5(e)),
             }
@@ -300,8 +384,14 @@ mod tests {
     /// How the fake PS5 answers an install request.
     #[derive(Clone)]
     enum Does {
-        /// Fetches everything (the end first, one range twice), then the file is at `path`.
+        /// Fetches everything (the end first, one range twice), then the file is at `path`, the
+        /// same bytes it fetched (a PS4 package).
         Install(String),
+        /// As Install, but what lands at `path` is the image inside the package, from the given
+        /// offset on: what the PS5 keeps of a PS5 fake package.
+        InstallInner(String, usize),
+        /// As InstallInner, but the last 2% of the package is never fetched.
+        InstallInnerPartly(String, usize),
         /// Fetches half, then nothing more.
         StallHalfway,
         /// Refuses with this message.
@@ -309,7 +399,9 @@ mod tests {
     }
 
     struct FakePs5 {
-        files: Mutex<HashMap<String, Vec<u8>>>,
+        /// Each file and when it was last written (a counter).
+        files: Mutex<HashMap<String, (Vec<u8>, i64)>>,
+        writes: std::sync::atomic::AtomicI64,
         asked: Mutex<Vec<String>>,
         /// How long after the start (on the test's clock) it was asked.
         asked_after: Mutex<Option<Duration>>,
@@ -324,6 +416,7 @@ mod tests {
             let start = Instant::now();
             Arc::new(FakePs5 {
                 files: Mutex::new(HashMap::new()),
+                writes: std::sync::atomic::AtomicI64::new(0),
                 asked: Mutex::new(Vec::new()),
                 asked_after: Mutex::new(None),
                 does,
@@ -331,6 +424,16 @@ mod tests {
                 clock: FastClock(Mutex::new(start)),
                 start,
             })
+        }
+
+        /// Writes a file, as the PS5 would.
+        fn put(&self, path: &str, bytes: Vec<u8>) {
+            let at = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
+            self.files.lock().unwrap().insert(path.to_string(), (bytes, at));
+        }
+
+        fn file(&self, path: &str) -> Vec<u8> {
+            self.files.lock().unwrap()[path].0.clone()
         }
 
         /// Sony's installer at work: fetches `url` from this computer, then installs.
@@ -346,7 +449,11 @@ mod tests {
                 let tail = size.saturating_sub(64 * 1024);
                 take(tail, size - 1);
                 let step = 1 << 20;
-                let stop = if matches!(me.does, Does::StallHalfway) { size / 2 } else { size };
+                let stop = match me.does {
+                    Does::StallHalfway => size / 2,
+                    Does::InstallInnerPartly(..) => size - size / 50,
+                    _ => size,
+                };
                 let mut at = 0;
                 while at < stop {
                     let end = (at + step).min(stop) - 1;
@@ -356,8 +463,10 @@ mod tests {
                     }
                     at = end + 1;
                 }
-                if let Does::Install(path) = &me.does {
-                    me.files.lock().unwrap().insert(path.clone(), got);
+                match &me.does {
+                    Does::Install(path) => me.put(path, got),
+                    Does::InstallInner(path, base) | Does::InstallInnerPartly(path, base) => me.put(path, got[*base..].to_vec()),
+                    _ => {}
                 }
             });
         }
@@ -399,15 +508,15 @@ mod tests {
             self.fetch(url.to_string());
             Ok(())
         }
-        fn stat_size(&self, path: &str) -> Result<Option<u64>, Ps5Error> {
+        fn stat(&self, path: &str) -> Result<Option<(u64, i64)>, Ps5Error> {
             if self.away.load(Ordering::SeqCst) {
                 return Err(Ps5Error::Unreachable("away".into()));
             }
-            Ok(self.files.lock().unwrap().get(path).map(|b| b.len() as u64))
+            Ok(self.files.lock().unwrap().get(path).map(|(b, at)| (b.len() as u64, *at)))
         }
         fn read_at(&self, path: &str, at: u64, len: usize) -> Result<Vec<u8>, Ps5Error> {
             let files = self.files.lock().unwrap();
-            let b = files.get(path).ok_or_else(|| Ps5Error::Failed("missing".into()))?;
+            let (b, _) = files.get(path).ok_or_else(|| Ps5Error::Failed("missing".into()))?;
             let at = (at as usize).min(b.len());
             Ok(b[at..(at + len).min(b.len())].to_vec())
         }
@@ -451,7 +560,28 @@ mod tests {
         marker: PathBuf,
     }
 
+    /// Where the image sits inside the PS5 test package.
+    const BASE: usize = 0x10000;
+    const CONTENT_ID: &str = "UP0000-PPSA01234_00-TIDEBREAKER00000";
+
+    /// A PS4 package: the PS5 keeps the very bytes it fetched.
     fn setup(kind: &str) -> Setup {
+        setup_as(kind, "ps4", |_| {})
+    }
+
+    /// A PS5 fake package: an outer container (`\x7FFIH`) holding the image (`\x7FCNT`) that
+    /// the PS5 keeps, with the content id in its header.
+    fn setup_ps5(kind: &str) -> Setup {
+        setup_as(kind, "ps5", |b| {
+            b[0..4].copy_from_slice(&0x7F46_4948u32.to_be_bytes());
+            b[6..8].copy_from_slice(&3u16.to_le_bytes());
+            b[0x58..0x60].copy_from_slice(&(BASE as u64).to_le_bytes());
+            b[BASE..BASE + 4].copy_from_slice(&0x7F43_4E54u32.to_be_bytes());
+            b[BASE + 0x40..BASE + 0x40 + 36].copy_from_slice(CONTENT_ID.as_bytes());
+        })
+    }
+
+    fn setup_as(kind: &str, platform: &str, shape: impl Fn(&mut Vec<u8>)) -> Setup {
         let tmp = tempfile::tempdir().unwrap();
         let mut x = 0x1234_5678u32;
         let bytes: Vec<u8> = (0..(3 << 20) + 123)
@@ -462,13 +592,15 @@ mod tests {
                 x as u8
             })
             .collect();
+        let mut bytes = bytes;
+        shape(&mut bytes);
         let pkg = tmp.path().join("Ashen Tide.pkg");
         std::fs::write(&pkg, &bytes).unwrap();
         let info = PackageInfo {
-            platform: "ps5".into(),
+            platform: platform.into(),
             kind: kind.into(),
             title_id: "PPSA01234".into(),
-            content_id: "UP0000-PPSA01234_00-TIDEBREAKER00000".into(),
+            content_id: CONTENT_ID.into(),
             title: Some("Ashen Tide".into()),
             version: None,
             bytes: bytes.len() as u64,
@@ -532,7 +664,7 @@ mod tests {
     fn already_there_asks_nothing() {
         let s = setup("game");
         let ps5 = FakePs5::new(Does::Install(GAME.into()));
-        ps5.files.lock().unwrap().insert(GAME.into(), s.bytes.clone());
+        ps5.put(GAME, s.bytes.clone());
         assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::AlreadyThere));
         assert!(ps5.asked.lock().unwrap().is_empty());
     }
@@ -544,10 +676,10 @@ mod tests {
         let mut other = s.bytes.clone();
         let last = other.len() - 1;
         other[last] ^= 1;
-        ps5.files.lock().unwrap().insert(GAME.into(), other);
+        ps5.put(GAME, other);
         assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
         assert_eq!(ps5.asked.lock().unwrap().len(), 1);
-        assert!(ps5.files.lock().unwrap()[GAME] == s.bytes);
+        assert!(ps5.file(GAME) == s.bytes);
     }
 
     #[test]
@@ -605,6 +737,51 @@ mod tests {
         });
         assert_eq!(run(&s, &ps5, &cancel).0, Err(InstallError::Cancelled));
         assert!(s.marker.exists(), "closing the app mid-install keeps the note; Stop forgets it through the session");
+    }
+
+    #[test]
+    fn a_ps5_package_is_confirmed_by_its_content_id() {
+        // The PS5 keeps the image inside the package: another size, other bytes.
+        let s = setup_ps5("game");
+        let ps5 = FakePs5::new(Does::InstallInner(GAME.into(), BASE));
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
+        assert_ne!(ps5.file(GAME).len(), s.bytes.len(), "the fake keeps what the PS5 keeps");
+        assert!(!s.marker.exists());
+    }
+
+    #[test]
+    fn a_ps5_install_is_confirmed_when_the_end_of_the_package_is_never_fetched() {
+        let s = setup_ps5("game");
+        let ps5 = FakePs5::new(Does::InstallInnerPartly(GAME.into(), BASE));
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
+    }
+
+    #[test]
+    fn the_same_ps5_package_already_installed_asks_nothing() {
+        let s = setup_ps5("game");
+        let ps5 = FakePs5::new(Does::InstallInner(GAME.into(), BASE));
+        ps5.put(GAME, s.bytes[BASE..].to_vec());
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::AlreadyThere));
+        assert!(ps5.asked.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_older_build_of_a_ps5_game_is_installed_over() {
+        let s = setup_ps5("game");
+        let ps5 = FakePs5::new(Does::InstallInner(GAME.into(), BASE));
+        let mut older = s.bytes[BASE..].to_vec();
+        older[0x100] ^= 1;
+        ps5.put(GAME, older);
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
+        assert_eq!(ps5.asked.lock().unwrap().len(), 1);
+        assert!(ps5.file(GAME) == s.bytes[BASE..]);
+    }
+
+    #[test]
+    fn a_ps5_dlc_is_confirmed_by_its_content_id() {
+        let s = setup_ps5("dlc");
+        let ps5 = FakePs5::new(Does::InstallInner("/user/addcont/PPSA01234/TIDEBREAKER00000/ac.pkg".into(), BASE));
+        assert_eq!(run(&s, &ps5, &AtomicBool::new(false)).0, Ok(InstallOutcome::Installed));
     }
 
     #[test]

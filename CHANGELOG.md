@@ -12,6 +12,11 @@
   during an install asks first; if it closes anyway, opening it again picks the install back up.
   Fake packages need kstuff with fake-package support running on the PS5, nothing else. Use your
   own games. Kite Pack doesn't provide games, and we don't condone piracy. Support the developers.
+- **A finished install no longer shows as failed.** The PS5 keeps the image inside a PS5 fake
+  package rather than the package as it was sent, so Kite Pack never recognised it and reported
+  a working install as failed. It now finds a PS5 package by its content id and confirms it once
+  the PS5 has finished writing it; a PS4 package is still matched byte for byte. A package already
+  installed is recognised the same way, and an older build of the same game is installed over.
 - **A package shows its real size.** A dropped `.pkg` or `.fpkg` shows the size of the file
   itself (an 85 GB package reads 85 GB), not the game files packed inside it, which added up to
   far more.
