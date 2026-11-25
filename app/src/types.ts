@@ -272,4 +272,4 @@ export interface HistoryEntry {
 }
 
 /** The app's tabs, and Settings behind the gear. */
-export type View = "pack" | "ps5" | "history" | "settings";
+export type View = "install" | "pack" | "history" | "games" | "settings";

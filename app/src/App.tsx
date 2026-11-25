@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
 import { CloseQuestion } from "./parts/CloseQuestion";
@@ -6,7 +7,7 @@ import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Facts } from "./parts/Facts";
-import { Header, tabId } from "./parts/Header";
+import { Sidebar } from "./parts/Sidebar";
 import { HistoryPage } from "./parts/History";
 import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
@@ -320,6 +321,8 @@ function Screens({
     try {
       const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
       dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
+      // A package opens on Install (a PS5 game package can still be packed from Pack); the rest on Pack.
+      dispatch({ type: "view", view: game.package ? "install" : "pack" });
       void loadOnPs5(game.titleId);
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
@@ -656,7 +659,7 @@ function Screens({
   const showView = useCallback(
     (view: View) => {
       dispatch({ type: "view", view });
-      if (view === "ps5" || view === "settings") void refreshStatus();
+      if (view === "games" || view === "settings") void refreshStatus();
     },
     // refreshStatus reads the backend only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -664,25 +667,28 @@ function Screens({
   );
   const loadHistory = useCallback(() => backend.history(), [backend]);
 
-  const header = (
-    <>
-      <Header view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} onView={showView} />
-      <UpdateBar
-        view={update}
-        busy={s.phase === "running"}
-        onUpdate={() => update.state !== "none" && void installUpdate(update.info)}
-        onLater={() => setUpdate({ state: "none" })}
-        onRestart={() => void restartForUpdate()}
-      />
-    </>
+  // The page the job belongs to: an install on Install, anything else on Pack.
+  const jobView: View | null = s.job ? (s.job.steps.some((st) => st.kind === "installPackage") ? "install" : "pack") : null;
+  /** The sidebar, the update bar and a page. */
+  const frame = (content: ReactNode, screenClass = "") => (
+    <div className={s.dragging ? "shell dragging" : "shell"}>
+      <Sidebar view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} badgeOn={jobView} onView={showView} />
+      <div className={screenClass ? `screen ${screenClass}` : "screen"}>
+        <UpdateBar
+          view={update}
+          busy={s.phase === "running"}
+          onUpdate={() => update.state !== "none" && void installUpdate(update.info)}
+          onLater={() => setUpdate({ state: "none" })}
+          onRestart={() => void restartForUpdate()}
+        />
+        {content}
+      </div>
+    </div>
   );
-  const panel = (view: View) => ({ role: "tabpanel", "aria-labelledby": tabId(view) }) as const;
 
-  if (s.view === "ps5" && s.settings) {
-    return (
-      <div className="screen">
-        {header}
-        <div className="page" {...panel("ps5")}>
+  if (s.view === "games" && s.settings) {
+    return frame(
+        <div className="page">
           {s.settings.address ? (
             ps5Open ? (
               <Ps5GamePage
@@ -723,31 +729,25 @@ function Screens({
               </div>
             </section>
           )}
-        </div>
-      </div>
+        </div>,
     );
   }
 
   if (s.view === "history") {
-    return (
-      <div className="screen">
-        {header}
-        <div className="page" {...panel("history")}>
+    return frame(
+        <div className="page">
           <HistoryPage
             load={loadHistory}
             onClear={() => backend.clearHistory()}
             onShow={(path) => void backend.reveal(path)}
             now={now}
           />
-        </div>
-      </div>
+        </div>,
     );
   }
 
   if (s.view === "settings" && s.settings) {
-    return (
-      <div className="screen">
-        {header}
+    return frame(
         <div className="page">
           <SettingsPage
             settings={s.settings}
@@ -771,22 +771,25 @@ function Screens({
               return outcome;
             }}
           />
-        </div>
-      </div>
+        </div>,
     );
   }
 
-  if (s.phase === "empty" || !s.game) {
-    return (
-      <div className={s.dragging ? "screen dragging" : "screen"}>
-        {header}
-        <Empty
-          message={s.message}
-          onChooseFolder={() => void choose(backend.pickFolder)}
-          onChooseFile={() => void choose(backend.pickFile)}
-          onSeeLibrary={() => showView("ps5")}
-        />
-      </div>
+  // The game in front belongs to Install when it's a package, to Pack when it's a game Pack can
+  // take; a page also shows it only when the running job, if any, is its own.
+  const here = s.view === "install" ? "install" : "pack";
+  const belongs =
+    !!s.game &&
+    (here === "install" ? !!s.game.package : !s.game.package || s.game.package.packable) &&
+    (jobView === null || jobView === here);
+  if (s.phase === "empty" || !s.game || !belongs) {
+    return frame(
+      <Empty
+        message={s.message}
+        onChooseFolder={() => void choose(backend.pickFolder)}
+        onChooseFile={() => void choose(backend.pickFile)}
+        onSeeLibrary={() => showView("games")}
+      />,
     );
   }
 
@@ -817,9 +820,7 @@ function Screens({
 
   const view = details.key === detailsKey ? details.view : { state: "loading" as const };
 
-  return (
-    <div className={s.dragging ? "screen pack-screen dragging" : "screen pack-screen"}>
-      {header}
+  return frame(
       <div className="pack-page">
         <div className="pack-main">
           <Showcase
@@ -890,8 +891,8 @@ function Screens({
             onAnother={() => dispatch({ type: "reset" })}
           />
         </aside>
-      </div>
-    </div>
+      </div>,
+    "pack-screen",
   );
 }
 
