@@ -1,29 +1,68 @@
-/* Direction A, simpler: dark grey ground, Figtree, white pill buttons, the game icon as the
-   only colour. Values from the IconFlow board. */
-@import "@fontsource/figtree/400.css";
-@import "@fontsource/figtree/500.css";
-@import "@fontsource/figtree/600.css";
-@import "@fontsource/figtree/700.css";
-@import "@fontsource/figtree/800.css";
+/* Kite Pack's design language: neutral surfaces, one ink colour, hairline borders. The games
+   bring the colour. Light on :root, dark under html.dark (theme.ts). */
+@import "@fontsource-variable/geist/index.css";
+@import "@fontsource-variable/geist-mono/index.css";
 
 :root {
-  --ground: #121417;
-  --text: #ffffff;
-  --label: rgba(255, 255, 255, 0.68);
-  --chip-note: rgba(255, 255, 255, 0.72);
-  --note: rgba(255, 255, 255, 0.78);
-  --dim: rgba(255, 255, 255, 0.6);
-  --mint: #6ee7a8;
-  --mint-text: #b9f5d6;
-  --update-text: #c9f7df;
-  --amber: #ffc56b;
-  --warn: #ffd28f;
-  --fail: #ff9b8f;
-  --ink: #0a0d10;
-  --line: rgba(255, 255, 255, 0.16);
-  --line-strong: rgba(255, 255, 255, 0.3);
-  --fill: rgba(255, 255, 255, 0.06);
-  --brand-glow: 194, 112, 70;
+  --bg: #fafafa;
+  --card: #ffffff;
+  --line: #e4e4e7;
+  --line2: #d4d4d8;
+  --fg: #09090b;
+  --muted: #6b6b74;
+  --soft: #f4f4f5;
+  --primary: #18181b;
+  --on-primary: #ffffff;
+  --link: #2563eb;
+  --ok: #15803d;
+  --ok-bg: #dcfce7;
+  --warn: #b45309;
+  --warn-bg: #fef3c7;
+  --fail: #b91c1c;
+  --fail-bg: #fee2e2;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --lift: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --font: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  /* The names the screens used before the new look, pointing at the tokens above. */
+  --ground: var(--bg);
+  --text: var(--fg);
+  --label: var(--muted);
+  --chip-note: var(--muted);
+  --note: var(--muted);
+  --dim: var(--muted);
+  --mint: var(--ok);
+  --mint-text: var(--ok);
+  --update-text: var(--ok);
+  --amber: var(--warn);
+  --ink: var(--on-primary);
+  --ink-dim: var(--on-primary);
+  --line-strong: var(--line2);
+  --fill: var(--soft);
+  --brand-glow: 120, 120, 130;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #09090b;
+  --card: #111113;
+  --line: #27272a;
+  --line2: #3f3f46;
+  --fg: #fafafa;
+  --muted: #a1a1aa;
+  --soft: #1c1c1f;
+  --primary: #fafafa;
+  --on-primary: #09090b;
+  --link: #8ab4ff;
+  --ok: #4ade80;
+  --ok-bg: #052e16;
+  --warn: #fbbf24;
+  --warn-bg: #3a2a05;
+  --fail: #f87171;
+  --fail-bg: #3b0d0d;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --lift: 0 8px 24px rgba(0, 0, 0, 0.5);
   color-scheme: dark;
 }
 
@@ -33,7 +72,7 @@
   box-sizing: border-box;
 }
 
-/* The window itself never scrolls, either way: each screen fills it and scrolls inside. */
+/* The window itself never scrolls, either way: each page fills it and scrolls inside. */
 html,
 body,
 #root {
@@ -41,26 +80,29 @@ body,
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: var(--ground);
+  background: var(--bg);
 }
 
 body {
-  color: var(--text);
-  font-family: Figtree, system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.45;
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
   user-select: none;
 }
 
-button {
+button,
+input,
+select {
   font-family: inherit;
   color: inherit;
 }
 
 :focus-visible {
-  outline: 2px solid var(--text);
-  outline-offset: 3px;
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
