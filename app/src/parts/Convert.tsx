@@ -1,4 +1,4 @@
-import type { ConvertChoice, Status } from "../types";
+import type { Compression, ConvertChoice, Status } from "../types";
 import { Switch } from "./Options";
 
 interface Props {
@@ -8,6 +8,15 @@ interface Props {
   onChange: (patch: Partial<ConvertChoice>) => void;
   onChangeFolder: () => void;
 }
+
+/** Forge's levels, with what each costs (its own numbers: Fast 331 MB/s, Balanced about 6
+ *  times slower for about 2.6% smaller, Smallest about 9 times slower). */
+const LEVELS: [Compression, string, string][] = [
+  ["off", "Off", "The biggest file: for a PS5 that refuses a compressed one"],
+  ["fast", "Fast", "Quickest to make, and nearly as small as the others"],
+  ["balanced", "Balanced", "A little smaller, takes about 6 times longer than Fast"],
+  ["smallest", "Smallest", "Smallest, takes about 9 times longer than Fast"],
+];
 
 /** Install on PS5's hint, and whether it can be switched on, for each PS5 state. */
 export function installState(status: Status | null): [boolean, string] {
@@ -37,20 +46,18 @@ export function ConvertOptions({ choice, status, onChange, onChangeFolder }: Pro
         <div className="option-row">
           <span className="option-label">Compression</span>
           <div className="pills" role="group" aria-label="Compression">
-            {([false, true] as const).map((on) => (
+            {LEVELS.map(([level, name]) => (
               <button
-                key={String(on)}
-                aria-pressed={choice.compress === on}
-                className={choice.compress === on ? "pill on" : "pill"}
-                onClick={() => onChange({ compress: on })}
+                key={level}
+                aria-pressed={choice.compression === level}
+                className={choice.compression === level ? "pill on" : "pill"}
+                onClick={() => onChange({ compression: level })}
               >
-                {on ? "On" : "Off"}
+                {name}
               </button>
             ))}
           </div>
-          <span className="option-hint">
-            {choice.compress ? "Smaller, but only proven to install on firmware 5.10" : "Off installs on every firmware"}
-          </span>
+          <span className="option-hint">{LEVELS.find(([level]) => level === choice.compression)?.[2]}</span>
         </div>
         <div className="option-row">
           <span className="option-label">Saves to</span>

@@ -9,7 +9,7 @@ mod packages;
 
 use history::{Entry, History};
 use kite_forge::{DlcInfo, ForgePacker, GameInfo, inspect_source};
-use kite_pipeline::{Level, Options, OutputFormat, SendTarget, SystemTrash};
+use kite_pipeline::{Compression, Level, Options, OutputFormat, SendTarget, SystemTrash};
 use kite_ps5::{
     Console, Found, FreeSpace, GameIcon, Keys, Library, Measured, Ps5Sender, Settings,
     SmpInstaller, SmpStatus, SonyInstaller, StartOutcome, Status,
@@ -79,9 +79,9 @@ struct PackOptions {
     /// DLC and a backport to fold into the packed copy, before it is written.
     #[serde(default)]
     bundle: BundleOptions,
-    /// Convert (format `pkg`): compress the package's blocks.
+    /// Convert (format `pkg`): how hard the package's blocks are compressed.
     #[serde(default)]
-    compress: bool,
+    compression: Compression,
     /// Convert: install the package on the PS5 once it's written.
     #[serde(default)]
     install: bool,
@@ -149,7 +149,7 @@ fn install(app: AppHandle, session: State<'_, Session>, ps5: State<'_, Ps5>, sou
         dlc: vec![],
         bundle: Default::default(),
         install: true,
-        compress: false,
+        compression: Default::default(),
     };
     session.start(source, options, emitter(app))
 }
@@ -201,7 +201,7 @@ fn start(
             emulator: None,
         },
         install: installing,
-        compress: converting && options.compress,
+        compression: options.compression,
     };
     session.start(source, options, emitter(app))
 }

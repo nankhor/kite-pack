@@ -106,14 +106,16 @@ export interface PackOptions {
   dlc?: string[];
   /** DLC and a backport folded into the packed copy, before it is written. */
   bundle?: BundleSelection;
-  /** Convert: compress the package's blocks (off installs on every firmware). */
-  compress?: boolean;
+  /** Convert: how hard the package's blocks are compressed. */
+  compression?: Compression;
   /** Convert: install the package on the PS5 once it's written. */
   install?: boolean;
 }
+/** Forge's package compression levels; Off stores the blocks as they are. */
+export type Compression = "off" | "fast" | "balanced" | "smallest";
 /** Convert's choices, before it starts. */
 export interface ConvertChoice {
-  compress: boolean;
+  compression: Compression;
   outputDir: string;
   install: boolean;
   /** Delete the .fpkg once the PS5 confirms the install. */

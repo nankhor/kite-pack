@@ -167,7 +167,7 @@ mod tests {
             dlc: vec![PathBuf::from("/dlc/suits.pkg"), PathBuf::from("/dlc/map.pkg")],
             bundle: Default::default(),
             install: false,
-            compress: false,
+            compression: Default::default(),
         };
         let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
         let view = JobView::at_rest(&job);
@@ -188,7 +188,7 @@ mod tests {
             dlc: vec![],
             bundle: Default::default(),
             install: false,
-            compress: false,
+            compression: Default::default(),
         };
         let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
         let json = serde_json::to_value(JobView::at_rest(&job)).unwrap();

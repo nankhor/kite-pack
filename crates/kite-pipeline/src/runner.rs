@@ -507,7 +507,7 @@ impl Runner<'_> {
             output_dir: job.options.output_dir.clone(),
             format: job.options.format,
             level: job.options.level,
-            compress: job.options.compress,
+            compression: job.options.compression,
             bundle: job.options.bundle.clone(),
             ahead: target.is_some(),
             // Sent and then deleted: each part may leave the PC once the PS5 has it, if the PS5

@@ -34,6 +34,22 @@ impl Level {
     }
 }
 
+/// How hard Convert compresses a package's blocks: Forge's levels, by its own numbers on a
+/// package's blocks with 14 cores. The PS5 reads every compressed level the same way.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Compression {
+    /// Stored as they are: the biggest file, for a console that refuses a compressed one.
+    Off,
+    /// 331 MB/s, 36.8% of the bytes: the quickest, nearly as small as the others.
+    #[default]
+    Fast,
+    /// About 6 times slower than Fast for about 2.6% smaller.
+    Balanced,
+    /// About 9 times slower than Fast, barely smaller than Balanced.
+    Smallest,
+}
+
 /// Where a packed game goes on the PS5.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SendTarget {
@@ -83,10 +99,9 @@ pub struct Options {
     /// packed.
     #[serde(default)]
     pub install: bool,
-    /// For a package (`Pkg`): compress its blocks. Off, they are stored as they are, which
-    /// every firmware installs.
+    /// For a package (`Pkg`): how hard its blocks are compressed.
     #[serde(default)]
-    pub compress: bool,
+    pub compression: Compression,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

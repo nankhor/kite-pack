@@ -14,8 +14,8 @@ pub struct PackRequest {
     pub output_dir: PathBuf,
     pub format: OutputFormat,
     pub level: Level,
-    /// For a package (`OutputFormat::Pkg`): compress its blocks; off, they are stored raw.
-    pub compress: bool,
+    /// For a package (`OutputFormat::Pkg`): how hard its blocks are compressed.
+    pub compression: crate::Compression,
     /// DLC and a backport to fold in before packing; empty packs the source as it is.
     pub bundle: crate::Bundle,
     /// Say when a part of a packed folder is finished ([`Progress::PartReady`]), so it can go

@@ -1,6 +1,6 @@
 //! Packs a game with zstd through Forge's own job runner, then reports Forge's checks.
 
-use kite_pipeline::{OutputFormat, PackError, PackOutcome, PackRequest, Packer, Part, Progress};
+use kite_pipeline::{Compression, OutputFormat, PackError, PackOutcome, PackRequest, Packer, Part, Progress};
 use ps5_dump_forge_core::{ConvertRequest, Event, Format, Jobs, PackKind, generated_output};
 use ps5_dump_forge_zstd::{VOLUME_HEADER_SIZE, volume_name};
 use std::path::{Path, PathBuf};
@@ -142,6 +142,16 @@ impl Drop for HookGuard {
     }
 }
 
+/// Forge's name for a compression level (its `KrakenLevel`); Off stores the blocks raw.
+pub fn kraken_level(compression: Compression) -> &'static str {
+    match compression {
+        Compression::Off => "stored",
+        Compression::Fast => "fast",
+        Compression::Balanced => "balanced",
+        Compression::Smallest => "smallest",
+    }
+}
+
 pub fn to_forge_format(format: OutputFormat) -> Format {
     match format {
         OutputFormat::Folder => Format::Folder,
@@ -213,7 +223,7 @@ impl Packer for ForgePacker {
                 "format": format,
                 "output": output,
                 // Stored blocks install on every firmware; compressed ones are proven on 5.10 only.
-                "kraken_level": if req.compress { "fast" } else { "stored" },
+                "kraken_level": kraken_level(req.compression),
                 "full_verify": self.full_verify,
                 "delete_source": false,
             })

@@ -162,7 +162,7 @@ fn pack(source: PathBuf, out: PathBuf, format: OutputFormat, level: Level, delet
         dlc: vec![],
         bundle: Default::default(),
         install: false,
-        compress: false,
+        compression: Default::default(),
     };
     let mut job = match Job::new(source, options) {
         Ok(job) => job,

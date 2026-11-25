@@ -86,7 +86,7 @@ export const initial: State = {
     deletePacked: false,
     bundle: { dlc: [], backport: null },
   },
-  convert: { compress: false, outputDir: "", install: true, deleteAfter: false },
+  convert: { compression: "fast", outputDir: "", install: true, deleteAfter: false },
   job: null,
   progress: null,
   dragging: false,

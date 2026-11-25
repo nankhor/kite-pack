@@ -12,4 +12,4 @@ mod words;
 pub use bundle::{BundleItem, BundlePlan, Staged};
 pub use inspect::{DlcInfo, DlcPackage, GameInfo, SourceProblem, check_dlc, inspect_dlc, inspect_game, inspect_source};
 pub use package::{PackageInfo, inspect_package, is_package_name};
-pub use packer::{ForgePacker, to_forge_format};
+pub use packer::{ForgePacker, kraken_level, to_forge_format};
