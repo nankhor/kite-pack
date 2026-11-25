@@ -478,7 +478,7 @@ fn main() {
                 trash: Arc::new(SystemTrash),
                 sender: Arc::new(sender),
                 // DLC installs go through Sony's installer, streamed from this computer.
-                installer: Arc::new(SonyInstaller::new(keys.clone(), settings_port)),
+                installer: Arc::new(SonyInstaller::new(keys.clone(), settings_port).with_state(data.join("installs"))),
             };
             app.manage(Session::new(data.join("jobs"), ports)?);
             app.manage(Ps5 {

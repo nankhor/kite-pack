@@ -78,7 +78,7 @@ impl PkgServer {
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let ip = pc_address(console).ok_or("Couldn't find this computer's address on the console's network")?;
         let name = pkg.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "package.pkg".into());
-        let url = format!("http://{ip}:{port}/{token}/{name}");
+        let url = format!("http://{ip}:{port}/{token}/{}", in_link(&name));
         let file = Arc::new(pkg.to_path_buf());
         let stop = Arc::new(AtomicBool::new(false));
         let seen = Arc::new(Seen::default());
@@ -234,6 +234,20 @@ fn parse_range(value: &str, size: u64) -> Option<(u64, u64)> {
     Some((start, end))
 }
 
+/// `name` as it can sit in a link: a game's file name often has spaces and brackets, which
+/// Sony's downloader would not take as they are.
+fn in_link(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -268,6 +282,16 @@ mod tests {
         let mut out = Vec::new();
         s.read_to_end(&mut out).unwrap();
         out
+    }
+
+    #[test]
+    fn a_name_with_spaces_is_safe_in_the_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().join("Ashen Tide (EU) 1.02.pkg");
+        std::fs::write(&pkg, b"0123456789").unwrap();
+        let server = PkgServer::start(&pkg, "127.0.0.1").unwrap();
+        assert!(server.url().ends_with("/Ashen%20Tide%20%28EU%29%201.02.pkg"), "{}", server.url());
+        assert!(get(server.url(), "bytes=2-5").ends_with(b"2345"));
     }
 
     /// Waits for the server's count to reach `want` (it counts once its bytes are written).
