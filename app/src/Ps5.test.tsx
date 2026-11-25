@@ -83,7 +83,7 @@ beforeEach(() => {
 
 async function openSettings() {
   render(<App backend={backend} />);
-  await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+  await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
   await screen.findByRole("heading", { name: "Settings" });
 }
 
@@ -160,8 +160,8 @@ describe("the PS5 connection, in Settings", () => {
   it("is only in Settings: the PS5 tab is the console's games", async () => {
     backend.cfg.address = "192.168.1.42";
     render(<App backend={backend} />);
-    await userEvent.click(await screen.findByRole("tab", { name: "PS5" }));
-    expect(await screen.findByRole("heading", { name: "On the PS5" })).toBeInTheDocument();
+    await userEvent.click(await screen.findByRole("link", { name: /^My games/ }));
+    expect(await screen.findByRole("heading", { name: "My games" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Find my PS5" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Address")).not.toBeInTheDocument();
   });
@@ -170,7 +170,7 @@ describe("the PS5 connection, in Settings", () => {
 describe("Settings", () => {
   it("changes where packed copies go, and back to next to each game", async () => {
     render(<App backend={backend} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
     expect(await screen.findByText("Next to each game")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Change" }));
     expect(backend.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ packedFolder: "/Packed" }));
@@ -183,7 +183,7 @@ describe("Settings", () => {
     backend.cfg.address = "192.168.1.42";
     backend.status = { state: "running", version: "0.1.0" };
     render(<App backend={backend} />);
-    await userEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
     expect(await screen.findByText("0.1.3")).toBeInTheDocument();
     expect(await screen.findByText("0.1.0")).toBeInTheDocument();
   });

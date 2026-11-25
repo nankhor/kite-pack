@@ -49,8 +49,9 @@ export function sendsAlongside(format: Format, status: Status | null): boolean {
   return format === "folder" && status?.state === "running" && versionAtLeast(status.version, 0, 4);
 }
 
-/** Decimal sizes, as drives and Forge count them: "84.2 GB", "717 KB". */
+/** Decimal sizes, as drives and Forge count them: "2.0 TB", "84.2 GB", "717 KB". */
 export function formatSize(bytes: number): string {
+  if (bytes >= 1e12) return `${(bytes / 1e12).toFixed(1)} TB`;
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
   if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(1)} MB`;
   if (bytes >= 1e3) return `${Math.round(bytes / 1e3)} KB`;

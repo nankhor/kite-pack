@@ -67,7 +67,8 @@ export function Showcase({ game, source, done, headline, onPs5, view, onSearch, 
           <div className="art-image plain" />
         )}
         <div className="art-scrim" aria-hidden="true" />
-        <div className="art-content">
+      </div>
+      <div className="art-content">
           <div className="icon-wrap">
             {game.iconDataUrl ? (
               <img className="icon" src={game.iconDataUrl} alt="Game icon" style={{ boxShadow: glowShadow(glow, done) }} />
@@ -76,7 +77,7 @@ export function Showcase({ game, source, done, headline, onPs5, view, onSearch, 
             )}
             {done && (
               <span className="done-badge" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0a0d10" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--card)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M5 12.5l4.5 4.5L19 7.5" />
                 </svg>
               </span>
@@ -88,7 +89,6 @@ export function Showcase({ game, source, done, headline, onPs5, view, onSearch, 
             {meta && <p className="art-meta">{meta}</p>}
           </div>
         </div>
-      </div>
 
       <div className="tags-row">
         <div className="includes">

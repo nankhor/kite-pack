@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A new look, light and dark.** Kite Pack follows your computer's light or dark setting (or
+  the one you pick in **Settings → Appearance**), in a cleaner dashboard style: neutral surfaces,
+  thin borders, the Geist typeface, and the games' own art as the colour.
+- **A sidebar for everything.** **Install**, **Pack** and **History**, then the **PS5** with
+  its status and **My games**, and **Settings** at the bottom. A running job shows its progress
+  on its own item from any page. On a narrow window the sidebar becomes a bar along the top.
+- **Install has its own page.** A dropped `.pkg` or `.fpkg` opens there, with **Install on PS5**
+  and nothing else; a PS5 game package can still be packed from **Pack**.
+- **History** is a table you can filter by Install or Pack. **My games** shows each game as a
+  card, and how much room is left on each of the PS5's drives.
 - **Install a package without copying it to the PS5.** Drop a `.pkg` or `.fpkg` and press
   **Install on PS5**: the PS5's own installer downloads it from Kite Pack while it installs, the
   way ps5upload does, so nothing is copied to the PS5 first and the console never needs room for

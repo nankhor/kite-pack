@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { Backend } from "./backend";
 import { CloseQuestion } from "./parts/CloseQuestion";
@@ -6,7 +7,8 @@ import { Dlc } from "./parts/Dlc";
 import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Facts } from "./parts/Facts";
-import { Header, tabId } from "./parts/Header";
+import { Sidebar } from "./parts/Sidebar";
+import { applyTheme, readTheme, writeTheme, type ThemeChoice } from "./theme";
 import { HistoryPage } from "./parts/History";
 import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
@@ -71,6 +73,9 @@ function Screens({
   updateCheckAfterMs?: number;
 }) {
   const [s, dispatch] = useReducer(reduce, initial);
+  const [theme, setTheme] = useState<ThemeChoice>(readTheme);
+  // Light or dark now, and for System each time the computer switches.
+  useEffect(() => applyTheme(theme), [theme]);
   const current = useRef(s);
   current.current = s;
   const booted = useRef(false);
@@ -320,6 +325,8 @@ function Screens({
     try {
       const [game, settings] = await Promise.all([backend.inspect(path), loadSettings()]);
       dispatch({ type: "game", game, source: path, outputDir: settings.packedFolder ?? parentOf(path) });
+      // A package opens on Install (a PS5 game package can still be packed from Pack); the rest on Pack.
+      dispatch({ type: "view", view: game.package ? "install" : "pack" });
       void loadOnPs5(game.titleId);
     } catch (e) {
       dispatch({ type: "message", text: String(e) });
@@ -656,7 +663,7 @@ function Screens({
   const showView = useCallback(
     (view: View) => {
       dispatch({ type: "view", view });
-      if (view === "ps5" || view === "settings") void refreshStatus();
+      if (view === "games" || view === "settings") void refreshStatus();
     },
     // refreshStatus reads the backend only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -664,25 +671,28 @@ function Screens({
   );
   const loadHistory = useCallback(() => backend.history(), [backend]);
 
-  const header = (
-    <>
-      <Header view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} onView={showView} />
-      <UpdateBar
-        view={update}
-        busy={s.phase === "running"}
-        onUpdate={() => update.state !== "none" && void installUpdate(update.info)}
-        onLater={() => setUpdate({ state: "none" })}
-        onRestart={() => void restartForUpdate()}
-      />
-    </>
+  // The page the job belongs to: an install on Install, anything else on Pack.
+  const jobView: View | null = s.job ? (s.job.steps.some((st) => st.kind === "installPackage") ? "install" : "pack") : null;
+  /** The sidebar, the update bar and a page. */
+  const frame = (content: ReactNode, screenClass = "") => (
+    <div className={s.dragging ? "shell dragging" : "shell"}>
+      <Sidebar view={s.view} status={s.status} badge={packBadge(s.job, s.progress)} badgeOn={jobView} onView={showView} />
+      <div className={screenClass ? `screen ${screenClass}` : "screen"}>
+        <UpdateBar
+          view={update}
+          busy={s.phase === "running"}
+          onUpdate={() => update.state !== "none" && void installUpdate(update.info)}
+          onLater={() => setUpdate({ state: "none" })}
+          onRestart={() => void restartForUpdate()}
+        />
+        {content}
+      </div>
+    </div>
   );
-  const panel = (view: View) => ({ role: "tabpanel", "aria-labelledby": tabId(view) }) as const;
 
-  if (s.view === "ps5" && s.settings) {
-    return (
-      <div className="screen">
-        {header}
-        <div className="page" {...panel("ps5")}>
+  if (s.view === "games" && s.settings) {
+    return frame(
+        <div className="page">
           {s.settings.address ? (
             ps5Open ? (
               <Ps5GamePage
@@ -709,45 +719,39 @@ function Screens({
               />
             )
           ) : (
-            <section className="library" aria-label="Games on the PS5">
-              <div className="library-top">
-                <div className="library-heading">
-                  <h1 className="library-title">On the PS5</h1>
-                  <p className="library-sub">No PS5 set up yet. Choose yours in Settings, and its games show up here.</p>
+            <section className="list-page library" aria-label="Games on the PS5">
+              <div className="list-head">
+                <div>
+                  <h1 className="page-title">My games</h1>
+                  <p className="page-sub">No PS5 set up yet. Choose yours in Settings, and its games show up here.</p>
                 </div>
-                <div className="buttons">
-                  <button className="button secondary" onClick={() => showView("settings")}>
+                <div className="list-tools">
+                  <button className="button primary" onClick={() => showView("settings")}>
                     Open Settings
                   </button>
                 </div>
               </div>
             </section>
           )}
-        </div>
-      </div>
+        </div>,
     );
   }
 
   if (s.view === "history") {
-    return (
-      <div className="screen">
-        {header}
-        <div className="page" {...panel("history")}>
+    return frame(
+        <div className="page">
           <HistoryPage
             load={loadHistory}
             onClear={() => backend.clearHistory()}
             onShow={(path) => void backend.reveal(path)}
             now={now}
           />
-        </div>
-      </div>
+        </div>,
     );
   }
 
   if (s.view === "settings" && s.settings) {
-    return (
-      <div className="screen">
-        {header}
+    return frame(
         <div className="page">
           <SettingsPage
             settings={s.settings}
@@ -764,6 +768,11 @@ function Screens({
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
             onDiscover={() => backend.discover()}
+            theme={theme}
+            onTheme={(t) => {
+              writeTheme(t);
+              setTheme(t);
+            }}
             onStartHelper={async () => {
               const outcome = await backend.startHelper();
               // The helper takes a few seconds to start on the PS5.
@@ -771,28 +780,31 @@ function Screens({
               return outcome;
             }}
           />
-        </div>
-      </div>
+        </div>,
     );
   }
 
-  if (s.phase === "empty" || !s.game) {
-    return (
-      <div className={s.dragging ? "screen dragging" : "screen"}>
-        {header}
-        <Empty
-          message={s.message}
-          onChooseFolder={() => void choose(backend.pickFolder)}
-          onChooseFile={() => void choose(backend.pickFile)}
-          onSeeLibrary={() => showView("ps5")}
-        />
-      </div>
+  // The game in front belongs to Install when it's a package, to Pack when it's a game Pack can
+  // take; a page also shows it only when the running job, if any, is its own.
+  const here = s.view === "install" ? "install" : "pack";
+  const belongs =
+    !!s.game &&
+    (here === "install" ? !!s.game.package : !s.game.package || s.game.package.packable) &&
+    (jobView === null || jobView === here);
+  if (s.phase === "empty" || !s.game || !belongs) {
+    return frame(
+      <Empty
+        kind={here === "install" ? "package" : "game"}
+        message={s.message}
+        onChooseFolder={() => void choose(backend.pickFolder)}
+        onChooseFile={() => void choose(backend.pickFile)}
+        onSeeLibrary={() => showView("games")}
+      />,
     );
   }
 
   const done = s.phase === "done";
   const sent = !!s.job?.steps.some((st) => (st.kind === "send" || st.kind === "installPackage") && st.state === "done");
-  const pkg = s.game.package ?? null;
   const packedKept = !!s.job?.packed && !s.job.steps.some((st) => st.kind === "deletePacked" && st.state === "done");
   const sending = s.options.send && sendable;
   const picksEmpty = s.bundle.dlc.length === 0 && !s.bundle.backport;
@@ -803,7 +815,7 @@ function Screens({
   const note =
     preparing
       ? "Reading the DLC you picked…"
-      : (s.phase === "ready" || !s.job) && pkg
+      : (s.phase === "ready" || !s.job) && here === "install"
       ? footerNote({ kind: "install" })
       : s.phase === "ready" || !s.job
       ? footerNote({
@@ -817,9 +829,7 @@ function Screens({
 
   const view = details.key === detailsKey ? details.view : { state: "loading" as const };
 
-  return (
-    <div className={s.dragging ? "screen pack-screen dragging" : "screen pack-screen"}>
-      {header}
+  return frame(
       <div className="pack-page">
         <div className="pack-main">
           <Showcase
@@ -842,19 +852,18 @@ function Screens({
         <aside className="pack-panel" aria-label="Pack and send">
           <div className="panel-body">
             <Facts game={s.game} job={s.job} done={done} onPs5={s.onPs5} />
-            {s.phase === "ready" ? (
+            {s.phase === "ready" && here === "pack" ? (
               <Options
                 options={s.options}
                 status={s.status}
                 destination={s.settings?.destination ?? "/data/homebrew"}
                 onChange={(patch) => dispatch({ type: "options", patch })}
                 onChangeFolder={() => void changeOutput()}
-                pkg={pkg}
               />
             ) : (
               s.job && <JobBar bar={jobBar(s.job, s.progress, now(), { inside: goingIn })} />
             )}
-            {s.phase === "ready" && (!pkg || pkg.packable) && (
+            {s.phase === "ready" && here === "pack" && (
               <Dlc
                 plan={s.bundlePlan}
                 busy={readingPicks || choosing}
@@ -879,8 +888,8 @@ function Screens({
             canShow={packedKept}
             canPack={!preparing && !choosing && !readingPicks && (picksEmpty || !!s.bundlePlan)}
             send={sending}
-            install={!!pkg}
-            packable={!!pkg?.packable}
+            install={here === "install"}
+            packable={false}
             onInstall={() => void install()}
             onPack={() => void pack()}
             onChangeGame={() => dispatch({ type: "reset" })}
@@ -890,8 +899,8 @@ function Screens({
             onAnother={() => dispatch({ type: "reset" })}
           />
         </aside>
-      </div>
-    </div>
+      </div>,
+    "pack-screen",
   );
 }
 

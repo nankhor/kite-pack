@@ -62,7 +62,8 @@ export function Ps5GamePage({ game, icon, measured, note, details, onMeasure, on
               <div className="art-image plain" />
             )}
             <div className="art-scrim" aria-hidden="true" />
-            <div className="art-content">
+          </div>
+          <div className="art-content">
               <div className="icon-wrap">
                 {icon ? (
                   <img className="icon" src={icon} alt="Game icon" style={{ boxShadow: glowShadow(glow, true) }} />
@@ -75,7 +76,6 @@ export function Ps5GamePage({ game, icon, measured, note, details, onMeasure, on
                 <h1 className="title">{game.title}</h1>
                 {found && <p className="art-meta">{makers(found)}</p>}
               </div>
-            </div>
           </div>
 
           <div className="tags-row">

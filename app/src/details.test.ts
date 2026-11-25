@@ -41,6 +41,8 @@ const answer = (body: unknown, status = 200) => new Response(JSON.stringify(body
 describe("pictures and words", () => {
   it("links IGDB pictures by size", () => {
     expect(igdbImage("sc1", "screenshot_med")).toBe("https://images.igdb.com/igdb/image/upload/t_screenshot_med/sc1.jpg");
+    // A picture given as a whole address (the demo's drawings) is used as it is.
+    expect(igdbImage("data:image/svg+xml;utf8,x", "1080p")).toBe("data:image/svg+xml;utf8,x");
   });
 
   it("puts the game's art behind the title, else a screenshot, else nothing", () => {
