@@ -695,7 +695,7 @@ describe("sidebar", () => {
     expect(nav("My games")).toHaveAttribute("aria-current", "page");
     expect(nav("Pack")).not.toHaveAttribute("aria-current");
     await userEvent.click(nav("History"));
-    expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing here yet. Each game you install or pack shows up here once it's done.")).toBeInTheDocument();
     await userEvent.click(nav("Pack"));
     expect(await screen.findByText("Drop a game here")).toBeInTheDocument();
   });
@@ -1101,6 +1101,27 @@ describe("what's installed on the PS5", () => {
 });
 
 describe("History", () => {
+  it("filters by what was done", async () => {
+    const at = Date.now();
+    backend.past = [
+      { id: "i1", title: "Ashen Tide", titleId: "PPSA01234", finishedAt: at, sourceBytes: 84_300_000_000, packedBytes: null, sent: true, packed: null, dlc: 0 },
+      { id: "p1", title: "Iron Lantern", titleId: "PPSA03905", finishedAt: at, sourceBytes: 96_100_000_000, packedBytes: 58_300_000_000, sent: false, packed: "/Games/Packed/Iron Lantern", dlc: 0 },
+    ];
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: /^History/ }));
+    const rows = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0].textContent);
+    await screen.findByText("Iron Lantern");
+    expect(rows()).toEqual(["Ashen Tide", "Iron Lantern"]);
+    expect(screen.getByRole("cell", { name: "Installed on the PS5" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Packed" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Install" }));
+    expect(rows()).toEqual(["Ashen Tide"]);
+    await userEvent.click(screen.getByRole("button", { name: "Pack" }));
+    expect(rows()).toEqual(["Iron Lantern"]);
+    await userEvent.click(screen.getByRole("button", { name: "All" }));
+    expect(rows()).toHaveLength(2);
+  });
+
   it("keeps a finished job and lists it", async () => {
     await showGame();
     await userEvent.click(screen.getByRole("button", { name: "Pack" }));
@@ -1144,7 +1165,7 @@ describe("History", () => {
     expect(await screen.findByText("With 2 DLC, installed on the PS5")).toBeInTheDocument();
     expect(screen.getByText("On the PS5")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Clear history" }));
-    expect(await screen.findByText("Nothing here yet. Each game you pack shows up here once it's done.")).toBeInTheDocument();
+    expect(await screen.findByText("Nothing here yet. Each game you install or pack shows up here once it's done.")).toBeInTheDocument();
     expect(backend.clearHistory).toHaveBeenCalled();
   });
 });
