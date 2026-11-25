@@ -42,6 +42,8 @@ export type NoteInput =
   | { kind: "ready"; outputDir: string; send?: boolean; alongside?: boolean; bundled?: number }
   /** A package, ready to install as it is. */
   | { kind: "install" }
+  /** A dump, ready to turn into a .fpkg, and installed after when `install`. */
+  | { kind: "convert"; outputDir: string; install: boolean }
   | { kind: "running" | "failed" | "done"; job: JobView };
 
 /** Parts of a packed folder go to the PS5 while the rest packs: helper 0.4.0 and later. */
@@ -76,6 +78,27 @@ const LABELS: Record<StepKind, string> = {
   deletePacked: "Delete the packed folder",
   installPackage: "Install on PS5",
 };
+
+/** A convert's own words where they differ from a pack's. */
+const CONVERT_LABELS: Partial<Record<StepKind, string>> = {
+  pack: "Convert to .fpkg",
+  deletePacked: "Delete the .fpkg",
+};
+
+/** A job that turns a dump into a .fpkg (Convert), not one that packs it. */
+export function isConvert(job: JobView): boolean {
+  return job.format === "pkg";
+}
+
+/** The page a job belongs to: a convert on Convert, an install on Install, the rest on Pack. */
+export function pageOf(job: JobView): "convert" | "install" | "pack" {
+  if (isConvert(job)) return "convert";
+  return job.steps.some((st) => st.kind === "installPackage") ? "install" : "pack";
+}
+
+function labelOf(job: JobView, kind: StepKind): string {
+  return (isConvert(job) ? CONVERT_LABELS[kind] : undefined) ?? LABELS[kind];
+}
 
 /** Forge's stage names, in the screen's words. */
 const STAGES: Record<string, string> = {
@@ -139,7 +162,9 @@ function runningStatus(step: StepView, p: ProgressState | null, now: number): [s
   return [words, hasBar ? 0 : null];
 }
 
-function pendingStatus(kind: StepKind, withDlc: boolean): string {
+function pendingStatus(kind: StepKind, withDlc: boolean, convert = false): string {
+  if (convert && kind === "installPackage") return "Starts when converting ends";
+  if (convert && kind === "deletePacked") return "After the PS5 confirms the install";
   switch (kind) {
     case "deleteOriginal":
       return "After the packed copy is checked";
@@ -182,7 +207,7 @@ function doneStatus(step: StepView, job: JobView): string {
 
 /** One row for one step. */
 function stepRow(step: StepView, index: number, job: JobView, progress: ProgressState | null, now: number): StepRow {
-  const label = LABELS[step.kind];
+  const label = labelOf(job, step.kind);
   const hasBar = hasBarOf(step.kind);
   switch (step.state) {
     case "done":
@@ -209,7 +234,7 @@ function stepRow(step: StepView, index: number, job: JobView, progress: Progress
       return {
         label,
         state: "pending",
-        status: pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc")),
+        status: pendingStatus(step.kind, job.steps.some((st) => st.kind === "installDlc"), isConvert(job)),
         bar: step.kind === "send" ? 0 : null,
       };
   }
@@ -394,6 +419,7 @@ export function historyEntry(job: JobView, game: GameInfo, now: number, bundled 
     sent: done("send") || done("installPackage"),
     packed: job.packed && !done("deletePacked") ? job.packed : null,
     dlc: bundled + job.steps.filter((st) => st.kind === "installDlc" && st.state === "done").length,
+    ...(isConvert(job) ? { kind: "convert" as const } : {}),
     iconDataUrl: game.iconDataUrl,
   };
 }
@@ -403,6 +429,10 @@ export function footerNote(input: NoteInput): string {
   switch (input.kind) {
     case "install":
       return "Installs on the PS5 straight from this computer: nothing is copied to the PS5 first. Keep Kite Pack open until it's done.";
+    case "convert":
+      return input.install
+        ? `Writes the .fpkg to ${input.outputDir}, then installs it on the PS5 straight from this computer.`
+        : `Writes the .fpkg to ${input.outputDir}.`;
     case "ready": {
       const inside = input.bundled ? ` with ${input.bundled} ${input.bundled === 1 ? "add-on" : "add-ons"} inside` : "";
       if (!input.send) return `Packs into ${input.outputDir}${inside}.`;
@@ -431,13 +461,16 @@ export function footerNote(input: NoteInput): string {
       const step = input.job.steps.find((s) => s.state === "failed");
       if (!step) return "Something stopped the job.";
       if (step.note?.startsWith("Not enough free space") || step.note?.startsWith("The drive filled up")) {
-        return `Free up space in ${input.job.outputDir} and Retry, or Cancel and pick another folder under Save to.`;
+        const under = isConvert(input.job) ? "Saves to" : "Save to";
+        return `Free up space in ${input.job.outputDir} and Retry, or Cancel and pick another folder under ${under}.`;
       }
-      return step.note ? "Retry once that's fixed, or Cancel." : `${LABELS[step.kind]} failed with no reason given. Retry, or Cancel.`;
+      return step.note ? "Retry once that's fixed, or Cancel." : `${labelOf(input.job, step.kind)} failed with no reason given. Retry, or Cancel.`;
     }
     case "done": {
       if (input.job.steps.some((s) => s.kind === "deletePacked" && s.state === "done")) {
-        return "Deleted folders stay in the Trash until you empty it. Play the game once first.";
+        return isConvert(input.job)
+          ? "The .fpkg is in the Trash until you empty it. Play the game once first."
+          : "Deleted folders stay in the Trash until you empty it. Play the game once first.";
       }
       return input.job.deleteOriginal
         ? "The original is in the Trash until you empty it. Play the game once first."
@@ -483,6 +516,16 @@ const PART_LABELS: Record<StepKind, string> = {
   installPackage: "Install on PS5",
 };
 
+const CONVERT_PART_LABELS: Partial<Record<StepKind, string>> = {
+  pack: "Convert",
+  deletePacked: "Trash .fpkg",
+};
+
+const CONVERT_DOING: Partial<Record<StepKind, string>> = {
+  pack: "Converting",
+  deletePacked: "Moving the .fpkg to the Trash",
+};
+
 const PART_WEIGHTS: Record<StepKind, number> = {
   pack: 38,
   deleteOriginal: 10,
@@ -525,7 +568,7 @@ export function jobBar(
     if (row.state === "done" && kind === "pack" && inside > 0 && !row.status.includes("·")) {
       note = `${row.status}, ${inside} ${inside === 1 ? "add-on" : "add-ons"} inside`;
     } else if (row.state === "active") {
-      if (kind === "pack") note = p ? `${row.bar}% packed` : "";
+      if (kind === "pack") note = p ? `${row.bar}% ${isConvert(job) ? "converted" : "packed"}` : "";
       else if (kind === "send") note = p ? `${formatSize(p.done)} of ${formatSize(p.total)}` : "";
       else if (kind === "installPackage") note = p ? `${formatSize(p.done)} of ${formatSize(p.total)} on the PS5` : "";
       else if (kind === "deleteOriginal" || kind === "deletePacked") {
@@ -539,7 +582,8 @@ export function jobBar(
     } else if (row.state === "pending" && kind === "deletePacked") {
       note = "At the end";
     }
-    return { kind, label: PART_LABELS[kind], weight: PART_WEIGHTS[kind], fill, state: row.state, note, items: row.items };
+    const label = (isConvert(job) ? CONVERT_PART_LABELS[kind] : undefined) ?? PART_LABELS[kind];
+    return { kind, label, weight: PART_WEIGHTS[kind], fill, state: row.state, note, items: row.items };
   });
 
   // Packing and sending run together: one part for both, what is packed under what the PS5 has.
@@ -567,6 +611,7 @@ export function jobBar(
     if (installed) {
       return { head: "Installed on the PS5", detail: installed.note ?? "Installed and confirmed", tone: "mint", overall: 100, parts };
     }
+    if (isConvert(job)) return { head: "Converted", detail: "Written and checked", tone: "mint", overall: 100, parts };
     const sent = job.steps.some((st) => st.kind === "send" && st.state === "done");
     return {
       head: sent ? "On the PS5" : "Packed",
@@ -584,13 +629,14 @@ export function jobBar(
   }
   const row = rows[kinds.indexOf(part.kind)];
   if (part.state === "failed") {
-    const head = part.kind === "pack" ? "Packing failed" : `${part.label} failed`;
+    const head = part.kind === "pack" ? (isConvert(job) ? "Converting failed" : "Packing failed") : `${part.label} failed`;
     return { head, detail: row.status, tone: "fail", overall, parts: saidOnce(parts, at) };
   }
   if (part.state === "paused") return { head: "Waiting for the PS5", detail: row.status, tone: "amber", overall, parts };
   // A move to the Trash has nothing to count: the head says it all.
   const detail = part.fill === null ? "" : row.status;
-  return { head: DOING[part.kind], detail, tone: "plain", overall, parts };
+  const doing = (isConvert(job) ? CONVERT_DOING[part.kind] : undefined) ?? DOING[part.kind];
+  return { head: doing, detail, tone: "plain", overall, parts };
 }
 
 /** The failed part says only that it failed: why is in the line above the bar. */

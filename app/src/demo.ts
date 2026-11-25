@@ -1,5 +1,5 @@
 // A stand-in for the app, to look at every page in a plain browser: `npm run dev`, then open
-// http://localhost:5173/?demo (add `&open=pack`, `&open=install` or `&open=packing` to start
+// http://localhost:5173/?demo (add `&open=pack`, `&open=install`, `&open=packing` or, after picking Convert, `&open=converting` to start
 // with a game in front). Made-up games with drawn art; nothing here reaches a PS5. Loaded only by
 // the dev server (main.tsx), never in a build.
 
@@ -119,18 +119,19 @@ const keyOf = (title: string) => Object.keys(GAMES).find((k) => GAMES[k].name ==
 
 export function demoBackend(params: URLSearchParams): Backend {
   const listeners: ((e: UiEvent) => void)[] = [];
-  let cfg: Settings = { address: "192.168.1.42", helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: "/Games/Packed" };
+  let cfg: Settings = { address: "192.168.1.42", helperPort: 9130, loaderPort: 9021, destination: "/data/homebrew", packedFolder: "/Games/Packed", packagesFolder: "/Games/Packages" };
   let prefs: UpdatePrefs = { check: true, auto: false };
   let history = [...HISTORY];
   let timer: ReturnType<typeof setInterval> | null = null;
   const emit = (e: UiEvent) => listeners.forEach((l) => l(e));
 
   /** Runs a made-up job: each step fills in a few seconds. */
-  function run(source: string, steps: StepView["kind"][]): JobView {
+  function run(source: string, steps: StepView["kind"][], format?: JobView["format"], outputDir = "/Games/Packed"): JobView {
     const job: JobView = {
       id: `demo-${Date.now()}`,
       source,
-      outputDir: "/Games/Packed",
+      outputDir,
+      format,
       deleteOriginal: false,
       packed: null,
       packedBytes: null,
@@ -151,7 +152,8 @@ export function demoBackend(params: URLSearchParams): Backend {
       }
       done = Math.min(total, done + total / 40);
       emit({ type: "progress", id: job.id, index: at, done, total });
-      if (done >= total && params.get("open") !== "packing") {
+      const hold = params.get("open") === "packing" || params.get("open") === "converting";
+      if (done >= total && !hold) {
         step.state = "done";
         step.note = step.kind === "installPackage" ? "Installed and confirmed" : null;
         at += 1;
@@ -159,7 +161,8 @@ export function demoBackend(params: URLSearchParams): Backend {
         const last = at >= job.steps.length;
         if (last) {
           job.state = "finished";
-          job.packedBytes = 51_600_000_000;
+          job.packedBytes = format === "pkg" ? 84_600_000_000 : 51_600_000_000;
+          if (format === "pkg") job.packed = `${outputDir}/Ashen Tide.pkg`;
           if (timer) clearInterval(timer);
         }
         emit({ type: "job", job: { ...job, steps: job.steps.map((st) => ({ ...st })), rev: ++job.rev } });
@@ -169,7 +172,8 @@ export function demoBackend(params: URLSearchParams): Backend {
   }
 
   const open = params.get("open");
-  const first = open === "install" ? "/Games/Ashen Tide.fpkg" : open ? "/Games/Ashen Tide" : null;
+  // Convert opens nothing by itself: pick Convert first, then Choose folder.
+  const first = open === "install" ? "/Games/Ashen Tide.fpkg" : open && !open.startsWith("convert") ? "/Games/Ashen Tide" : null;
 
   return {
     inspect: async (path) => {
@@ -177,7 +181,15 @@ export function demoBackend(params: URLSearchParams): Backend {
       if (!found) throw "Not a PS5 game";
       return found;
     },
-    start: async (source, options) => run(source, options.send ? ["pack", "send"] : ["pack"]),
+    start: async (source, options) =>
+      options.format === "pkg"
+        ? run(
+            source,
+            ["pack", ...(options.install ? (["installPackage"] as const) : []), ...(options.deletePacked ? (["deletePacked"] as const) : [])],
+            "pkg",
+            options.outputDir,
+          )
+        : run(source, options.send ? ["pack", "send"] : ["pack"]),
     install: async (source) => run(source, ["installPackage"]),
     quit: async () => {},
     cancel: async () => {

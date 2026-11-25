@@ -12,7 +12,9 @@ interface Props {
 /** The copy being packed: its id and size, and once done what packing saved. */
 export function Facts({ game, job, done, onPs5 }: Props) {
   const packed = done ? (job?.packedBytes ?? null) : null;
-  const saved = packed !== null && game.totalBytes > packed ? game.totalBytes - packed : null;
+  // A convert writes the game as it is: there is nothing saved to show.
+  const convert = job?.format === "pkg";
+  const saved = !convert && packed !== null && game.totalBytes > packed ? game.totalBytes - packed : null;
   return (
     <dl className="facts">
       {game.titleId && (
@@ -29,7 +31,7 @@ export function Facts({ game, job, done, onPs5 }: Props) {
       )}
       {packed !== null && (
         <div>
-          <dt>Packed</dt>
+          <dt>{convert ? "Package" : "Packed"}</dt>
           <dd>{formatSize(packed)}</dd>
         </div>
       )}

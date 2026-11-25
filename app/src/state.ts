@@ -1,7 +1,9 @@
 // The screen's state and how each event moves it.
 
+import { pageOf } from "./model";
 import type {
   BundlePlan,
+  ConvertChoice,
   BundleSelection,
   GameInfo,
   InstalledGame,
@@ -27,6 +29,8 @@ export interface State {
   /** Why the last dropped or chosen item wasn't opened. */
   message: string | null;
   options: PackOptions;
+  /** Convert's choices. */
+  convert: ConvertChoice;
   job: JobView | null;
   progress: ProgressState | null;
   dragging: boolean;
@@ -48,9 +52,11 @@ export interface State {
 }
 
 export type Action =
-  | { type: "game"; game: GameInfo; source: string; outputDir: string }
+  /** `packagesDir`: where Convert writes the .fpkg. */
+  | { type: "game"; game: GameInfo; source: string; outputDir: string; packagesDir?: string }
   | { type: "message"; text: string | null }
   | { type: "options"; patch: Partial<PackOptions> }
+  | { type: "convert"; patch: Partial<ConvertChoice> }
   | { type: "starting" }
   | { type: "started"; job: JobView }
   | { type: "restored"; job: JobView; game: GameInfo }
@@ -80,6 +86,7 @@ export const initial: State = {
     deletePacked: false,
     bundle: { dlc: [], backport: null },
   },
+  convert: { compress: false, outputDir: "", install: true, deleteAfter: false },
   job: null,
   progress: null,
   dragging: false,
@@ -157,6 +164,7 @@ export function reduce(s: State, a: Action): State {
         source: a.source,
         message: null,
         options: { ...s.options, outputDir: a.outputDir },
+        convert: { ...s.convert, outputDir: a.packagesDir ?? a.outputDir },
         job: null,
         progress: null,
         dlc: [],
@@ -171,6 +179,8 @@ export function reduce(s: State, a: Action): State {
       return { ...s, starting: true, message: null };
     case "options":
       return { ...s, options: { ...s.options, ...a.patch } };
+    case "convert":
+      return { ...s, convert: { ...s.convert, ...a.patch } };
     case "started": {
       // A command's reply is older than any update about the same job that came before it.
       const newer = s.job && s.job.id === a.job.id && s.job.rev > a.job.rev ? s.job : a.job;
@@ -183,8 +193,11 @@ export function reduce(s: State, a: Action): State {
         game: a.game,
         source: a.job.source,
         options: { ...s.options, outputDir: a.job.outputDir, deleteOriginal: a.job.deleteOriginal },
+        convert: pageOf(a.job) === "convert" ? { ...s.convert, outputDir: a.job.outputDir } : s.convert,
         job: a.job,
         phase: a.job.state === "failed" ? "failed" : "running",
+        // A job left by a closed app shows on its own page.
+        view: pageOf(a.job),
       };
     case "event":
       return onEvent(s, a.event, a.now);
@@ -194,7 +207,10 @@ export function reduce(s: State, a: Action): State {
       return {
         ...initial,
         options: { ...initial.options, outputDir: s.options.outputDir },
+        convert: s.convert,
         settings: s.settings,
+        // Another game opens on the page this one was on.
+        view: s.view,
         status: s.status,
       };
     case "drag":

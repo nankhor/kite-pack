@@ -12,6 +12,8 @@ interface Props {
   install?: boolean;
   /** A package Forge can also pack: Pack stays, beside Install. */
   packable?: boolean;
+  /** Convert: its button turns the dump into a .fpkg (and installs it when `send`). */
+  convert?: boolean;
   onPack: () => void;
   onInstall?: () => void;
   onChangeGame: () => void;
@@ -34,7 +36,12 @@ export function Footer(p: Props) {
             <button className="button secondary" onClick={p.onChangeGame}>
               Change game
             </button>
-            {(!p.install || p.packable) && (
+            {p.convert && (
+              <button className="button primary big" onClick={p.onPack} disabled={p.canPack === false}>
+                {p.send ? "Convert and install" : "Convert"}
+              </button>
+            )}
+            {!p.convert && (!p.install || p.packable) && (
               <button
                 className={p.install ? "button secondary" : "button primary big"}
                 onClick={p.onPack}
@@ -73,7 +80,7 @@ export function Footer(p: Props) {
               </button>
             )}
             <button className="button primary" onClick={p.onAnother}>
-              Pack another game
+              {p.convert ? "Convert another game" : p.install ? "Install another package" : "Pack another game"}
             </button>
           </>
         )}
