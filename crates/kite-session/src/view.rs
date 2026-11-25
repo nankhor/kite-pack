@@ -105,6 +105,7 @@ fn step_view(kind: &StepKind, state: &StepState) -> StepView {
         StepKind::DeleteOriginal => "deleteOriginal",
         StepKind::Send => "send",
         StepKind::InstallDlc { .. } => "installDlc",
+        StepKind::InstallPackage => "installPackage",
         StepKind::DeletePacked => "deletePacked",
     };
     let (state, note) = match state {
@@ -160,6 +161,7 @@ mod tests {
             delete_packed: false,
             dlc: vec![PathBuf::from("/dlc/suits.pkg"), PathBuf::from("/dlc/map.pkg")],
             bundle: Default::default(),
+            install: false,
         };
         let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
         let view = JobView::at_rest(&job);

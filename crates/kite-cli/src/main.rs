@@ -161,6 +161,7 @@ fn pack(source: PathBuf, out: PathBuf, format: OutputFormat, level: Level, delet
         delete_packed: false,
         dlc: vec![],
         bundle: Default::default(),
+        install: false,
     };
     let mut job = match Job::new(source, options) {
         Ok(job) => job,
@@ -263,6 +264,7 @@ fn step_name(kind: &StepKind) -> String {
             pkg.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
         ),
         StepKind::DeletePacked => "Delete the packed folder".into(),
+        StepKind::InstallPackage => "Install on the PS5".into(),
     }
 }
 

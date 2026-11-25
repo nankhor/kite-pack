@@ -81,6 +81,7 @@ impl World {
             delete_packed: false,
             dlc: vec![],
             bundle: Default::default(),
+            install: false,
         }
     }
 }

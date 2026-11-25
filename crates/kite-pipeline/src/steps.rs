@@ -12,6 +12,8 @@ pub enum StepKind {
     Send,
     InstallDlc { pkg: PathBuf },
     DeletePacked,
+    /// The source, a package, installed on the PS5 as it is.
+    InstallPackage,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,6 +34,9 @@ pub struct Step {
 
 /// The steps `options` asks for, in the order they run. Validate `options` first.
 pub fn plan_steps(options: &Options) -> Vec<StepKind> {
+    if options.install {
+        return vec![StepKind::InstallPackage];
+    }
     let mut steps = vec![StepKind::Pack];
     if options.delete_original {
         steps.push(StepKind::DeleteOriginal);
@@ -66,6 +71,7 @@ mod tests {
             delete_packed,
             dlc: (0..dlc).map(|i| PathBuf::from(format!("/dlc/{i}.pkg"))).collect(),
             bundle: Default::default(),
+            install: false,
         }
     }
 
@@ -142,5 +148,17 @@ mod tests {
     fn step_state_json_shape() {
         let json = serde_json::to_string(&StepState::Failed { reason: "x".into() }).unwrap();
         assert_eq!(json, r#"{"state":"failed","reason":"x"}"#);
+    }
+
+    #[test]
+    fn an_install_job_has_one_step() {
+        let mut o = opts(true, true, true, 2);
+        o.install = true;
+        assert_eq!(plan_steps(&o), vec![InstallPackage]);
+        assert_eq!(o.validate(), Ok(()));
+        o.send = None;
+        o.delete_packed = false;
+        o.dlc.clear();
+        assert_eq!(o.validate(), Err(OptionsError::InstallWithoutPs5));
     }
 }

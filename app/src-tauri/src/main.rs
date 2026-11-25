@@ -159,6 +159,7 @@ fn start(
             // The emulator is carried by the app; a dump with its own keeps it.
             emulator: None,
         },
+        install: false,
     };
     session.start(source, options, emitter(app))
 }

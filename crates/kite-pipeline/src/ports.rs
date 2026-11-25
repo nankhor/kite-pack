@@ -210,9 +210,29 @@ pub enum InstallError {
 }
 
 /// Installs a DLC package on the PS5 and confirms it landed.
+/// How installing a package as it is ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallOutcome {
+    Installed,
+    /// The PS5 already had this very package: nothing was asked of it.
+    AlreadyThere,
+}
+
 pub trait Installer: Send + Sync {
     fn is_installed(&self, pkg: &Path, target: &SendTarget) -> Result<bool, InstallError>;
     fn install(&self, pkg: &Path, target: &SendTarget, cancel: &AtomicBool) -> Result<(), InstallError>;
+
+    /// Installs the package `pkg` (a game, an update or a DLC) as it is: the PS5's installer
+    /// streams it from this computer. `progress` hears the bytes the PS5 has received.
+    fn install_package(
+        &self,
+        _pkg: &Path,
+        _target: &SendTarget,
+        _progress: &dyn Fn(Progress),
+        _cancel: &AtomicBool,
+    ) -> Result<InstallOutcome, InstallError> {
+        Err(InstallError::Failed("This Kite Pack can't install packages".into()))
+    }
 }
 
 pub trait Sleeper: Send + Sync {
