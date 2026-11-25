@@ -2,13 +2,13 @@ mod common;
 
 use common::*;
 use kite_forge::*;
-use kite_pipeline::{Level, OutputFormat, PackError, PackRequest, Packer, Progress, Snapshot};
+use kite_pipeline::{Compression, Level, OutputFormat, PackError, PackRequest, Packer, Progress, Snapshot};
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 fn request(source: &Path, out: &Path, format: OutputFormat) -> PackRequest {
-    PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast, compress: false, bundle: Default::default(), ahead: false, let_go: None }
+    PackRequest { source: source.to_path_buf(), output_dir: out.to_path_buf(), format, level: Level::Fast, compression: Default::default(), bundle: Default::default(), ahead: false, let_go: None }
 }
 
 fn pack(req: &PackRequest) -> Result<kite_pipeline::PackOutcome, PackError> {
@@ -122,8 +122,8 @@ fn creates_a_missing_output_folder() {
     assert!(done.output.join("ampr_zstd.index").is_file());
 }
 
-fn convert(source: &Path, out: &Path, compress: bool) -> kite_pipeline::PackOutcome {
-    let req = PackRequest { compress, ..request(source, out, OutputFormat::Pkg) };
+fn convert(source: &Path, out: &Path, compression: Compression) -> kite_pipeline::PackOutcome {
+    let req = PackRequest { compression, ..request(source, out, OutputFormat::Pkg) };
     pack(&req).unwrap()
 }
 
@@ -134,7 +134,7 @@ fn converts_to_a_fake_package_sony_s_installer_takes() {
     let out = tmp.path().join("Packages");
     let before = Snapshot::take(&game).unwrap();
 
-    let done = convert(&game, &out, false);
+    let done = convert(&game, &out, Compression::Fast);
 
     assert_eq!(done.output.extension().unwrap(), "pkg", "{done:?}");
     assert!(done.output.is_file());
@@ -146,16 +146,24 @@ fn converts_to_a_fake_package_sony_s_installer_takes() {
 }
 
 #[test]
-fn compression_makes_a_smaller_package() {
+fn every_compression_level_makes_a_package_and_off_is_the_biggest() {
     let tmp = tempfile::tempdir().unwrap();
     let game = make_game(tmp.path(), "Ashen Tide");
     let out = tmp.path().join("Packages");
-
-    let stored = convert(&game, &out, false);
-    let compressed = convert(&game, &out, true);
-
-    assert_ne!(stored.output, compressed.output);
     let size = |p: &Path| std::fs::metadata(p).unwrap().len();
-    assert!(size(&compressed.output) < size(&stored.output), "{} vs {}", size(&compressed.output), size(&stored.output));
-    assert_eq!(inspect_package(&compressed.output).unwrap().content_id, "UP0000-PPSA01234_00-ASHENTIDE0000000");
+
+    let off = size(&convert(&game, &out, Compression::Off).output);
+    for level in [Compression::Fast, Compression::Balanced, Compression::Smallest] {
+        let done = convert(&game, &out, level);
+        assert_eq!(inspect_package(&done.output).unwrap().content_id, "UP0000-PPSA01234_00-ASHENTIDE0000000", "{level:?}");
+        assert!(size(&done.output) < off, "{level:?}: {} vs {off}", size(&done.output));
+    }
+}
+
+#[test]
+fn each_level_is_forge_s_own() {
+    assert_eq!(
+        [Compression::Off, Compression::Fast, Compression::Balanced, Compression::Smallest].map(kraken_level),
+        ["stored", "fast", "balanced", "smallest"]
+    );
 }

@@ -544,7 +544,7 @@ function Screens({
         deleteOriginal: false,
         send: installing,
         deletePacked: installing && c.deleteAfter,
-        compress: c.compress,
+        compression: c.compression,
         install: installing,
         dlc: [],
       };

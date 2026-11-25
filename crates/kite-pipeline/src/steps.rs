@@ -66,7 +66,7 @@ pub fn plan_steps(options: &Options) -> Vec<StepKind> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::options::{Level, Options, OptionsError, OutputFormat, SendTarget};
+    use crate::options::{Compression, Level, Options, OptionsError, OutputFormat, SendTarget};
     use std::path::PathBuf;
     use StepKind::*;
 
@@ -84,7 +84,7 @@ mod tests {
             dlc: (0..dlc).map(|i| PathBuf::from(format!("/dlc/{i}.pkg"))).collect(),
             bundle: Default::default(),
             install: false,
-            compress: false,
+            compression: Default::default(),
         }
     }
 
@@ -224,12 +224,21 @@ mod tests {
     }
 
     #[test]
-    fn options_without_compress_still_load() {
+    fn a_package_is_compressed_fast_unless_asked_otherwise() {
         let o: Options = serde_json::from_value(serde_json::json!({
             "format": "pkg", "level": "fast", "output_dir": "/out", "delete_original": false,
             "send": null, "delete_packed": false, "dlc": []
         }))
         .unwrap();
-        assert_eq!((o.format, o.compress), (OutputFormat::Pkg, false));
+        assert_eq!((o.format, o.compression), (OutputFormat::Pkg, Compression::Fast));
+    }
+
+    #[test]
+    fn compression_levels_have_their_screen_names() {
+        let names: Vec<String> = [Compression::Off, Compression::Fast, Compression::Balanced, Compression::Smallest]
+            .iter()
+            .map(|c| serde_json::to_value(c).unwrap().as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(names, ["off", "fast", "balanced", "smallest"]);
     }
 }

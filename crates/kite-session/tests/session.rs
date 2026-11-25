@@ -82,7 +82,7 @@ impl World {
             dlc: vec![],
             bundle: Default::default(),
             install: false,
-            compress: false,
+            compression: Default::default(),
         }
     }
 }

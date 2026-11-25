@@ -1694,13 +1694,15 @@ describe("Convert", () => {
     await onConvert();
     expect(nav("Convert")).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("region", { name: "Fake package" })).toBeInTheDocument();
-    expect(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("Off installs on every firmware")).toBeInTheDocument();
+    const levels = within(screen.getByRole("group", { name: "Compression" })).getAllByRole("button");
+    expect(levels.map((b) => b.textContent)).toEqual(["Off", "Fast", "Balanced", "Smallest"]);
+    expect(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "Fast" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("Quickest to make, and nearly as small as the others")).toBeInTheDocument();
     expect(screen.getByText("Needs kstuff with fake-package support running on the PS5.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Add DLC/ })).not.toBeInTheDocument();
   });
 
-  it("converts with compression off and installs on the PS5", async () => {
+  it("converts with Fast compression and installs on the PS5", async () => {
     backend.cfg.address = "192.168.1.42";
     await onConvert();
     expect(screen.getByRole("switch", { name: "Install on PS5" })).toHaveAttribute("aria-checked", "true");
@@ -1714,7 +1716,7 @@ describe("Convert", () => {
       deleteOriginal: false,
       send: true,
       deletePacked: true,
-      compress: false,
+      compression: "fast",
       install: true,
       dlc: [],
     });
@@ -1723,14 +1725,15 @@ describe("Convert", () => {
   it("only converts when Install is off, and offers no delete", async () => {
     backend.cfg.address = "192.168.1.42";
     await onConvert();
-    await userEvent.click(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "On" }));
+    await userEvent.click(within(screen.getByRole("group", { name: "Compression" })).getByRole("button", { name: "Smallest" }));
+    expect(screen.getByText("Smallest, takes about 9 times longer than Fast")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("switch", { name: "Install on PS5" }));
     expect(screen.queryByRole("switch", { name: "Delete the .fpkg after" })).not.toBeInTheDocument();
     expect(screen.getByText("Writes the .fpkg to /Games.")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Convert" }));
     expect(backend.start).toHaveBeenCalledWith(
       "/Games/Ashen Tide",
-      expect.objectContaining({ format: "pkg", compress: true, install: false, send: false, deletePacked: false }),
+      expect.objectContaining({ format: "pkg", compression: "smallest", install: false, send: false, deletePacked: false }),
     );
   });
 
@@ -1824,5 +1827,20 @@ describe("Convert in History and Settings", () => {
     expect(within(field).getByText("Next to each game")).toBeInTheDocument();
     await userEvent.click(within(field).getByRole("button", { name: "Change" }));
     expect(backend.saveSettings).toHaveBeenCalledWith(expect.objectContaining({ packagesFolder: "/Packages" }));
+  });
+});
+
+describe("Convert's compression", () => {
+  it("says what each level costs, and Off is there for a PS5 that refuses a compressed package", async () => {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: /^Convert/ }));
+    await backend.drop("/Games/Ashen Tide");
+    const group = await screen.findByRole("group", { name: "Compression" });
+    await userEvent.click(within(group).getByRole("button", { name: "Balanced" }));
+    expect(screen.getByText("A little smaller, takes about 6 times longer than Fast")).toBeInTheDocument();
+    await userEvent.click(within(group).getByRole("button", { name: "Off" }));
+    expect(screen.getByText("The biggest file: for a PS5 that refuses a compressed one")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Convert" }));
+    expect(backend.start).toHaveBeenCalledWith("/Games/Ashen Tide", expect.objectContaining({ compression: "off" }));
   });
 });
