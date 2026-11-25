@@ -1,3 +1,4 @@
+import type { ThemeChoice } from "../theme";
 import type { Found, Settings, SmpStatus, StartOutcome, Status } from "../types";
 import { useState } from "react";
 import type { UpdatePrefs } from "../updates";
@@ -26,10 +27,19 @@ interface Props {
   onPickFolder: () => Promise<string | null>;
   onDiscover: () => Promise<Found[]>;
   onStartHelper: () => Promise<StartOutcome>;
+  /** Light, dark, or the computer's choice. */
+  theme: ThemeChoice;
+  onTheme: (theme: ThemeChoice) => void;
 }
 
+const THEMES: [ThemeChoice, string][] = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
 /** Behind the gear: the PS5 connection, where things go, and which versions are running. */
-export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, smpError, detailsOn, onDetailsOn, updatePrefs, onUpdatePrefs, onCheckUpdate, onSave, onPickFolder, onDiscover, onStartHelper }: Props) {
+export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, smpError, detailsOn, onDetailsOn, updatePrefs, onUpdatePrefs, onCheckUpdate, onSave, onPickFolder, onDiscover, onStartHelper, theme, onTheme }: Props) {
   const [checkNote, setCheckNote] = useState<string | null>(null);
 
   async function checkNow() {
@@ -45,7 +55,7 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
   return (
     <section className="settings" aria-label="Settings">
       <div className="settings-head">
-        <h1>Settings</h1>
+        <h1 className="page-title">Settings</h1>
       </div>
       <div className="settings-grid">
         <Ps5Connection
@@ -90,6 +100,17 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
           </div>
         </div>
 
+        <section className="column" aria-label="Appearance">
+          <h2>Appearance</h2>
+          <p className="field-hint">Follows your computer unless you pick one.</p>
+          <div className="pills" role="group" aria-label="Theme">
+            {THEMES.map(([t, name]) => (
+              <button key={t} className={t === theme ? "pill on" : "pill"} aria-pressed={t === theme} onClick={() => onTheme(t)}>
+                {name}
+              </button>
+            ))}
+          </div>
+        </section>
         <div className="column">
           <h2>Game details</h2>
           <Switch
@@ -99,6 +120,8 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
             on={detailsOn}
             onToggle={() => onDetailsOn(!detailsOn)}
           />
+        </div>
+        <div className="column">
           <h2>Updates</h2>
           <Switch
             id="update-check"
@@ -124,6 +147,8 @@ export function SettingsPage({ settings, status, version, dlcEmuVersion, smp, sm
               </span>
             )}
           </div>
+        </div>
+        <div className="column">
           <h2>About</h2>
           <dl className="facts">
             <div>

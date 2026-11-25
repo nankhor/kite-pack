@@ -8,6 +8,7 @@ import { Empty } from "./parts/Empty";
 import { Footer } from "./parts/Footer";
 import { Facts } from "./parts/Facts";
 import { Sidebar } from "./parts/Sidebar";
+import { applyTheme, readTheme, writeTheme, type ThemeChoice } from "./theme";
 import { HistoryPage } from "./parts/History";
 import { JobBar } from "./parts/JobBar";
 import { Library } from "./parts/Library";
@@ -72,6 +73,9 @@ function Screens({
   updateCheckAfterMs?: number;
 }) {
   const [s, dispatch] = useReducer(reduce, initial);
+  const [theme, setTheme] = useState<ThemeChoice>(readTheme);
+  // Light or dark now, and for System each time the computer switches.
+  useEffect(() => applyTheme(theme), [theme]);
   const current = useRef(s);
   current.current = s;
   const booted = useRef(false);
@@ -764,6 +768,11 @@ function Screens({
             onSave={saveSettings}
             onPickFolder={() => backend.pickFolder()}
             onDiscover={() => backend.discover()}
+            theme={theme}
+            onTheme={(t) => {
+              writeTheme(t);
+              setTheme(t);
+            }}
             onStartHelper={async () => {
               const outcome = await backend.startHelper();
               // The helper takes a few seconds to start on the PS5.

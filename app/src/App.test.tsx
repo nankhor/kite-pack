@@ -1118,6 +1118,24 @@ describe("what's installed on the PS5", () => {
   });
 });
 
+describe("Appearance", () => {
+  it("switches the theme from Settings and remembers it", async () => {
+    render(<App backend={backend} />);
+    await userEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    const card = await screen.findByRole("region", { name: "Appearance" });
+    const html = document.documentElement;
+    await userEvent.click(within(card).getByRole("button", { name: "Dark" }));
+    expect(html).toHaveClass("dark");
+    expect(localStorage.getItem("kite.theme")).toBe("dark");
+    expect(within(card).getByRole("button", { name: "Dark" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(within(card).getByRole("button", { name: "Light" }));
+    expect(html).not.toHaveClass("dark");
+    expect(localStorage.getItem("kite.theme")).toBe("light");
+    await userEvent.click(within(card).getByRole("button", { name: "System" }));
+    expect(localStorage.getItem("kite.theme")).toBe("system");
+  });
+});
+
 describe("History", () => {
   it("filters by what was done", async () => {
     const at = Date.now();
