@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Install a package without copying it to the PS5.** Drop a `.pkg` or `.fpkg` and press
+  **Install on PS5**: the PS5's own installer downloads it from Kite Pack while it installs, the
+  way ps5upload does, so nothing is copied to the PS5 first and the console never needs room for
+  the package twice. Games, updates and DLC, PS5 and PS4 packages. The bar shows what the PS5 has,
+  the speed and the time left; once every byte is there, Sony finishes the install and Kite Pack
+  confirms the package is on the console (it also says when it was already there). A PS5 game
+  package can still be packed instead. Keep Kite Pack open until it's done: closing the window
+  during an install asks first; if it closes anyway, opening it again picks the install back up.
+  Fake packages need kstuff with fake-package support running on the PS5, nothing else. Use your
+  own games. Kite Pack doesn't provide games, and we don't condone piracy. Support the developers.
 - **Big games without the room for them.** With **Save as: Folder**, **Send to PS5** and **Delete
   the packed folder** on (and the Kite helper 0.4.0), each part leaves the PC once the PS5 has it:
   the PC holds about 16 GB at most, whatever the game's size. Every part is unpacked and checked
