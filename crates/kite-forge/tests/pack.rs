@@ -121,3 +121,41 @@ fn creates_a_missing_output_folder() {
     assert!(done.output.starts_with(dunce::canonicalize(&out).unwrap()), "{done:?}");
     assert!(done.output.join("ampr_zstd.index").is_file());
 }
+
+fn convert(source: &Path, out: &Path, compress: bool) -> kite_pipeline::PackOutcome {
+    let req = PackRequest { compress, ..request(source, out, OutputFormat::Pkg) };
+    pack(&req).unwrap()
+}
+
+#[test]
+fn converts_to_a_fake_package_sony_s_installer_takes() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = make_game(tmp.path(), "Ashen Tide");
+    let out = tmp.path().join("Packages");
+    let before = Snapshot::take(&game).unwrap();
+
+    let done = convert(&game, &out, false);
+
+    assert_eq!(done.output.extension().unwrap(), "pkg", "{done:?}");
+    assert!(done.output.is_file());
+    assert!(done.output.starts_with(dunce::canonicalize(&out).unwrap()), "{done:?}");
+    let info = inspect_package(&done.output).unwrap();
+    assert_eq!((info.platform.as_str(), info.kind.as_str()), ("ps5", "game"));
+    assert_eq!(info.content_id, "UP0000-PPSA01234_00-ASHENTIDE0000000");
+    assert!(before.matches(&game).unwrap(), "the dump must not change");
+}
+
+#[test]
+fn compression_makes_a_smaller_package() {
+    let tmp = tempfile::tempdir().unwrap();
+    let game = make_game(tmp.path(), "Ashen Tide");
+    let out = tmp.path().join("Packages");
+
+    let stored = convert(&game, &out, false);
+    let compressed = convert(&game, &out, true);
+
+    assert_ne!(stored.output, compressed.output);
+    let size = |p: &Path| std::fs::metadata(p).unwrap().len();
+    assert!(size(&compressed.output) < size(&stored.output), "{} vs {}", size(&compressed.output), size(&stored.output));
+    assert_eq!(inspect_package(&compressed.output).unwrap().content_id, "UP0000-PPSA01234_00-ASHENTIDE0000000");
+}
