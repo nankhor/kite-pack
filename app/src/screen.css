@@ -2230,3 +2230,16 @@ body .screen .popover.sheet {
   gap: 8px;
   align-items: baseline;
 }
+
+/* The DLC card's title and buttons match the other cards. */
+.dlc h2,
+.dlc-head h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.add-button {
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}

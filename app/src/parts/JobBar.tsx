@@ -7,14 +7,14 @@ function PartIcon({ state }: { state: BarPart["state"] }) {
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <circle cx="12" cy="12" r="11" fill="var(--mint)" />
-          <path d="M7 12.5l3.2 3.2L17 9" stroke="#0a0d10" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M7 12.5l3.2 3.2L17 9" stroke="var(--card)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
     case "active":
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke="#ffffff" strokeWidth="2.4" />
-          <circle cx="12" cy="12" r="5" fill="#ffffff" />
+          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.4" />
+          <circle cx="12" cy="12" r="5" fill="currentColor" />
         </svg>
       );
     case "paused":
@@ -34,7 +34,7 @@ function PartIcon({ state }: { state: BarPart["state"] }) {
     default:
       return (
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.4)" strokeWidth="2.2" strokeDasharray="3 3" />
+          <circle cx="12" cy="12" r="10" stroke="var(--line2)" strokeWidth="2.2" strokeDasharray="3 3" />
         </svg>
       );
   }
