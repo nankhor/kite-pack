@@ -10,6 +10,8 @@ pub enum OutputFormat {
     Exfat,
     Ffpkg,
     Ffpfs,
+    /// A fake package (.fpkg, written as `.pkg`) for Sony's installer: Convert, not Pack.
+    Pkg,
 }
 
 /// Forge's three zstd presets.
@@ -81,6 +83,10 @@ pub struct Options {
     /// packed.
     #[serde(default)]
     pub install: bool,
+    /// For a package (`Pkg`): compress its blocks. Off, they are stored as they are, which
+    /// every firmware installs.
+    #[serde(default)]
+    pub compress: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -91,12 +97,17 @@ pub enum OptionsError {
     DlcWithoutSend,
     #[error("Installing needs the PS5 set up in Settings")]
     InstallWithoutPs5,
+    #[error("Delete the .fpkg after needs Install on PS5")]
+    DeletePackageWithoutInstall,
 }
 
 impl Options {
     pub fn validate(&self) -> Result<(), OptionsError> {
         if self.install && self.send.is_none() {
             return Err(OptionsError::InstallWithoutPs5);
+        }
+        if self.format == OutputFormat::Pkg && self.delete_packed && !self.install {
+            return Err(OptionsError::DeletePackageWithoutInstall);
         }
         if self.send.is_none() && self.delete_packed {
             return Err(OptionsError::DeletePackedWithoutSend);

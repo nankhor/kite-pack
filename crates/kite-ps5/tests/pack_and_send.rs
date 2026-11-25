@@ -84,6 +84,7 @@ fn two_volumes(packer: ForgePacker, copied: bool) {
         dlc: vec![],
         bundle: Default::default(),
         install: false,
+        compress: false,
     };
     let mut job = Job::new(game, options).unwrap();
     let store = JobStore::open(tmp.path().join("jobs")).unwrap();
@@ -164,6 +165,7 @@ fn lets_parts_go(packer: ForgePacker) {
         dlc: vec![],
         bundle: Default::default(),
         install: false,
+        compress: false,
     };
     let mut job = Job::new(game.clone(), options).unwrap();
     let store = JobStore::open(tmp.path().join("jobs")).unwrap();

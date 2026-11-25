@@ -224,11 +224,12 @@ fn send_parts_ahead(
 }
 
 
-/// The packed copy may go only once the PS5 has it and every DLC is confirmed.
+/// The packed copy may go only once the PS5 has it (sent, or installed by its installer) and
+/// every DLC is confirmed.
 fn sent_and_installed(job: &Job) -> bool {
     job.steps
         .iter()
-        .filter(|s| matches!(s.kind, StepKind::Send | StepKind::InstallDlc { .. }))
+        .filter(|s| matches!(s.kind, StepKind::Send | StepKind::InstallDlc { .. } | StepKind::InstallPackage))
         .all(|s| matches!(s.state, StepState::Done { .. }))
 }
 
@@ -389,7 +390,15 @@ impl Runner<'_> {
         let Some(target) = job.options.send.clone() else {
             return StepEnd::Failed("Installing needs the PS5 set up in Settings".into());
         };
-        let pkg = job.source.clone();
+        // A converted package once it's written; otherwise the source, a package, as it is.
+        let pkg = if job.steps.iter().any(|s| s.kind == StepKind::Pack) {
+            match &job.packed {
+                Some(packed) => packed.clone(),
+                None => return StepEnd::Failed("Nothing converted to install".into()),
+            }
+        } else {
+            job.source.clone()
+        };
         loop {
             let result = {
                 let lent = RefCell::new(&mut *job);
@@ -498,6 +507,7 @@ impl Runner<'_> {
             output_dir: job.options.output_dir.clone(),
             format: job.options.format,
             level: job.options.level,
+            compress: job.options.compress,
             bundle: job.options.bundle.clone(),
             ahead: target.is_some(),
             // Sent and then deleted: each part may leave the PC once the PS5 has it, if the PS5

@@ -13,6 +13,7 @@ fn request(game: &std::path::Path, out: &std::path::Path, let_go: Option<Arc<Let
         output_dir: out.to_path_buf(),
         format: OutputFormat::Folder,
         level: Level::Fast,
+        compress: false,
         bundle: Default::default(),
         ahead: true,
         let_go,

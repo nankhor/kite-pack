@@ -143,6 +143,7 @@ fn install(app: AppHandle, session: State<'_, Session>, ps5: State<'_, Ps5>, sou
         dlc: vec![],
         bundle: Default::default(),
         install: true,
+        compress: false,
     };
     session.start(source, options, emitter(app))
 }
@@ -191,6 +192,7 @@ fn start(
             emulator: None,
         },
         install: false,
+        compress: false,
     };
     session.start(source, options, emitter(app))
 }
