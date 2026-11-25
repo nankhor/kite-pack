@@ -6,6 +6,7 @@ mod discover;
 mod launch;
 mod library;
 mod meta;
+mod package_install;
 mod pkgserve;
 mod sony_install;
 mod send;

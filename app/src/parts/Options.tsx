@@ -1,5 +1,5 @@
 import { sendsAlongside } from "../model";
-import type { Format, Level, PackOptions, Status } from "../types";
+import type { Format, Level, PackageInfo, PackOptions, Status } from "../types";
 
 interface Props {
   options: PackOptions;
@@ -9,6 +9,8 @@ interface Props {
   destination: string;
   onChange: (patch: Partial<PackOptions>) => void;
   onChangeFolder: () => void;
+  /** Set for a package: one Forge can't pack has nothing to set here. */
+  pkg?: PackageInfo | null;
 }
 
 const FORMATS: [Format, string][] = [
@@ -82,7 +84,14 @@ function sendState(status: Status | null, destination: string, format: Format): 
   }
 }
 
-export function Options({ options, status, destination, onChange, onChangeFolder }: Props) {
+export function Options({ options, status, destination, onChange, onChangeFolder, pkg }: Props) {
+  if (pkg && !pkg.packable) {
+    return (
+      <section className="options" aria-label="Options">
+        <p className="option-hint">This package installs as it is; it can't be packed.</p>
+      </section>
+    );
+  }
   const levelHint = LEVELS.find(([l]) => l === options.level)?.[2] ?? "";
   const [canSend, sendHint] = sendState(status, destination, options.format);
   const sending = canSend && options.send;

@@ -25,6 +25,8 @@ pub enum UiEvent {
         on_ps5: u64,
         estimate: u64,
     },
+    /// The window was asked to close while an install runs: the screen asks whether to.
+    CloseAsked,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -105,6 +107,7 @@ fn step_view(kind: &StepKind, state: &StepState) -> StepView {
         StepKind::DeleteOriginal => "deleteOriginal",
         StepKind::Send => "send",
         StepKind::InstallDlc { .. } => "installDlc",
+        StepKind::InstallPackage => "installPackage",
         StepKind::DeletePacked => "deletePacked",
     };
     let (state, note) = match state {
@@ -160,6 +163,7 @@ mod tests {
             delete_packed: false,
             dlc: vec![PathBuf::from("/dlc/suits.pkg"), PathBuf::from("/dlc/map.pkg")],
             bundle: Default::default(),
+            install: false,
         };
         let job = Job::new(PathBuf::from("/games/ashen"), options).unwrap();
         let view = JobView::at_rest(&job);

@@ -40,6 +40,8 @@ export interface Badge {
 export type NoteInput =
   /** `alongside`: each part goes to the PS5 as soon as it is packed (a folder, helper 0.4+). */
   | { kind: "ready"; outputDir: string; send?: boolean; alongside?: boolean; bundled?: number }
+  /** A package, ready to install as it is. */
+  | { kind: "install" }
   | { kind: "running" | "failed" | "done"; job: JobView };
 
 /** Parts of a packed folder go to the PS5 while the rest packs: helper 0.4.0 and later. */
@@ -71,6 +73,7 @@ const LABELS: Record<StepKind, string> = {
   send: "Send to PS5",
   installDlc: "Install DLC",
   deletePacked: "Delete the packed folder",
+  installPackage: "Install on PS5",
 };
 
 /** Forge's stage names, in the screen's words. */
@@ -112,12 +115,19 @@ function folderName(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
+/** Steps with a bar of their own. */
+function hasBarOf(kind: StepKind): boolean {
+  return kind === "pack" || kind === "send" || kind === "installPackage";
+}
+
 function runningStatus(step: StepView, p: ProgressState | null, now: number): [string, number | null] {
-  const hasBar = step.kind === "pack" || step.kind === "send";
+  const hasBar = hasBarOf(step.kind);
   if (p && p.total > 0) {
     const pct = Math.min(100, Math.floor((p.done / p.total) * 100));
+    // Every byte is there: what's left is Sony's own install, which says nothing of its pace.
+    if (step.kind === "installPackage" && p.done >= p.total) return ["Every byte is on the PS5; it's finishing the install", 100];
     const mins = minutesLeft(p, now);
-    const rate = step.kind === "send" ? speed(p) : null;
+    const rate = step.kind === "send" || step.kind === "installPackage" ? speed(p) : null;
     const parts = [`${pct}%`];
     if (rate !== null) parts.push(formatSpeed(rate));
     if (mins !== null) parts.push(`about ${mins} min left`);
@@ -138,6 +148,8 @@ function pendingStatus(kind: StepKind, withDlc: boolean): string {
       return "Waiting to start";
     case "send":
       return "Starts when packing ends";
+    case "installPackage":
+      return "Waiting to start";
     default:
       return "After packing";
   }
@@ -160,6 +172,8 @@ function doneStatus(step: StepView, job: JobView): string {
       return "In the Trash";
     case "send":
       return "Every file checked";
+    case "installPackage":
+      return step.note ?? "Installed and confirmed";
     default:
       return step.note ?? "Done";
   }
@@ -168,7 +182,7 @@ function doneStatus(step: StepView, job: JobView): string {
 /** One row for one step. */
 function stepRow(step: StepView, index: number, job: JobView, progress: ProgressState | null, now: number): StepRow {
   const label = LABELS[step.kind];
-  const hasBar = step.kind === "pack" || step.kind === "send";
+  const hasBar = hasBarOf(step.kind);
   switch (step.state) {
     case "done":
       return { label, state: "done", status: doneStatus(step, job), bar: hasBar ? 100 : null };
@@ -375,7 +389,8 @@ export function historyEntry(job: JobView, game: GameInfo, now: number, bundled 
     finishedAt: now,
     sourceBytes: game.totalBytes,
     packedBytes: job.packedBytes,
-    sent: done("send"),
+    // An installed package is on the PS5 just as a sent copy is.
+    sent: done("send") || done("installPackage"),
     packed: job.packed && !done("deletePacked") ? job.packed : null,
     dlc: bundled + job.steps.filter((st) => st.kind === "installDlc" && st.state === "done").length,
     iconDataUrl: game.iconDataUrl,
@@ -385,6 +400,8 @@ export function historyEntry(job: JobView, game: GameInfo, now: number, bundled 
 /** The line beside the buttons. */
 export function footerNote(input: NoteInput): string {
   switch (input.kind) {
+    case "install":
+      return "Installs on the PS5 straight from this computer: nothing is copied to the PS5 first. Keep Kite Pack open until it's done.";
     case "ready": {
       const inside = input.bundled ? ` with ${input.bundled} ${input.bundled === 1 ? "add-on" : "add-ons"} inside` : "";
       if (!input.send) return `Packs into ${input.outputDir}${inside}.`;
@@ -396,6 +413,9 @@ export function footerNote(input: NoteInput): string {
       const steps = input.job.steps;
       if (steps.some((s) => s.state === "waiting")) {
         return "The PS5 isn't reachable. Turn it on and start the Kite helper; sending picks up where it stopped.";
+      }
+      if (steps.some((s) => s.kind === "installPackage" && s.state === "running")) {
+        return "The PS5 is downloading the package from this computer. Keep Kite Pack open until it's done.";
       }
       if (steps.some((s) => s.kind === "send" && s.state === "running")) {
         return "Each file is checked on the PS5 as it lands.";
@@ -459,9 +479,17 @@ const PART_LABELS: Record<StepKind, string> = {
   send: "Send to PS5",
   installDlc: "Install DLC",
   deletePacked: "Trash packed copy",
+  installPackage: "Install on PS5",
 };
 
-const PART_WEIGHTS: Record<StepKind, number> = { pack: 38, deleteOriginal: 10, send: 34, installDlc: 16, deletePacked: 10 };
+const PART_WEIGHTS: Record<StepKind, number> = {
+  pack: 38,
+  deleteOriginal: 10,
+  send: 34,
+  installDlc: 16,
+  deletePacked: 10,
+  installPackage: 100,
+};
 
 const DOING: Record<StepKind, string> = {
   pack: "Packing",
@@ -469,6 +497,7 @@ const DOING: Record<StepKind, string> = {
   send: "Sending to PS5",
   installDlc: "Installing DLC",
   deletePacked: "Moving the packed copy to the Trash",
+  installPackage: "Installing on PS5",
 };
 
 /**
@@ -497,6 +526,7 @@ export function jobBar(
     } else if (row.state === "active") {
       if (kind === "pack") note = p ? `${row.bar}% packed` : "";
       else if (kind === "send") note = p ? `${formatSize(p.done)} of ${formatSize(p.total)}` : "";
+      else if (kind === "installPackage") note = p ? `${formatSize(p.done)} of ${formatSize(p.total)} on the PS5` : "";
       else if (kind === "deleteOriginal" || kind === "deletePacked") {
         fill = null;
         note = "";
@@ -532,6 +562,10 @@ export function jobBar(
   const byStep = runningKind ? parts.findIndex((part) => part.kind === runningKind || (part.kind === "pack" && runningKind === "send" && both !== null)) : -1;
   const at = byStep >= 0 ? byStep : parts.findIndex((part) => part.state === "active" || part.state === "paused" || part.state === "failed");
   if (job.state === "finished") {
+    const installed = job.steps.find((st) => st.kind === "installPackage" && st.state === "done");
+    if (installed) {
+      return { head: "Installed on the PS5", detail: installed.note ?? "Installed and confirmed", tone: "mint", overall: 100, parts };
+    }
     const sent = job.steps.some((st) => st.kind === "send" && st.state === "done");
     return {
       head: sent ? "On the PS5" : "Packed",

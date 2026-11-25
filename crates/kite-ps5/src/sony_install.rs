@@ -6,28 +6,61 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use kite_forge::inspect_dlc;
-use kite_pipeline::{InstallError, Installer, SendTarget};
+use kite_forge::{inspect_dlc, inspect_package};
+use kite_pipeline::{InstallError, InstallOutcome, Installer, Progress, SendTarget};
 
+use crate::package_install::{HelperOps, RealClock, install_with};
 use crate::{Console, Keys, Ps5Error, PkgServer};
 
 /// Installs DLC through the PS5's own installer, after the game is registered on the console.
 pub struct SonyInstaller {
     keys: Keys,
     helper_port: u16,
+    /// Where an install that was asked for but not confirmed yet is remembered across restarts.
+    markers: std::path::PathBuf,
 }
 
 impl SonyInstaller {
     pub fn new(keys: Keys, helper_port: u16) -> SonyInstaller {
-        SonyInstaller { keys, helper_port }
+        SonyInstaller { keys, helper_port, markers: std::env::temp_dir().join("kite-pack-installs") }
+    }
+
+    /// Keeps what it remembers about installs in `dir`.
+    pub fn with_state(mut self, dir: std::path::PathBuf) -> SonyInstaller {
+        self.markers = dir;
+        self
     }
 
     fn console(&self, target: &SendTarget) -> Console {
         Console::parse(&target.console, self.helper_port)
     }
+
+    /// The note for an install of `pkg` on `console`, named like its stable link.
+    fn marker(&self, pkg: &std::path::Path, console: &Console) -> std::path::PathBuf {
+        self.markers.join(format!("{}.started", PkgServer::stable_key(pkg, &console.address)))
+    }
 }
 
 impl Installer for SonyInstaller {
+    fn install_package(
+        &self,
+        pkg: &std::path::Path,
+        target: &SendTarget,
+        progress: &dyn Fn(Progress),
+        cancel: &AtomicBool,
+    ) -> Result<InstallOutcome, InstallError> {
+        let info = inspect_package(pkg).map_err(InstallError::Failed)?;
+        let console = self.console(target);
+        let server = PkgServer::start_stable(pkg, &console.address).map_err(InstallError::Failed)?;
+        let ops = HelperOps { console: &console, keys: &self.keys };
+        let marker = self.marker(pkg, &console);
+        install_with(&ops, pkg, &info, &server, &marker, progress, cancel, &RealClock)
+    }
+
+    fn forget_package(&self, pkg: &std::path::Path, target: &SendTarget) {
+        std::fs::remove_file(self.marker(pkg, &self.console(target))).ok();
+    }
+
     fn is_installed(&self, pkg: &std::path::Path, target: &SendTarget) -> Result<bool, InstallError> {
         let dlc = inspect_dlc(pkg).map_err(InstallError::Failed)?;
         let console = self.console(target);

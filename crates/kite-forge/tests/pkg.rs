@@ -61,3 +61,21 @@ fn a_retail_package_is_refused_in_plain_words() {
     assert_eq!(problem, SourceProblem::RetailPackage);
     assert_eq!(problem.message(), "Retail packages can't be read");
 }
+
+#[test]
+fn a_fake_ps5_package_can_be_installed_or_packed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let pkg = make_fake_pkg(tmp.path());
+    let info = inspect_source(&pkg).unwrap();
+    let package = info.package.clone().expect("a package");
+    assert_eq!((package.platform.as_str(), package.kind.as_str()), ("ps5", "game"));
+    assert!(package.packable);
+    assert_eq!(Some(package.title_id.clone()), info.title_id);
+    assert_eq!(package.bytes, std::fs::metadata(&pkg).unwrap().len());
+    // Named .fpkg, as ps5upload's users often have them: the same package.
+    let fpkg = tmp.path().join("Ashen Tide.fpkg");
+    std::fs::copy(&pkg, &fpkg).unwrap();
+    assert_eq!(inspect_source(&fpkg).unwrap().package.unwrap().title_id, package.title_id);
+    // A folder is no package.
+    assert!(inspect_source(&make_game(tmp.path(), "Ashen Tide")).unwrap().package.is_none());
+}

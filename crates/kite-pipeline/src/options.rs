@@ -77,6 +77,10 @@ pub struct Options {
     /// DLC and a backport to put inside the packed copy.
     #[serde(default)]
     pub bundle: Bundle,
+    /// Install the source, a package, on the PS5 as it is (streamed by its installer); nothing is
+    /// packed.
+    #[serde(default)]
+    pub install: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -85,10 +89,15 @@ pub enum OptionsError {
     DeletePackedWithoutSend,
     #[error("DLC can only be installed when sending to the PS5")]
     DlcWithoutSend,
+    #[error("Installing needs the PS5 set up in Settings")]
+    InstallWithoutPs5,
 }
 
 impl Options {
     pub fn validate(&self) -> Result<(), OptionsError> {
+        if self.install && self.send.is_none() {
+            return Err(OptionsError::InstallWithoutPs5);
+        }
         if self.send.is_none() && self.delete_packed {
             return Err(OptionsError::DeletePackedWithoutSend);
         }

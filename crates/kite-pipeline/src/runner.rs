@@ -3,7 +3,7 @@
 use crate::job::{Job, JobStore, now_unix};
 use crate::options::{OutputFormat, SendTarget};
 use crate::ports::{LetGo, 
-    InstallError, Installer, PackError, PackRequest, Packer, Part, Progress, SendError, Sender,
+    InstallError, InstallOutcome, Installer, PackError, PackRequest, Packer, Part, Progress, SendError, Sender,
     Sleeper, Trash,
 };
 use std::cell::{Cell, RefCell};
@@ -268,6 +268,7 @@ impl Runner<'_> {
                 StepKind::DeleteOriginal => self.delete_original(job),
                 StepKind::Send => self.send(job, index, cancel, events),
                 StepKind::InstallDlc { pkg } => self.install(job, index, &pkg, cancel, events),
+                StepKind::InstallPackage => self.install_package(job, index, cancel, events),
                 StepKind::DeletePacked => self.delete_packed(job),
             };
 
@@ -379,6 +380,39 @@ impl Runner<'_> {
                 }
                 Err(SendError::Failed(reason)) => return StepEnd::Failed(reason),
                 Err(SendError::Cancelled) => return StepEnd::Cancelled,
+            }
+        }
+    }
+
+    /// The source package, installed as it is: a PS5 away is waited for, as for DLC.
+    fn install_package(&self, job: &mut Job, index: usize, cancel: &AtomicBool, events: &dyn Fn(RunEvent)) -> StepEnd {
+        let Some(target) = job.options.send.clone() else {
+            return StepEnd::Failed("Installing needs the PS5 set up in Settings".into());
+        };
+        let pkg = job.source.clone();
+        loop {
+            let result = {
+                let lent = RefCell::new(&mut *job);
+                let progress = |progress: Progress| {
+                    self.moving_again(&mut lent.borrow_mut(), index, events);
+                    events(RunEvent::Progress { index, progress });
+                };
+                self.installer.install_package(&pkg, &target, &progress, cancel)
+            };
+            match result {
+                Ok(InstallOutcome::Installed) => return StepEnd::Done("Installed and confirmed".into()),
+                Ok(InstallOutcome::AlreadyThere) => return StepEnd::Done("Already on the PS5".into()),
+                Err(InstallError::Unreachable(_)) => {
+                    if let Some(end) = self.wait_and_retry(job, index, cancel, events) {
+                        return end;
+                    }
+                }
+                Err(InstallError::Refused { code, hint }) => return StepEnd::Failed(format!("{hint} (0x{code:08X})")),
+                Err(InstallError::NotConfirmed) => {
+                    return StepEnd::Failed("Handed to the PS5 but never showed up".into());
+                }
+                Err(InstallError::Failed(reason)) => return StepEnd::Failed(reason),
+                Err(InstallError::Cancelled) => return StepEnd::Cancelled,
             }
         }
     }

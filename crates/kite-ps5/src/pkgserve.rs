@@ -5,39 +5,95 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::net::{IpAddr, TcpListener, TcpStream, UdpSocket};
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Serves `pkg` to the console at `console`'s network, on a random port, under a random token.
+/// Serves `pkg` to the console at `console`'s network, answering HEAD and byte ranges, and counts
+/// the bytes the console has had (each byte once, whatever order and however often it asks).
 pub struct PkgServer {
     url: String,
+    size: u64,
     stop: Arc<AtomicBool>,
+    seen: Arc<Seen>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+/// What the console asked for: the exact byte spans it was sent, and how many requests.
+#[derive(Default)]
+struct Seen {
+    spans: Mutex<Vec<(u64, u64)>>,
+    requests: AtomicU64,
+}
+
+impl Seen {
+    /// Adds `[start, end)`, keeping the spans sorted, disjoint and apart.
+    fn add(&self, start: u64, end: u64) {
+        if start >= end {
+            return;
+        }
+        let mut spans = self.spans.lock().unwrap_or_else(|e| e.into_inner());
+        let (mut a, mut b) = (start, end);
+        spans.retain(|&(x, y)| {
+            if y < a || x > b {
+                true
+            } else {
+                a = a.min(x);
+                b = b.max(y);
+                false
+            }
+        });
+        let at = spans.partition_point(|&(x, _)| x < a);
+        spans.insert(at, (a, b));
+    }
+
+    fn total(&self) -> u64 {
+        self.spans.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(a, b)| b - a).sum()
+    }
 }
 
 impl PkgServer {
+    /// On a random port, under a random token (a DLC, served once).
     pub fn start(pkg: &Path, console: &str) -> Result<PkgServer, String> {
+        PkgServer::start_on(pkg, console, 0, token())
+    }
+
+    /// On a port and under a token that come from the package and the console, so after a
+    /// restart the console's installer finds the same link again (a random port when that one
+    /// is taken).
+    pub fn start_stable(pkg: &Path, console: &str) -> Result<PkgServer, String> {
+        let hash = stable_hash(pkg, console);
+        PkgServer::start_on(pkg, console, stable_port(pkg, console), format!("{hash:016x}"))
+            .or_else(|_| PkgServer::start_on(pkg, console, 0, format!("{hash:016x}")))
+    }
+
+    /// What names this package for this console, the same each time: the stable link's token.
+    pub fn stable_key(pkg: &Path, console: &str) -> String {
+        format!("{:016x}", stable_hash(pkg, console))
+    }
+
+    fn start_on(pkg: &Path, console: &str, port: u16, token: String) -> Result<PkgServer, String> {
         let size = std::fs::metadata(pkg).map_err(|e| format!("Couldn't read the package: {e}"))?.len();
         if size == 0 {
             return Err("That package is empty".into());
         }
-        let listener = TcpListener::bind(("0.0.0.0", 0)).map_err(|e| format!("Couldn't open a port to stream it: {e}"))?;
+        let listener = TcpListener::bind(("0.0.0.0", port)).map_err(|e| format!("Couldn't open a port to stream it: {e}"))?;
         let port = listener.local_addr().map_err(|e| e.to_string())?.port();
         let ip = pc_address(console).ok_or("Couldn't find this computer's address on the console's network")?;
-        let token = token();
-        let name = pkg.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "dlc.pkg".into());
-        let url = format!("http://{ip}:{port}/{token}/{name}");
+        let name = pkg.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "package.pkg".into());
+        let url = format!("http://{ip}:{port}/{token}/{}", in_link(&name));
         let file = Arc::new(pkg.to_path_buf());
         let stop = Arc::new(AtomicBool::new(false));
-        let stop2 = Arc::clone(&stop);
+        let seen = Arc::new(Seen::default());
+        let (stop2, seen2) = (Arc::clone(&stop), Arc::clone(&seen));
         listener.set_nonblocking(true).ok();
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             while !stop2.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
-                        let file = Arc::clone(&file);
-                        let token = token.clone();
-                        std::thread::spawn(move || serve(stream, &file, &token));
+                        stream.set_nonblocking(false).ok();
+                        let (file, token, seen) = (Arc::clone(&file), token.clone(), Arc::clone(&seen2));
+                        std::thread::spawn(move || serve(stream, &file, &token, &seen));
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                         std::thread::sleep(Duration::from_millis(40));
@@ -46,17 +102,36 @@ impl PkgServer {
                 }
             }
         });
-        Ok(PkgServer { url, stop })
+        Ok(PkgServer { url, size, stop, seen, thread: Some(thread) })
     }
 
     pub fn url(&self) -> &str {
         &self.url
+    }
+
+    /// The package's size.
+    pub fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// Bytes of the package the console has been sent, each counted once.
+    pub fn received(&self) -> u64 {
+        self.seen.total()
+    }
+
+    /// Requests for the package so far (HEAD included).
+    pub fn requests(&self) -> u64 {
+        self.seen.requests.load(Ordering::SeqCst)
     }
 }
 
 impl Drop for PkgServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
+        // The port is free once this returns: a server started next can take it again.
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
     }
 }
 
@@ -75,7 +150,7 @@ fn pc_address(console: &str) -> Option<IpAddr> {
     socket.local_addr().ok().map(|a| a.ip())
 }
 
-fn serve(mut stream: TcpStream, file: &Path, token: &str) {
+fn serve(mut stream: TcpStream, file: &Path, token: &str, seen: &Seen) {
     let mut head = Vec::new();
     let mut buf = [0u8; 4096];
     while head.len() < 16 * 1024 {
@@ -97,6 +172,7 @@ fn serve(mut stream: TcpStream, file: &Path, token: &str) {
         let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
         return;
     }
+    seen.requests.fetch_add(1, Ordering::SeqCst);
     let size = match std::fs::metadata(file) {
         Ok(m) => m.len(),
         Err(_) => return,
@@ -141,6 +217,8 @@ fn serve(mut stream: TcpStream, file: &Path, token: &str) {
                 if stream.write_all(&chunk[..n]).is_err() {
                     break;
                 }
+                let at = start + (len - left);
+                seen.add(at, at + n as u64);
                 left -= n as u64;
             }
         }
@@ -157,6 +235,31 @@ fn parse_range(value: &str, size: u64) -> Option<(u64, u64)> {
     let start: u64 = a.trim().parse().ok()?;
     let end = if b.trim().is_empty() { size.saturating_sub(1) } else { b.trim().parse().ok()? };
     Some((start, end))
+}
+
+/// Below the ports the system hands out for outgoing connections (32768 up on Linux, 49152 up
+/// on Windows and macOS), so a browser tab can't be holding it when Kite Pack restarts.
+fn stable_port(pkg: &Path, console: &str) -> u16 {
+    20_000 + (stable_hash(pkg, console) % 10_000) as u16
+}
+
+fn stable_hash(pkg: &Path, console: &str) -> u64 {
+    let text = format!("{}\0{}", pkg.display(), console.trim());
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
+/// `name` as it can sit in a link: a game's file name often has spaces and brackets, which
+/// Sony's downloader would not take as they are.
+fn in_link(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'.' | b'_' | b'~') {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -182,5 +285,80 @@ mod tests {
         assert!(text.starts_with("HTTP/1.1 206"), "{text}");
         assert!(text.contains("Content-Range: bytes 2-5/10"), "{text}");
         assert!(out.ends_with(b"2345"));
+    }
+
+    /// GETs `range` (a `Range:` value) of the server's package, whole response.
+    fn get(url: &str, range: &str) -> Vec<u8> {
+        let rest = url.trim_start_matches("http://");
+        let (addr, path) = rest.split_once('/').unwrap();
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.write_all(format!("GET /{path} HTTP/1.1\r\nHost: x\r\nRange: {range}\r\n\r\n").as_bytes()).unwrap();
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn a_name_with_spaces_is_safe_in_the_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().join("Ashen Tide (EU) 1.02.pkg");
+        std::fs::write(&pkg, b"0123456789").unwrap();
+        let server = PkgServer::start(&pkg, "127.0.0.1").unwrap();
+        assert!(server.url().ends_with("/Ashen%20Tide%20%28EU%29%201.02.pkg"), "{}", server.url());
+        assert!(get(server.url(), "bytes=2-5").ends_with(b"2345"));
+    }
+
+    /// Waits for the server's count to reach `want` (it counts once its bytes are written).
+    fn settles(server: &PkgServer, want: u64) -> u64 {
+        let since = std::time::Instant::now();
+        while server.received() != want && since.elapsed() < Duration::from_secs(2) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        server.received()
+    }
+
+    #[test]
+    fn counts_each_byte_once_whatever_the_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().join("game.pkg");
+        let size: u64 = (1 << 20) + 100;
+        std::fs::write(&pkg, vec![5u8; size as usize]).unwrap();
+        let server = PkgServer::start_stable(&pkg, "127.0.0.1").unwrap();
+        assert_eq!((server.size(), server.received(), server.requests()), (size, 0, 0));
+        let half = size / 2;
+        // Sony reads the end first, then the bulk, some of it twice.
+        get(server.url(), "bytes=-65536");
+        assert_eq!(settles(&server, 65536), 65536);
+        get(server.url(), &format!("bytes=0-{}", half - 1));
+        assert_eq!(settles(&server, half + 65536), half + 65536);
+        get(server.url(), &format!("bytes=0-{}", half - 1));
+        assert_eq!(settles(&server, half + 65536), half + 65536, "a range fetched twice counts once");
+        get(server.url(), &format!("bytes={half}-"));
+        assert_eq!(settles(&server, size), size);
+        assert_eq!(server.requests(), 4);
+    }
+
+    #[test]
+    fn the_link_stays_clear_of_the_ports_the_system_hands_out() {
+        // Outgoing connections take ports from 32768 up (Linux) or 49152 up (Windows, macOS):
+        // a stable port there can be taken by a browser tab when Kite Pack restarts.
+        for n in 0..200 {
+            let port = stable_port(Path::new(&format!("/games/game {n}.pkg")), "192.168.1.42");
+            assert!((20_000..30_000).contains(&port), "{port}");
+        }
+    }
+
+    #[test]
+    fn the_same_package_gets_the_same_link() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg = tmp.path().join("game.pkg");
+        std::fs::write(&pkg, b"0123456789").unwrap();
+        let first = PkgServer::start_stable(&pkg, "127.0.0.1").unwrap().url().to_string();
+        let again = PkgServer::start_stable(&pkg, "127.0.0.1").unwrap();
+        assert_eq!(again.url(), first, "after a restart the PS5 asks the same link");
+        assert!(get(again.url(), "bytes=0-3").ends_with(b"0123"));
+        let other = tmp.path().join("other.pkg");
+        std::fs::write(&other, b"x").unwrap();
+        assert_ne!(PkgServer::start_stable(&other, "127.0.0.1").unwrap().url(), first);
     }
 }

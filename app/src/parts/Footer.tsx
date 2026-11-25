@@ -8,7 +8,12 @@ interface Props {
   canPack?: boolean;
   /** Send to PS5 is on: the button says so. */
   send?: boolean;
+  /** A package: Install on PS5 is the main button. */
+  install?: boolean;
+  /** A package Forge can also pack: Pack stays, beside Install. */
+  packable?: boolean;
   onPack: () => void;
+  onInstall?: () => void;
   onChangeGame: () => void;
   onCancel: () => void;
   onRetry: () => void;
@@ -29,9 +34,20 @@ export function Footer(p: Props) {
             <button className="button secondary" onClick={p.onChangeGame}>
               Change game
             </button>
-            <button className="button primary big" onClick={p.onPack} disabled={p.canPack === false}>
-              {p.send ? "Pack and send" : "Pack"}
-            </button>
+            {(!p.install || p.packable) && (
+              <button
+                className={p.install ? "button secondary" : "button primary big"}
+                onClick={p.onPack}
+                disabled={p.canPack === false}
+              >
+                {p.send ? "Pack and send" : "Pack"}
+              </button>
+            )}
+            {p.install && (
+              <button className="button primary big" onClick={p.onInstall}>
+                Install on PS5
+              </button>
+            )}
           </>
         )}
         {p.phase === "running" && (

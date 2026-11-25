@@ -19,6 +19,8 @@ class FakeBackend implements Backend {
     throw "x";
   });
   start = vi.fn();
+  install = vi.fn();
+  quit = vi.fn();
   cancel = vi.fn(async () => {});
   carryOn = vi.fn();
   discard = vi.fn(async () => {});

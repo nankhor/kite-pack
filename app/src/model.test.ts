@@ -699,3 +699,77 @@ describe("sendsAlongside", () => {
     expect(sendsAlongside("folder", null)).toBe(false);
   });
 });
+
+describe("an install", () => {
+  const install = (state: StepView["state"], note: string | null = null): StepView => ({ kind: "installPackage", state, note });
+  const pkgJob = (state: StepView["state"], extra: Partial<JobView> = {}, note: string | null = null) =>
+    job([install(state, note)], { source: "/Games/Ashen Tide.pkg", outputDir: "/Games", ...extra });
+  // 12.4 of 45.6 GB, 38.2 MB/s over the last 10 s, started at 0.
+  const going = progress({
+    index: 0,
+    done: 12_400_000_000,
+    total: 45_600_000_000,
+    startedAt: 0,
+    startedDone: 0,
+    recent: [
+      { at: 250_000, done: 12_018_000_000 },
+      { at: 260_000, done: 12_400_000_000 },
+    ],
+  });
+
+  it("is one part", () => {
+    const bar = jobBar(pkgJob("running"), going, 260_000);
+    expect(bar.parts).toHaveLength(1);
+    expect(bar.parts[0]).toMatchObject({ label: "Install on PS5", state: "active", fill: 27, note: "12.4 GB of 45.6 GB on the PS5" });
+    expect(bar).toMatchObject({ head: "Installing on PS5", detail: "27%, 38.2 MB/s, about 12 min left", tone: "plain", overall: 27 });
+  });
+
+  it("says when every byte is on the PS5 and it's finishing", () => {
+    const all = progress({ ...going, done: 45_600_000_000 });
+    expect(jobBar(pkgJob("running"), all, 260_000)).toMatchObject({
+      head: "Installing on PS5",
+      detail: "Every byte is on the PS5; it's finishing the install",
+    });
+  });
+
+  it("ends installed, or already there", () => {
+    expect(jobBar(pkgJob("done", { state: "finished" }, "Installed and confirmed"), null, 0)).toMatchObject({
+      head: "Installed on the PS5",
+      detail: "Installed and confirmed",
+      tone: "mint",
+      overall: 100,
+    });
+    expect(jobBar(pkgJob("done", { state: "finished" }, "Already on the PS5"), null, 0).detail).toBe("Already on the PS5");
+  });
+
+  it("asks to keep Kite Pack open while it runs", () => {
+    expect(footerNote({ kind: "running", job: pkgJob("running") })).toBe(
+      "The PS5 is downloading the package from this computer. Keep Kite Pack open until it's done.",
+    );
+    expect(footerNote({ kind: "install" })).toBe(
+      "Installs on the PS5 straight from this computer: nothing is copied to the PS5 first. Keep Kite Pack open until it's done.",
+    );
+  });
+
+  it("goes into History as sent, at the package's size, with nothing packed", () => {
+    const game: GameInfo = {
+      kind: "pkg",
+      title: "Ashen Tide",
+      titleId: "PPSA01234",
+      contentId: null,
+      version: null,
+      totalBytes: 45_600_000_000,
+      dlcs: [],
+      iconDataUrl: null,
+      findings: [],
+    };
+    expect(historyEntry(pkgJob("done", { state: "finished" }), game, 5)).toMatchObject({
+      title: "Ashen Tide",
+      sourceBytes: 45_600_000_000,
+      packedBytes: null,
+      sent: true,
+      packed: null,
+      dlc: 0,
+    });
+  });
+});

@@ -77,6 +77,8 @@ class FakeBackend implements Backend {
     return found;
   });
   start = vi.fn(async (_source: string, _options: PackOptions) => job());
+  install = vi.fn(async (source: string) => job({ source, steps: [{ kind: "installPackage", state: "pending", note: null }] }));
+  quit = vi.fn(async () => {});
   cancel = vi.fn(async () => {});
   carryOn = vi.fn(async (id: string) => job({ id }));
   discard = vi.fn(async (_id: string) => {});
@@ -1437,5 +1439,91 @@ describe("installing on the PS5 with ShadowMount+", () => {
     expect(backend.installBackport).toHaveBeenCalledWith("/Backports/v1.00");
     expect(await screen.findByText(/Backport installed/)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("button", { name: /1 backport/ })).not.toBeInTheDocument());
+  });
+});
+
+describe("a package", () => {
+  const PACKAGE = {
+    platform: "ps5",
+    kind: "game",
+    titleId: "PPSA01234",
+    contentId: "UP0000-PPSA01234_00-ASHENTIDE0000000",
+    title: "Ashen Tide",
+    version: "01.000.000",
+    bytes: 45_600_000_000,
+    iconDataUrl: null,
+    packable: true,
+  };
+  const PS5_PKG: GameInfo = { ...GAME, kind: "pkg", version: "01.000.000", totalBytes: 45_600_000_000, dlcs: [], package: PACKAGE };
+  const PS4_PKG: GameInfo = {
+    ...PS5_PKG,
+    title: "Old Harbor",
+    titleId: "CUSA01234",
+    package: { ...PACKAGE, platform: "ps4", title: "Old Harbor", titleId: "CUSA01234", packable: false },
+  };
+
+  async function showPackage(path: string, title: string) {
+    render(<App backend={backend} />);
+    await screen.findByText("Drop a game here");
+    await backend.drop(path);
+    await screen.findByRole("heading", { name: title });
+  }
+
+  async function installing() {
+    backend.games.set("/Games/Ashen Tide.pkg", PS5_PKG);
+    await showPackage("/Games/Ashen Tide.pkg", "Ashen Tide");
+    await userEvent.click(screen.getByRole("button", { name: "Install on PS5" }));
+    backend.emit({
+      type: "job",
+      job: job({ source: "/Games/Ashen Tide.pkg", steps: [{ kind: "installPackage", state: "running", note: null }] }),
+    });
+  }
+
+  it("offers to install it, and still to pack a PS5 game package", async () => {
+    backend.games.set("/Games/Ashen Tide.pkg", PS5_PKG);
+    await showPackage("/Games/Ashen Tide.pkg", "Ashen Tide");
+    expect(
+      screen.getByText(
+        "Installs on the PS5 straight from this computer: nothing is copied to the PS5 first. Keep Kite Pack open until it's done.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pack" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Install on PS5" }));
+    expect(backend.install).toHaveBeenCalledWith("/Games/Ashen Tide.pkg");
+    expect(backend.start).not.toHaveBeenCalled();
+    backend.emit({
+      type: "job",
+      job: job({ source: "/Games/Ashen Tide.pkg", steps: [{ kind: "installPackage", state: "running", note: null }] }),
+    });
+    backend.emit({ type: "progress", id: "job-1", index: 0, done: 12_400_000_000, total: 45_600_000_000 });
+    expect(await screen.findByText("Installing on PS5")).toBeInTheDocument();
+    expect(screen.getByText("12.4 GB of 45.6 GB on the PS5")).toBeInTheDocument();
+  });
+
+  it("only installs a PS4 package", async () => {
+    backend.games.set("/Games/Old Harbor.pkg", PS4_PKG);
+    await showPackage("/Games/Old Harbor.pkg", "Old Harbor");
+    expect(screen.getByText("This package installs as it is; it can't be packed.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Pack/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Install on PS5" })).toBeInTheDocument();
+  });
+
+  it("asks before closing during an install", async () => {
+    await installing();
+    backend.emit({ type: "closeAsked" });
+    const dialog = await screen.findByRole("alertdialog", { name: "An install is running" });
+    expect(
+      within(dialog).getByText(
+        "The PS5 is downloading the package from this computer. If Kite Pack closes, the install stops until you open it again.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Keep it open" })).toHaveFocus();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Keep it open" }));
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(backend.quit).not.toHaveBeenCalled();
+
+    backend.emit({ type: "closeAsked" });
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Close anyway" }));
+    expect(backend.quit).toHaveBeenCalled();
   });
 });

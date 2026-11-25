@@ -137,6 +137,7 @@ mod tests {
             delete_packed: false,
             dlc: vec![],
             bundle: Default::default(),
+            install: false,
         }
     }
 

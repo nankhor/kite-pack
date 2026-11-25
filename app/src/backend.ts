@@ -35,6 +35,10 @@ export interface Backend {
   /** Rejects with the reason, in the screen's words, when it isn't a game Kite Pack can pack. */
   inspect(path: string): Promise<GameInfo>;
   start(source: string, options: PackOptions): Promise<JobView>;
+  /** Installs a package on the PS5 as it is: the PS5 downloads it from this computer. */
+  install(source: string): Promise<JobView>;
+  /** Closes Kite Pack even though an install runs. */
+  quit(): Promise<void>;
   cancel(): Promise<void>;
   carryOn(id: string): Promise<JobView>;
   discard(id: string): Promise<void>;
@@ -130,6 +134,8 @@ const single = (picked: string | string[] | null): string | null => (Array.isArr
 export const tauriBackend: Backend = {
   inspect: (path) => invoke("inspect", { path }),
   start: (source, options) => invoke("start", { source, options }),
+  install: (source) => invoke("install", { source }),
+  quit: () => invoke("quit"),
   cancel: () => invoke("cancel"),
   carryOn: (id) => invoke("carry_on", { id }),
   discard: (id) => invoke("discard", { id }),

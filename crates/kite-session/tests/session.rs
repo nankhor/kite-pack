@@ -81,6 +81,7 @@ impl World {
             delete_packed: false,
             dlc: vec![],
             bundle: Default::default(),
+            install: false,
         }
     }
 }
@@ -410,4 +411,103 @@ fn counts_cut_parts_at_full_size() {
     // Part 0 was let go (cut to its header); part 1 is still whole.
     assert_eq!(packed_size_with(&dir, &[part(0, 4000), part(1, 500)]), 4000 + 500 + 10);
     assert_eq!(packed_size_with(&dir, &[]), packed_size(&dir));
+}
+
+/// Installs nothing: waits until cancelled, so the install is running for as long as the test
+/// wants. Remembers the packages it was told to forget.
+#[derive(Default)]
+struct WaitingInstaller(Mutex<Vec<PathBuf>>);
+
+impl kite_pipeline::Installer for WaitingInstaller {
+    fn is_installed(&self, _: &Path, _: &SendTarget) -> Result<bool, kite_pipeline::InstallError> {
+        Ok(false)
+    }
+    fn install(&self, _: &Path, _: &SendTarget, _: &AtomicBool) -> Result<(), kite_pipeline::InstallError> {
+        Ok(())
+    }
+    fn install_package(
+        &self,
+        _: &Path,
+        _: &SendTarget,
+        _: &dyn Fn(Progress),
+        cancel: &AtomicBool,
+    ) -> Result<kite_pipeline::InstallOutcome, kite_pipeline::InstallError> {
+        let start = Instant::now();
+        while !cancel.load(Ordering::SeqCst) {
+            assert!(start.elapsed() < Duration::from_secs(30), "never cancelled");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        Err(kite_pipeline::InstallError::Cancelled)
+    }
+    fn forget_package(&self, pkg: &Path, _: &SendTarget) {
+        self.0.lock().unwrap().push(pkg.to_path_buf());
+    }
+}
+
+impl World {
+    /// A session whose installs wait until stopped, and a package to install.
+    fn installing(&self) -> (Session, Arc<WaitingInstaller>, PathBuf, Options) {
+        let installer = Arc::new(WaitingInstaller::default());
+        let ports = Ports {
+            packer: Arc::new(WaitingPacker),
+            trash: Arc::new(BinTrash(self.bin.clone())),
+            sender: Arc::new(Unavailable),
+            installer: installer.clone(),
+        };
+        let session = Session::new(self.jobs.clone(), ports).unwrap();
+        let pkg = self.tmp.path().join("Ashen Tide.pkg");
+        std::fs::write(&pkg, b"package").unwrap();
+        let mut options = self.options(false);
+        options.install = true;
+        options.send = Some(SendTarget { console: "192.168.1.42".into(), destination: "/data/homebrew".into() });
+        (session, installer, pkg, options)
+    }
+}
+
+#[test]
+fn knows_when_an_install_is_running() {
+    let w = World::new();
+    let (session, _, pkg, options) = w.installing();
+
+    let events = Events::default();
+    session.start(pkg, options, events.emit()).unwrap();
+    assert!(session.running_install());
+    session.cancel();
+    events.last();
+    assert!(!session.running_install(), "nothing runs once it ended");
+
+    let events = Events::default();
+    session.start(w.game.clone(), w.options(false), events.emit()).unwrap();
+    assert!(session.is_running());
+    assert!(!session.running_install(), "a pack is not an install");
+    session.cancel();
+    events.last();
+}
+
+#[test]
+fn asking_to_close_reaches_the_screen() {
+    let text = serde_json::to_string(&UiEvent::CloseAsked).unwrap();
+    assert_eq!(text, r#"{"type":"closeAsked"}"#);
+}
+
+#[test]
+fn stopping_an_install_forgets_it() {
+    let w = World::new();
+    let (session, installer, pkg, options) = w.installing();
+    let events = Events::default();
+    session.start(pkg.clone(), options, events.emit()).unwrap();
+    session.cancel();
+    assert_eq!(events.last().state, JobState::Cancelled);
+    assert_eq!(*installer.0.lock().unwrap(), [pkg]);
+}
+
+#[test]
+fn closing_during_an_install_keeps_it_for_next_launch() {
+    let w = World::new();
+    let (session, installer, pkg, options) = w.installing();
+    let events = Events::default();
+    session.start(pkg, options, events.emit()).unwrap();
+    assert!(session.stop_for_exit(Duration::from_secs(10)));
+    assert_eq!(events.last().state, JobState::Paused);
+    assert!(installer.0.lock().unwrap().is_empty(), "nothing forgotten: it carries on next launch");
 }
