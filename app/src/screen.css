@@ -2101,9 +2101,9 @@
   left: 0;
   min-width: 260px;
   padding: 6px;
-  border-radius: 14px;
-  background: var(--primary);
-  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--card);
+  border: 1px solid var(--line);
   box-shadow: var(--lift);
   display: flex;
   flex-direction: column;
@@ -2115,11 +2115,12 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  padding: 9px 12px;
-  border-radius: 10px;
+  padding: 8px 10px;
+  border-radius: 7px;
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--fg);
+  font-weight: 500;
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -2404,4 +2405,9 @@ body .screen .popover.sheet {
   border-radius: 8px;
   font-size: 13px;
   font-weight: 500;
+}
+
+/* The screenshot view is dark in both themes: its words stay light. */
+.lightbox-count {
+  color: #e4e4e7;
 }
