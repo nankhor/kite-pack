@@ -235,10 +235,16 @@ mod tests {
 
     #[test]
     fn compression_levels_have_their_screen_names() {
-        let names: Vec<String> = [Compression::Off, Compression::Fast, Compression::Balanced, Compression::Smallest]
+        let names: Vec<String> = [Compression::Fast, Compression::Balanced, Compression::Smallest]
             .iter()
             .map(|c| serde_json::to_value(c).unwrap().as_str().unwrap().to_string())
             .collect();
-        assert_eq!(names, ["off", "fast", "balanced", "smallest"]);
+        assert_eq!(names, ["fast", "balanced", "smallest"]);
+    }
+
+    #[test]
+    fn a_package_is_never_stored_raw() {
+        let raw: Result<Compression, _> = serde_json::from_value(serde_json::json!("off"));
+        assert!(raw.is_err());
     }
 }

@@ -12,7 +12,6 @@ interface Props {
 /** Forge's levels, with what each costs (its own numbers: Fast 331 MB/s, Balanced about 6
  *  times slower for about 2.6% smaller, Smallest about 9 times slower). */
 const LEVELS: [Compression, string, string][] = [
-  ["off", "Off", "The biggest file: for a PS5 that refuses a compressed one"],
   ["fast", "Fast", "Quickest to make, and nearly as small as the others"],
   ["balanced", "Balanced", "A little smaller, takes about 6 times longer than Fast"],
   ["smallest", "Smallest", "Smallest, takes about 9 times longer than Fast"],

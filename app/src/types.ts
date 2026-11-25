@@ -111,8 +111,8 @@ export interface PackOptions {
   /** Convert: install the package on the PS5 once it's written. */
   install?: boolean;
 }
-/** Forge's package compression levels; Off stores the blocks as they are. */
-export type Compression = "off" | "fast" | "balanced" | "smallest";
+/** Forge's package compression levels; a converted package is always compressed. */
+export type Compression = "fast" | "balanced" | "smallest";
 /** Convert's choices, before it starts. */
 export interface ConvertChoice {
   compression: Compression;

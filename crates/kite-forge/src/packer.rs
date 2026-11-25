@@ -142,10 +142,10 @@ impl Drop for HookGuard {
     }
 }
 
-/// Forge's name for a compression level (its `KrakenLevel`); Off stores the blocks raw.
+/// Forge's name for a compression level (its `KrakenLevel`). Its raw `stored` level is never
+/// used: a converted package is always compressed.
 pub fn kraken_level(compression: Compression) -> &'static str {
     match compression {
-        Compression::Off => "stored",
         Compression::Fast => "fast",
         Compression::Balanced => "balanced",
         Compression::Smallest => "smallest",
@@ -222,7 +222,6 @@ impl Packer for ForgePacker {
                 "source": pack_source,
                 "format": format,
                 "output": output,
-                // Stored blocks install on every firmware; compressed ones are proven on 5.10 only.
                 "kraken_level": kraken_level(req.compression),
                 "full_verify": self.full_verify,
                 "delete_source": false,
