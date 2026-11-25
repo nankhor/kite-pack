@@ -50,3 +50,8 @@ for a folder pack that sends and deletes the packed folder:
   A line says how many. Everything still on the PC is compared as before.
 
 Tests: `kite_let_go_tests` in `src/zstd_pack.rs`.
+
+## Third change: `.fpkg`
+
+`Kind::of` (`src/convert.rs`) reads a `.fpkg` as a `.pkg`: fake packages are often named so, and Kite Pack
+installs or packs either.

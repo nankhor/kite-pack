@@ -147,7 +147,8 @@ impl Kind {
             "ffpkg" | "ufs2" => Self::Ffpkg,
             "ffpfs" => Self::Ffpfs,
             "ffpfsc" => Self::Ffpfsc,
-            "pkg" => Self::Pkg,
+            // Kite Pack: `.fpkg` is how many fake packages are named.
+            "pkg" | "fpkg" => Self::Pkg,
             _ => bail!(
                 "{} is neither a folder nor a supported image (.exfat, .ffpkg, .ffpfs, .ffpfsc, \
                  .pkg) or archive (.zip, .7z, .rar)",

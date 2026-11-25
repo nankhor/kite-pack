@@ -22,6 +22,9 @@ pub struct GameInfo {
     pub icon_data_url: Option<String>,
     /// Forge's preflight findings, in Forge's words.
     pub findings: Vec<String>,
+    /// For a `.pkg` or `.fpkg`: the package, to install it as it is.
+    #[serde(default)]
+    pub package: Option<crate::package::PackageInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -114,7 +117,7 @@ impl From<&Dlc> for DlcInfo {
 /// Forge's error in the screen's words. A `.pkg` is read by Forge's FPKG reader, whose errors
 /// start with a fixed kind (`ps5-dump-forge-fpkg`: "retail package", "wrong passcode", ...),
 /// after the file's path; anything else keeps Forge's own message.
-fn problem(text: &str) -> SourceProblem {
+pub(crate) fn problem(text: &str) -> SourceProblem {
     let has = |kind: &str| text.contains(&format!("{kind}:"));
     if text.contains("this is a PS4 package") {
         SourceProblem::Ps4Package
@@ -155,7 +158,37 @@ pub fn inspect_game(path: &Path) -> Result<GameInfo, SourceProblem> {
         dlcs: found.dlcs.iter().map(DlcInfo::from).collect(),
         icon_data_url: found.cover,
         findings: found.findings,
+        package: None,
     })
+}
+
+/// What a dropped item is: [`inspect_game`], and for a package also the package, to install it as
+/// it is. A package Kite Pack can't pack (a PS4 one, an update, a DLC) still opens, to install.
+pub fn inspect_source(path: &Path) -> Result<GameInfo, SourceProblem> {
+    if !crate::package::is_package_name(path) {
+        return inspect_game(path);
+    }
+    match inspect_game(path) {
+        Ok(mut game) => {
+            game.package = crate::package::inspect_package(path).ok();
+            Ok(game)
+        }
+        Err(problem) => match crate::package::inspect_package(path) {
+            Ok(p) => Ok(GameInfo {
+                kind: "pkg".into(),
+                title: p.title.clone(),
+                title_id: Some(p.title_id.clone()),
+                content_id: Some(p.content_id.clone()),
+                version: p.version.clone(),
+                total_bytes: p.bytes,
+                dlcs: Vec::new(),
+                icon_data_url: p.icon_data_url.clone(),
+                findings: Vec::new(),
+                package: Some(crate::package::PackageInfo { packable: false, ..p }),
+            }),
+            Err(_) => Err(problem),
+        },
+    }
 }
 
 /// Checks that `path` (a DLC `.pkg`, or a DLC folder) is DLC for the game `title_id`.
